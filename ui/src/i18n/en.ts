@@ -203,6 +203,7 @@ export const messages = {
 
   // StatsStrip
   "stats.history": "History",
+  "stats.range": "Range",
   "stats.days": "{count}d",
   "stats.chartLabel": "history chart",
   "stats.loadFailed": "Couldn't load the history.",

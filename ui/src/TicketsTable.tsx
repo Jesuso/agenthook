@@ -118,7 +118,7 @@ export function TicketsTable(props: TicketsTableProps) {
             {tr("tickets.stepFilter", { step: stepFilter })} <span aria-hidden="true">×</span>
           </button>
         )}
-        <Segmented value={statusFilter} options={chips} onChange={props.onStatusFilter} />
+        <Segmented value={statusFilter} options={chips} onChange={props.onStatusFilter} label={tr("tickets.col.status")} />
         <label className="flex items-center gap-1">
           <input type="checkbox" checked={showAll} onChange={(e) => props.onShowAll(e.target.checked)} />
           {tr("tickets.showAll")}

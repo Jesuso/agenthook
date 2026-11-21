@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- UI: segmented controls (the stats ranges, the tickets status filter, view switches) are now one
+  Tab stop instead of one per option; Arrow keys (wrapping), Home and End move the selection, and
+  the range and status-filter groups carry an accessible name (#765).
 - UI: on a profile's Overview the All tickets table drops the redundant profile column (the
   `lockProfile` doc now matches the behaviour), and the ticket title takes the table's free width
   (`max-w-[60ch]` / 90ch at 2xl) instead of being capped at 448 px (#759).

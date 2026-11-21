@@ -44,7 +44,7 @@ export function StatsStrip({ profile, feed }: { profile: string; feed: FeedEntry
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <span className="text-label font-semibold uppercase tracking-wide text-muted">{t("stats.history")}</span>
         <span className="ml-auto flex items-center gap-2">
-          <Segmented value={String(range) as `${Range}`} options={RANGES.map((r) => ({ value: String(r) as `${Range}`, label: t("stats.days", { count: r }) }))} onChange={(v) => setRange(Number(v) as Range)} />
+          <Segmented value={String(range) as `${Range}`} options={RANGES.map((r) => ({ value: String(r) as `${Range}`, label: t("stats.days", { count: r }) }))} onChange={(v) => setRange(Number(v) as Range)} label={t("stats.range")} />
           <ShowHide open={open} onToggle={() => setOpen(!open)} controls="stats-chart" label={t("stats.chartLabel")} data-stats-toggle />
         </span>
       </div>
