@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- UI: cost leaves the glance level (PRODUCT.md: "No model, harness, context or cost" on Home and
+  Overview). The Home card no longer shows "cost today" (agents / queued are unchanged, and a down
+  card with spend renders no stats row at all), the Overview's Progress zone is gone — one quiet
+  "N done today" line sits by the page headline, with a muted "yesterday N" when either count is
+  non-zero — and the digest meta line no longer names what the digest run cost. The figures move to
+  the Statistics page, which gains a small **Today** card (cost today vs yesterday, and the 48 h
+  rework rate with its "needs 10+ runs" state) and the History strip, previously under the Progress
+  tiles; the ticket drawer's cost is untouched (#786).
 - Docs: local models — the OpenCode example config sets `"interleaved": {"field": "reasoning"}` so a
   reasoning model sees its earlier thinking on later turns; the measured effect and the
   context/compaction trade-off are documented (#784).

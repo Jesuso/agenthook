@@ -1,7 +1,9 @@
-import { describe, it, expect } from "vitest";
+// @vitest-environment happy-dom
+import { describe, it, expect, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { DigestPanel, digestStale } from "./DigestPanel";
+import { mount, until } from "./domHarness";
 
 const render = (up: boolean) => renderToStaticMarkup(createElement(DigestPanel, { profile: "dev", up, feed: [], now: 0 }));
 
@@ -23,5 +25,16 @@ describe("DigestPanel", () => {
     expect(digestStale(d, at + 23 * 3600e3)).toBe(false);
     expect(digestStale(d, at + 25 * 3600e3)).toBe(true);
     expect(digestStale(null, at)).toBe(false);
+  });
+  it("never shows what the digest run cost in its meta line (no cost at the glance level, #786)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ digest: { text: "A calm day.", generatedAt: new Date().toISOString(), costUsd: 0.42 } }) })));
+    const m = await mount(createElement(DigestPanel, { profile: "dev", up: true, feed: [], now: Date.now() }));
+    await until(() => m.root.querySelector("[data-digest-meta]"));
+    const meta = m.root.querySelector("[data-digest-meta]")!.textContent ?? "";
+    expect(meta).toContain("snapshot from");
+    expect(meta).not.toContain("cost");
+    expect(meta).not.toMatch(/\$[0-9]/);
+    await m.unmount();
+    vi.unstubAllGlobals();
   });
 });

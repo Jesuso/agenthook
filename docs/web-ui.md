@@ -90,8 +90,8 @@ browser edit ──POST {path, baseHash, content}──► atomic write ──�
 - `ProfileView.recentCosts` → `{at, costUsd, estUsd}[]`: the `run_end` events with a reported cost
   or a rate-table estimate (`src/pricing.js` `costOf`, the heartbeat's `pricing` overrides) from
   the last 48 h of the profile's events tail, oldest first; the field that doesn't apply is 0.
-  Tiles show `$x + ~$y est.`, never one blended sum. The dashboard's "cost today (approx.)"
-  tile buckets them by the browser's local midnight — approximate because the tail is
+  Tiles show `$x + ~$y est.`, never one blended sum. The Statistics Today card's "cost today (approx.)"
+  buckets them by the browser's local midnight — approximate because the tail is
   byte-bounded (256 KB). A new `run_end` re-emits the profile over SSE.
 - `ProfileView.paused` (the operator pause, `heartbeat.paused`) and `ProfileView.restartPending`
   (`heartbeat.restartPending || decommissionPending || draining` — something already holds the
@@ -544,7 +544,7 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
   name).
 - Card: emoji + color tile, name, status dot (up/down/paused/restarting), **Needs you N** as the
   headline (red if any failed, amber if only held/PR, calm "all clear" at 0), then
-  `agents · queued · cost today · done today`, last activity, tracker pill, fullAuto shield, ⋯ menu
+  `agents · queued` (up profiles only — no cost at the glance level; #786), last activity, tracker pill, fullAuto shield, ⋯ menu
   (restart when idle, pause/resume, remove — kept from today).
   - When the receiver is stopped, the count is **muted** (not red/amber — it's the last value the
     receiver wrote, not a live read) and carries an "as of \<age\>" label.
@@ -563,7 +563,9 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
 
 ### Profile Overview
 - Stat tiles: agents (slot pips, plus an `active/max` chip per named harness — `∞` when uncapped —
-  on a profile with `harnesses`), queued, cost today, **done today**, pause/resume.
+  on a profile with `harnesses`), queued, pause/resume. No cost (PRODUCT.md: "no cost at the glance
+  level", #786) — instead one quiet **"N done today"** line by the page headline, with a muted
+  "yesterday N" when either count is non-zero.
 - Zone 1 *Needs you* (hidden when empty): failed → held → PR rows, one-line reason (heldReason /
   verdict summary), inline Release / Dismiss / Open PR / Open ticket.
 - Zone 2 *Now*: running agents per step with elapsed, model, cost, follow-log; free slots as empty
@@ -575,8 +577,9 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
   their last reading marked `~` (`~12m`, `~3m ago`), elapsed muted with an "as of" title. Elapsed is a
   `<time>` whose screen-reader text is words ("running for 4 minutes"), never `aria-live`. In the drawer a
   running run shows "started at 14:02" beside its elapsed, not a second relative time.
-- Zone 3 *Progress*: today + last 48 h only (events tail range): done today vs yesterday, cost,
-  rework rate; hidden below ~10 runs. Longer ranges: see "Daily stats" below.
+- ~~Zone 3 Progress~~ (removed, #786): the glance level shows no cost and no backward-looking
+  numbers; done-today sits by the headline, and cost today (vs yesterday), the 48 h rework rate and
+  the History strip live on Daily stats. The rail keeps Catch me up and Activity.
 - Activity feed: **collapsed bottom panel** with an unread count. Raw ticket table is an
   "All tickets" drill-down.
 - **New ticket** button (local boards only; the `n` key): creates a ticket through the receiver —
@@ -590,8 +593,10 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
   (upload would break "the UI's only file writes are instructions and config").
 
 ### Daily stats (built)
-Day-by-day history under the Progress tiles: tickets done and cost per day, 7 / 14 / 30 day range,
-plus total, per-day average, rework rate (from 10 runs) and best day.
+Day-by-day history on the Statistics page, plus the **Today** card (cost today vs yesterday, and the
+48 h rework rate from the events tail — the figures the Overview's Progress zone used to carry,
+#786) and the History strip (tickets done and cost per day, 7 / 14 / 30 day range, collapsed chart by
+default, plus total, per-day average, rework rate (from 10 runs) and best day).
 - **No rollup file, no engine write path.** `events.jsonl` is a complete append-only history (a busy profile's
   reaches back to July: 12k lines, 1.5 MB, first read ≈ 30 ms), so `src/ui/stats.js` derives the day
   buckets from it on demand. Only the fields stats need are kept in memory per file and appended by
@@ -720,8 +725,9 @@ A **Digest** is an on-demand, agent-written summary of one profile ("Catch me up
   tool disabled. Read-only by construction. Config `digest.access` may later widen it
   (`snapshot` | `mcp-readonly` | `repo-plan`); only `snapshot` is in the first slice.
 - **Slots and cost**: outside the `maxConcurrent` pool, one digest in flight per profile (a second
-  request returns the running one). Cost goes in a `digest_end` event (`costUsd`) and is shown on the
-  digest; it is not counted in ticket cost or "cost today".
+  request returns the running one). Cost goes in a `digest_end` event (`costUsd`) and is kept in
+  the events log; the UI no longer shows it at the glance level (#786), and it is not counted in
+  ticket cost or "cost today".
 - **SOUL**: markdown file, `digest.soul` in config (default `SOUL.md` beside the config), added to the
   instructions allowlist so the Instructions tab edits it through the existing hash/backup/audit path.
   Missing file means a built-in neutral default.
@@ -990,7 +996,7 @@ compact density; muted secondary text; 6-8px radii (we keep `--radius-lg` 8px fo
 
 ### v4 step 3 as built (profile Overview)
 
-- Zones: **Needs you** (hidden when empty) → **Now** → **Progress**, then collapsed drill-downs:
+- Zones: **Needs you** (hidden when empty) → **Now**, then collapsed drill-downs:
   *All tickets* (the old table, auto-opens while a status filter is active) and an *Activity* panel
   with an "N new" badge for events that arrived while it was collapsed. The right-hand rail is gone.
 - New ticket-row fields (`src/ui/rows.js`, from the events tail / state files): `prState`
@@ -1013,8 +1019,10 @@ compact density; muted secondary text; 6-8px radii (we keep `--radius-lg` 8px fo
   504 means "check the feed before retrying". The outcome lands in `ui-audit.jsonl` as `{action:'release',
   profile, ref, status, commented}` — the comment text is never logged (the receiver's
   `control-audit.jsonl` omits it too).
-- Progress is today vs yesterday (browser-local days) over the tail, plus the rework rate
-  (`changes` / runs), hidden under 10 runs. Longer ranges: see "Daily stats".
+- Progress was today vs yesterday (browser-local days) over the tail, plus the rework rate
+  (`changes` / runs), hidden under 10 runs. Longer ranges: see "Daily stats". (Since #786 the
+  Overview keeps only the quiet "N done today" line by the headline; cost today and the rework rate
+  moved to the Statistics page's Today card.)
 
 ### The board (built, #697 → #696)
 
@@ -1057,7 +1065,7 @@ needs; a long pipeline shares a little over half the card between its steps). Th
 show once the **card** is 56rem wide (a container query, so a narrow window and a narrow column
 behave alike); below that each row names its step under its title and a Needs-you row puts its
 action there too. The page itself: from `2xl` (1536px) the board and *All tickets* fill the left
-and a rail (22–30rem) holds Catch me up, Progress and Activity; below it those zones sit side by
+and a rail (22–30rem) holds Catch me up and Activity; below it those zones sit side by
 side under the board, as many as fit, and stack on a phone. Checked at 480, 640, 1280, 1920 and
 2560px in both themes.
 

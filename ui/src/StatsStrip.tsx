@@ -12,9 +12,9 @@ import { useT } from "./i18n/react";
 const StatsChart = lazy(() => import("./StatsChart"));
 
 /**
- * Day-by-day history under the Progress tiles (docs/web-ui.md § Daily stats): tickets finished
+ * Day-by-day history on the Statistics page (docs/web-ui.md § Daily stats): tickets finished
  * and cost per day, with a 7 / 14 / 30 day range. Derived server-side from the profile's whole
- * events log, so it reaches back far beyond the ~48 h the tiles above can see.
+ * events log, so it reaches back far beyond the ~48 h the Today card above can see.
  */
 export function StatsStrip({ profile, feed }: { profile: string; feed: FeedEntry[] }) {
   const { t, lang } = useT();

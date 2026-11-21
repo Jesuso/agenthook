@@ -11,7 +11,11 @@ import { setLangSetting, translate } from "./i18n";
 import { mount, until } from "./domHarness";
 import type { Mounted } from "./domHarness";
 
-const profile = { name: "dev", label: "dev", up: true, color: "teal", emoji: "🚀", forge: null } as unknown as ProfileView;
+const profile = { name: "dev", label: "dev", up: true, color: "teal", emoji: "🚀", forge: null, recentCosts: [], recentRuns: [] } as unknown as ProfileView;
+const todayAt = () => new Date(Date.now() - 60e3).toISOString();
+const yesterdayAt = () => { const d = new Date(); d.setDate(d.getDate() - 1); d.setHours(12, 0, 0, 0); return d.toISOString(); };
+const runs = (n: number) => Array.from({ length: n }, (_, i) => ({ at: todayAt(), outcome: i < 2 ? "changes" : "advance" }));
+const statsPage = (over: Partial<ProfileView> = {}) => html(createElement(StatsView, { profile: { ...profile, ...over } as unknown as ProfileView, feed: [] }));
 const days = [
   day("2026-10-12", { finished: 4, runs: 6, costUsd: 9, estUsd: 0, byStep: { code: { runs: 3, costUsd: 6, estUsd: 0 }, review: { runs: 3, costUsd: 3, estUsd: 0 } }, outcomes: { advance: 4, changes: 1, hold: 0, fail: 1, other: 0 }, ticketCost: { n: 4, p10: 1, p50: 2, p90: 5 } }),
   day("2026-10-13"),
@@ -31,6 +35,37 @@ describe("StatsView", () => {
     expect(out).toContain("data-stats-view");
     expect(out).toContain("Stats");
     for (const r of ["14d", "30d", "90d"]) expect(out).toContain(r);
+  });
+});
+
+describe("the Today card (moved from the Overview's Progress zone, #786)", () => {
+  it("shows cost today, with a muted 'yesterday {spend}' when yesterday is non-zero", () => {
+    const out = statsPage({ recentCosts: [{ at: todayAt(), costUsd: 4, estUsd: 0 }, { at: yesterdayAt(), costUsd: 1, estUsd: 0 }] });
+    expect(out).toContain("data-stats-today");
+    expect(out).toContain("cost today (approx.)");
+    expect(out).toContain("$4.00");
+    expect(out).toContain("yesterday $1.00");
+  });
+  it("shows no 'yesterday' line when yesterday's spend is zero", () => {
+    const out = statsPage({ recentCosts: [{ at: todayAt(), costUsd: 4, estUsd: 0 }] });
+    expect(out).toContain("$4.00");
+    expect(out).not.toContain("yesterday");
+  });
+  it("shows the 48 h rework rate with its title, once the window has enough runs", () => {
+    const out = statsPage({ recentRuns: runs(10) });
+    expect(out).toContain("rework \u00b7 48 h");
+    expect(out).toContain("share of agent runs that ended in a rework loop (changes)");
+    expect(out).toContain("20%");
+  });
+  it("hides the rework rate until there are enough runs, and says how many are needed", () => {
+    const out = statsPage({ recentRuns: runs(9) });
+    expect(out).toContain("needs 10+ runs (9 so far)");
+    expect(out).not.toContain("20%");
+  });
+  it("renders the History strip (StatsStrip) on the page, once", () => {
+    const out = statsPage();
+    expect(out.match(/data-stats="/g)).toHaveLength(1);
+    expect(out).toContain("data-stats-today");
   });
 });
 
