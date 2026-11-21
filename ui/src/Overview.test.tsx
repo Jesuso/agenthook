@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Overview } from "./Overview";
+import { Overview, harnessProblem } from "./Overview";
 import type { OverviewProps } from "./Overview";
 import type { ReleaseOutcome } from "./config";
 import type { ProfileView, TicketRow } from "./contract";
@@ -195,25 +195,45 @@ describe("Overview", () => {
     expect(html.match(/data-slot="busy"/g)).toHaveLength(1);
   });
 
-  it("shows an active/max chip per harness next to the slot pips; none without harnesses (#620)", () => {
-    const html = render(profile({ harnesses: { qwen: { active: 1, max: 2 }, opus: { active: 0, max: null } } }), []);
-    expect(html).toMatch(/data-harness="qwen" class="[^"]*" title="harness qwen: 1 of 2 slots in use">qwen <span[^>]*>1<\/span><span[^>]*>\/2<\/span>/);
-    expect(html).toMatch(/data-harness="opus"[^>]*title="harness opus: 0 running, no cap of its own">opus <span[^>]*>0<\/span><span[^>]*>\/∞<\/span>/);
-    expect(html.indexOf("data-slot=")).toBeLessThan(html.indexOf("data-harness-slots"));
+  it("no harness chips when every harness is healthy (up or no state); none without harnesses (#620/#788)", () => {
+    const html = render(profile({ harnesses: { qwen: { active: 1, max: 2 }, opus: { active: 0, max: null }, cap: { active: 2, max: 2, state: "up" as const } } }), []);
+    expect(html).not.toContain("data-harness-slots");
+    expect(html).not.toContain("data-harness=");
+    expect(html).not.toContain("data-harness-implicit");
     expect(render(profile(), [])).not.toContain("data-harness");
   });
 
-  it("shows an implicit, uncapped chip per unharnessed agent next to the configured chips; none without any (#726)", () => {
-    const html = render(profile({ harnesses: { qwen: { active: 1, max: 2 } }, unharnessed: { claude: 3 } }), []);
-    expect(html).toMatch(/data-harness-implicit="claude"[^>]*>claude <span[^>]*>3<\/span><\/span>/);
-    expect(html).not.toMatch(/data-harness-implicit="claude"[^>]*\/\d/); // no /max beside it
-    expect(html.indexOf('data-harness="qwen"')).toBeLessThan(html.indexOf('data-harness-implicit="claude"'));
+  it("one down harness among healthy ones: exactly one chip, its reason title and failed tint (#788)", () => {
+    const html = render(profile({ harnesses: { qwen: { active: 0, max: 1, state: "down" as const, reason: "exited 1 with no output after 3s" }, opus: { active: 1, max: 2 } } }), []);
+    expect(html.match(/data-harness="[^"]*"/g)).toHaveLength(1);
+    expect(html).toContain('data-harness="qwen" data-harness-state="down"');
+    expect(html).toMatch(/data-harness="qwen"[^>]*title="exited 1 with no output after 3s"/);
+    expect(html).toMatch(/data-harness="qwen"[^>]*text-status-failed/);
+    expect(html).not.toContain('data-harness="opus"');
+  });
 
-    const onlyUnharnessed = render(profile({ harnesses: undefined, unharnessed: { claude: 1 } }), []);
-    expect(onlyUnharnessed).toContain('data-harness-implicit="claude"');
+  it("a probing harness still renders its chip, generic probing title when it has no reason (#788)", () => {
+    const html = render(profile({ harnesses: { local: { active: 0, max: 1, state: "probing" as const } } }), []);
+    expect(html).toContain('data-harness="local" data-harness-state="probing"');
+    expect(html).toContain('title="harness probing"');
+    expect(html).toMatch(/data-harness="local"[^>]*text-status-failed/);
+  });
 
-    expect(render(profile({ unharnessed: {} }), [])).not.toContain("data-harness-implicit");
-    expect(render(profile(), [])).not.toContain("data-harness-implicit");
+  it("no implicit (unharnessed-agent) chips at all, healthy or not (#726/#788)", () => {
+    expect(render(profile({ harnesses: { qwen: { active: 1, max: 2 } }, unharnessed: { claude: 3 } }), [])).not.toContain("data-harness-implicit");
+    expect(render(profile({ harnesses: undefined, unharnessed: { claude: 1 } }), [])).not.toContain("data-harness-implicit");
+    const problem = render(profile({ harnesses: { qwen: { active: 0, max: 1, state: "down" as const, reason: "exited 1" } }, unharnessed: { claude: 2 } }), []);
+    expect(problem).toContain('data-harness="qwen"'); // the problem harness still gets its chip
+    expect(problem).not.toContain("data-harness-implicit");
+  });
+
+  it("harnessProblem: a quota closure or a down/probing state, never healthy or a missing state (#788)", () => {
+    expect(harnessProblem({ active: 0, max: 1, state: "down" })).toBe(true);
+    expect(harnessProblem({ active: 0, max: 1, state: "probing" })).toBe(true);
+    expect(harnessProblem({ active: 0, max: 1, state: "down", until: "2026-10-08T13:00:00.000Z", cause: "quota" })).toBe(true);
+    expect(harnessProblem({ active: 1, max: 2 })).toBe(false);
+    expect(harnessProblem({ active: 1, max: 2, state: "up" })).toBe(false);
+    expect(harnessProblem({ active: 1, max: null })).toBe(false);
   });
 
   it("a quota-closed harness chip shows its reopen time with a warn tint, not a failure tint (#723)", () => {
@@ -227,11 +247,11 @@ describe("Overview", () => {
     expect(html).not.toMatch(/data-harness="spent"[^>]*status-failed/);
   });
 
-  it("never renders the Harnesses table on Overview (it lives on the Statistics page now, #754); the live slot chips stay", () => {
+  it("never renders the Harnesses table on Overview (it lives on the Statistics page now, #754); a healthy harness's chips are gone too (#788)", () => {
     const html = render(profile({ harnesses: { qwen: { active: 1, max: 2 } } }), []);
     expect(html).not.toContain("data-harnesses-table");
-    expect(html).toContain("data-harness-slots");
-    expect(html).toContain('data-harness="qwen"');
+    expect(html).not.toContain("data-harness-slots");
+    expect(html).not.toContain('data-harness="qwen"');
   });
 
   it("shows waiting time on a queued row with a queuedAt stamp, and nothing with none", () => {

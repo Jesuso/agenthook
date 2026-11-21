@@ -148,6 +148,32 @@ describe("the Harnesses card (moved from Overview, #754; the table is #646)", ()
     expect(m.root.querySelector("[data-harnesses-table]")).toBeNull();
   });
 
+  it("shows a Slots column: live active/max per configured harness (∞ when uncapped), incl. one with no 7-day runs (#788)", async () => {
+    vi.stubGlobal("fetch", fetchStub([group({ key: "qwen", runs: 4, costUsd: 2.5 }), group({ key: "opus", runs: 1, costUsd: 0.5 }), group()]));
+    m = await mount(createElement(I18nProvider, null, createElement(StatsView, { profile: { ...profile, harnesses: { qwen: { active: 1, max: 2 }, opus: { active: 0, max: null }, fresh: { active: 2, max: 3 } } } as ProfileView, feed: [] })));
+    await until(() => (m.root.querySelector("[data-harnesses-table]")?.innerHTML ?? "").includes("fresh"));
+    const html = m.root.querySelector("[data-harnesses-table]")!.innerHTML;
+    expect(html).toContain(">Slots</th>");
+    const row = (key: string) => html.slice(html.indexOf(`>${key}</td>`), html.indexOf("</tr>", html.indexOf(`>${key}</td>`)));
+    expect(row("qwen")).toContain(">1/2<");
+    expect(row("qwen")).toContain('title="harness qwen: 1 of 2 slots in use"');
+    expect(row("opus")).toContain(">0/∞<");
+    // configured, but no 7-day group yet: its own row, runs 0, other metrics —, slots still live
+    expect(row("fresh")).toContain(">2/3<");
+    expect(row("fresh")).toMatch(">0</td>");
+    expect(row("fresh")).toContain(">—</td>");
+    // a (none) group has no configured harness behind it: no live slots
+    expect(row("(none)")).toContain(">—</td>");
+  });
+
+  it("slots read — when the receiver is down (#788)", async () => {
+    vi.stubGlobal("fetch", fetchStub([group({ key: "qwen", runs: 2, costUsd: 1 })]));
+    m = await mount(createElement(I18nProvider, null, createElement(StatsView, { profile: { ...profile, up: false, harnesses: { qwen: { active: 1, max: 2 } } } as ProfileView, feed: [] })));
+    await until(() => (m.root.querySelector("[data-harnesses-table]")?.innerHTML ?? "").includes(">—</td>"));
+    const html = m.root.querySelector("[data-harnesses-table]")!.innerHTML;
+    expect(html.slice(html.indexOf(">qwen</td>"), html.indexOf("</tr>", html.indexOf(">qwen</td>")))).toContain(">—</td>");
+  });
+
   it("harnessesVisible: shown when harnesses are configured, or a named group exists even without config (#646)", () => {
     expect(harnessesVisible(true, [])).toBe(true);
     expect(harnessesVisible(false, [])).toBe(false);

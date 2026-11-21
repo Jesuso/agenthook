@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- UI: the Overview header stays quiet about harnesses at rest (#788): the `active/max` chips are
+  gone while every harness is healthy, and the dashed unharnessed-agent chips with them — only a
+  down/probing harness (its reason as the title, failed tint) or a quota-paused one (held tint,
+  reopen time) still gets a chip. The per-harness slot counts move to the Statistics page's
+  Harnesses card, which gains a **Slots** column (`active/max`, `∞` when uncapped, `—` when the
+  harness isn't configured or the receiver is down) and lists a configured harness with its live
+  slots even before its first 7-day run.
+
 - UI: cost leaves the glance level (PRODUCT.md: "No model, harness, context or cost" on Home and
   Overview). The Home card no longer shows "cost today" (agents / queued are unchanged, and a down
   card with spend renders no stats row at all), the Overview's Progress zone is gone — one quiet

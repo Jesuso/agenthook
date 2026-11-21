@@ -562,8 +562,11 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
   `prUrl` (`refmeta.pr` known) — a ticket done by hand on another branch is just Done.
 
 ### Profile Overview
-- Stat tiles: agents (slot pips, plus an `active/max` chip per named harness — `∞` when uncapped —
-  on a profile with `harnesses`), queued, pause/resume. No cost (PRODUCT.md: "no cost at the glance
+- Stat tiles: agents (slot pips), queued, pause/resume. Harness slots stay out of the header at rest
+  (#788): while every harness is healthy nothing about harnesses is shown — only a down/probing
+  harness (failure tint, its reason as the title) or a quota-paused one (held tint, reopen time)
+  gets a chip, and unharnessed (implicit) agents get no chip. The per-harness `active/max` lives on
+  the Statistics page's Harnesses card. No cost (PRODUCT.md: "no cost at the glance
   level", #786) — instead one quiet **"N done today"** line by the page headline, with a muted
   "yesterday N" when either count is non-zero.
 - Zone 1 *Needs you* (hidden when empty): failed → held → PR rows, one-line reason (heldReason /
@@ -627,10 +630,13 @@ default, plus total, per-day average, rework rate (from 10 runs) and best day).
      each day (spend since the ticket was previously marked done, counted once even if `pipeline_done`
      repeats; hand-done tickets have no agent spend and are not sampled). A candlestick has no
      open/close in our data, so this range chart stands in for it.
-  5. *Harnesses* — a per-harness table (runs, success, p50 wall, out tok/min, cost) from
-     `GET /api/harness-stats`, on a fixed 7-day window that ignores the range toggle above; shown
-     only when harnesses are configured or a named harness has run (the whole card — frame and
-     table — is absent otherwise). Moved off the Overview page in #754.
+  5. *Harnesses* — a per-harness table (slots in use `active/max` — `∞` when uncapped, `—` when the
+     row's harness isn't configured or the receiver is down — plus runs, success, p50 wall, out
+     tok/min, cost) from `GET /api/harness-stats`, on a fixed 7-day window that ignores the range
+     toggle above; a configured harness with no runs in the window still gets its row (runs 0, the
+     other metrics —, its live slots); shown only when harnesses are configured or a named harness
+     has run (the whole card — frame and table — is absent otherwise). Moved off the Overview page
+     in #754; the slots column replaced the Overview's always-on harness chips in #788.
   Day payload (`DayStats`) gained `byStep`, `outcomes` and `ticketCost`; `days` may now be up to 366.
 - **Estimated spend** (#394): `DayStats` also carries `estUsd` (rate-table estimates, never in
   `costUsd`), `unestimatedRuns` (runs with neither), `byStep[step].estUsd` and `ticketEst` (the
