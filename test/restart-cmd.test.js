@@ -142,9 +142,24 @@ test("ok:false: a config-check refusal prints the reason and the stop/start esca
   try {
     const res = await run(p.configPath);
     assert.equal(res.exitCode, 1);
-    assert.match(res.errs.join("\n"), /restart: config check failed in the running receiver/);
-    assert.match(res.errs.join("\n"), /agent "pi" is not a known agent/);
-    assert.match(res.errs.join("\n"), /agenthook stop && agenthook start/);
+    const stderr = res.errs.join("\n");
+    assert.match(stderr, /restart: config check failed in the running receiver/);
+    assert.match(stderr, /agent "pi" is not a known agent/);
+    assert.match(stderr, /agenthook stop && agenthook start/);
+    // The receiver's refusal already carries `restart: ` — the CLI must not double it.
+    assert.equal(stderr.match(/restart:/g).length, 1);
+  } finally {
+    await new Promise((r) => p.server.close(r));
+  }
+});
+
+test("ok:false: a non-exposed failure keeps the single `restart:` prefix", async () => {
+  const p = await profile("nondetail-profile", (req) => ({ id: req.id, ok: false, error: "restart failed" }));
+  try {
+    const res = await run(p.configPath);
+    assert.equal(res.exitCode, 1);
+    assert.equal(res.errs.join("\n"), "restart: restart failed");
+    assert.equal(res.errs.join("\n").match(/restart:/g).length, 1);
   } finally {
     await new Promise((r) => p.server.close(r));
   }

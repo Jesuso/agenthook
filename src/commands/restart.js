@@ -35,7 +35,11 @@ export async function sendRestart(sockPath, req) {
   }
 
   if (!reply.ok) {
-    console.error(`restart: ${reply.error}`);
+    // Refusals the receiver itself exposes already start with `restart: ` (src/engine/controllers.js);
+    // print them as-is so the prefix is not doubled. Anything else (opaque `restart failed`,
+    // `move: …`) keeps the current single prefix.
+    const msg = String(reply.error);
+    console.error(msg.startsWith("restart:") ? msg : `restart: ${msg}`);
     process.exitCode = 1;
     return false;
   }
