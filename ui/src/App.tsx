@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useReducer, useRef, useState } from "react";
 import type { ProfileView, Snapshot } from "./contract";
 import { subscribe } from "./stream";
-import { applyEvent, clearRemovedProfile } from "./state";
+import { applyEvent } from "./state";
 import { appendFeed, isHiddenFeedEvent } from "./feed";
 import { epicChangedRefetches } from "./epics";
 import type { FeedEntry } from "./feed";
@@ -22,7 +22,7 @@ import { queueToggleText, restartsReducer, rowActions } from "./profileActions";
 import { AppBar } from "./AppBar";
 import type { ProfileNav } from "./AppBar";
 import { HomePage } from "./HomePage";
-import { HOME, hashFor, parseHash } from "./route";
+import { HOME, hashFor, parseHash, sameBase, withoutTicket } from "./route";
 import { useLeaveGuard } from "./leaveGuard";
 import type { Route, View } from "./route";
 import { connectionState } from "./connection";
@@ -66,10 +66,6 @@ function Dashboard() {
   const [epicFilter, setEpicFilter] = useState<string>("");
   const [stepFilter, setStepFilter] = useState<string>("");
   const [showAll, setShowAll] = useState(false);
-  // The ticket whose runs/log panel is open. The stream callback reads it via a ref.
-  const [open, setOpen] = useState<{ profile: string; ref: string } | null>(null);
-  const openRef = useRef(open);
-  openRef.current = open;
   const [runsNonce, setRunsNonce] = useState(0);
   // Bumped per `ticket` SSE event of the routed profile: the Epics view refetches off it (debounced).
   const [ticketsNonce, setTicketsNonce] = useState(0);
@@ -79,6 +75,10 @@ function Dashboard() {
   const [route, setRoute] = useState<Route>(() => parseHash(window.location.hash));
   const routeRef = useRef(route);
   routeRef.current = route;
+  // The open drawer is the route's `?t=` (deep link, Back closes it); the stream callback reads it via a ref.
+  const open = route.kind === "profile" && route.ticket !== undefined ? { profile: route.profile, ref: route.ticket } : null;
+  const openRef = useRef(open);
+  openRef.current = open;
   const instructionsDirty = useRef(false);
   const instructionsSink = useRef<((ev: InstructionsEvent) => void) | null>(null);
   const configDirty = useRef(false);
@@ -131,12 +131,28 @@ function Dashboard() {
       return cur.view === "config" && configDirty.current ? configDiscardPrompt(lang) : null;
     },
     go: (next) => {
-      setStatusFilter("");
-      setEpicFilter("");
-      setStepFilter("");
+      // Ticket-only changes (drawer open / close) keep the view's filters; a page change resets them.
+      if (!sameBase(routeRef.current, next)) {
+        setStatusFilter("");
+        setEpicFilter("");
+        setStepFilter("");
+      }
       setRoute(next);
     },
   });
+
+  // Mount-time deep link only: a `?t=` in the URL must name a real ticket, else clear it without a
+  // history entry. Drawers opened in the app (incl. `onCreated` before its row arrives) skip this.
+  const mountChecked = useRef(false);
+  useEffect(() => {
+    if (mountChecked.current || state.kind !== "ok") return;
+    mountChecked.current = true;
+    const r = routeRef.current;
+    if (r.kind === "profile" && r.ticket !== undefined && !state.snapshot.tickets.some((x) => x.profile === r.profile && x.ref === r.ticket)) {
+      window.history.replaceState(null, "", hashFor(withoutTicket(r)));
+      setRoute(withoutTicket(r));
+    }
+  }, [state]);
 
   // Ctrl/⌘+Z brings back the last dismissed row (while it is still undoable) and puts focus on it,
   // so a keyboard d is as reversible as a click. Text fields keep their own undo.
@@ -225,9 +241,9 @@ function Dashboard() {
           if (epicChangedRefetches(routeRef.current, ev.profile, ev.event)) setTicketsNonce((n) => n + 1);
           return;
         }
-        // Navigate away from a removed profile whether or not the snapshot is mid-fetch.
+        // Navigate away from a removed profile whether or not the snapshot is mid-fetch (the Home
+        // hash drops the `?t=` with it).
         if (ev.type === "profile_removed") {
-          setOpen(clearRemovedProfile({ open: openRef.current, profileFilter: "" }, ev.name).open);
           const here = routeRef.current;
           if (here.kind === "profile" && here.profile === ev.name) window.location.hash = hashFor(HOME);
           setRemoving((r) => (r === ev.name ? null : r));
@@ -265,6 +281,14 @@ function Dashboard() {
 
   const go = (next: Route) => {
     window.location.hash = hashFor(next);
+  };
+  /** Open a ticket's drawer: a history push of the current profile route with `?t=<ref>` appended. */
+  const openTicket = (r: { profile: string; ref: string }) => {
+    if (route.kind === "profile") go({ ...route, ticket: r.ref });
+  };
+  /** Close the drawer: a push of the route without `t` — Back reopens it, which is expected. */
+  const closeTicket = () => {
+    if (route.kind === "profile") go(withoutTicket(route));
   };
   const now = Date.now();
   const snapshot = state.snapshot;
@@ -423,7 +447,7 @@ function Dashboard() {
             epic={route.epic}
             rows={snapshot.tickets.filter((x) => x.profile === profile.name)}
             ticketsNonce={ticketsNonce}
-            onOpen={setOpen}
+            onOpen={openTicket}
             onRelease={release}
             onRetry={retry}
             onDismiss={dismiss}
@@ -453,8 +477,8 @@ function Dashboard() {
           showAll={showAll}
           setShowAll={setShowAll}
           open={open}
-          onOpen={setOpen}
-          onCreated={(t) => setOpen(t)}
+          onOpen={openTicket}
+          onCreated={openTicket}
           displayIdFor={displayIdFor}
           menuItems={menuItems(profile)}
           note={noteFor(profile)}
@@ -479,7 +503,7 @@ function Dashboard() {
           ticketRef={open.ref}
           ticket={snapshot.tickets.find((x) => x.profile === open.profile && x.ref === open.ref)}
           runsNonce={runsNonce}
-          onClose={() => setOpen(null)}
+          onClose={closeTicket}
           onRelease={release}
         />
       )}
