@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- UI: Config step cards — the expand/collapse button is named per step ("expand step: triage" /
+  "collapse step: triage") instead of a bare "expand step", and the "+N advanced" count is its own
+  non-truncating element beside the header summary, so it is never the part that gets cut off (#758).
 - `restart`: a refusal now reaches the CLI, MCP and UI with its reason (bounded) instead of the
   opaque `restart failed`. A config-check failure is worded as a check that ran in the **running**
   receiver — whose in-memory code may be older than the code on disk — and names the escape, `agenthook

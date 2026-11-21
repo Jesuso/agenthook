@@ -1206,6 +1206,9 @@ export function PipelineForm(
         const incomplete = errs.length > 0 && pristine.has(i);
         const advancedCount = advancedSet(s, tracker, keys).length;
         const summary = summarizeStep(s, keys, stageList, advancedCount, lang);
+        // The visible text drops the "+N advanced" count (rendered beside it, never truncated);
+        // the tooltip keeps the full summary.
+        const summaryText = summarizeStep(s, keys, stageList, 0, lang);
         // Names the row's buttons for a screen reader: four "remove" in a row say nothing.
         const stepName = fieldText(s.id) || `#${i + 1}`;
         return (
@@ -1222,17 +1225,20 @@ export function PipelineForm(
           >
             {/* Below `sm` the summary takes the second line, so ↑/↓/remove stay beside the step's name. */}
             <div data-step-header className={`flex flex-wrap items-center gap-2 sm:flex-nowrap ${isOpen ? "mb-2" : ""}`}>
-              <button className={ICON_BUTTON} aria-label={isOpen ? t("forms.step.collapse") : t("forms.step.expand")} aria-expanded={isOpen} onClick={() => toggle(i)}>
+              <button className={ICON_BUTTON} aria-label={t(isOpen ? "forms.step.collapse" : "forms.step.expand", { id: stepName })} aria-expanded={isOpen} onClick={() => toggle(i)}>
                 {isOpen ? "▾" : "▸"}
               </button>
               <span className="text-xs text-[var(--color-muted)]">#{i + 1}</span>
               <span className="font-mono text-sm">{fieldText(s.id) || t("forms.step.noId")}</span>
-              <span
-                data-step-summary
-                className="min-w-0 truncate font-mono text-xs text-[var(--color-muted)] max-sm:order-last max-sm:basis-full"
-                title={summary}
-              >
-                {summary || "—"}
+              <span className="flex min-w-0 items-baseline gap-1 max-sm:order-last max-sm:basis-full">
+                <span data-step-summary className="min-w-0 truncate font-mono text-xs text-[var(--color-muted)]" title={summary}>
+                  {summaryText || "—"}
+                </span>
+                {advancedCount > 0 && (
+                  <span data-step-advanced-count className="shrink-0 font-mono text-xs text-[var(--color-muted)]">
+                    {translate(lang, "forms.summary.advanced", { count: advancedCount })}
+                  </span>
+                )}
               </span>
               {incomplete ? (
                 <span
