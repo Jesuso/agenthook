@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useConfirm } from "./Modal";
 import { useT } from "./i18n/react";
-import { hashFor, parseHash, sameRoute } from "./route";
+import { hashFor, parseHash, sameBase, sameRoute } from "./route";
 import type { Route } from "./route";
 
 /**
@@ -25,6 +25,8 @@ export function useLeaveGuard(guard: { route: () => Route; prompt: (from: Route)
       const next = parseHash(window.location.hash);
       const cur = g.current.route();
       if (sameRoute(cur, next)) return;
+      // A ticket-only change (drawer open / close) is not leaving the page: no discard prompt.
+      if (sameBase(cur, next)) return g.current.go(next);
       const prompt = g.current.prompt(cur);
       if (!prompt) return g.current.go(next);
       window.history.replaceState(null, "", hashFor(cur));

@@ -519,6 +519,15 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
 ### Navigation
 - Hash routes, no router lib: `#/` Home, `#/p/<stateKey>` profile Overview, plus
   `/instructions` and `/config` sub-views. Replaces the plain tab state and `tabProfile`.
+- The open ticket drawer is the URL's `?t=<ref>` query on any profile view (`#/p/<key>?t=<ref>`),
+  so a ticket is bookmarkable and survives a reload. Opening it pushes a history entry; closing it
+  (×, Esc, scrim) pushes the hash without `t` — browser Back reopens the drawer, which is expected,
+  and Back while it is open drops only the `t`. Ticket-only changes never trip the unsaved-buffer
+  prompt and keep the Overview's filters; changing the view or profile drops the `t`. On a cold
+  load only: a `t` that names no ticket in the snapshot is stripped via `history.replaceState`
+  (no drawer, no new history entry); a `t` opened in the app (e.g. just created, row not arrived
+  yet) keeps the drawer's plain undefined-ticket behaviour. An empty or malformed `t` parses as
+  if it were absent, never to Home; other query keys are ignored.
 - App bar: on Home brand + connection dot; in a profile `‹ Home`, profile emoji/name, a profile
   switcher dropdown, and tabs Overview · Instructions · Config.
 - Last-opened profile remembered in `localStorage` (try/catch, page works without it).
