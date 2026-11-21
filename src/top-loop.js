@@ -1,6 +1,9 @@
 // `agenthook top` live loop — keeps the terminal open and redraws the glance view (src/top.js
-// `renderTop`) from the profile's event bus. Enters the alternate screen and hides the cursor,
-// draws the first local-only tick, then waits in bounded rounds (at most TOP_WAIT_MS, the same
+// `renderTop`) from the profile's event bus. Full mode (default) enters the alternate screen
+// and hides the cursor; strip mode (`lines: N` — #796) instead repaints at most N lines in
+// place on the normal screen (no alternate screen, no home/full-clear: cursor-up + erase-below
+// between paints, a blank line and the cursor back on restore). It draws the first local-only
+// tick, then waits in bounded rounds (at most TOP_WAIT_MS, the same
 // pattern `watch --actionable` uses for liveness) on an injected `nextEvent` — event-driven,
 // no polling. Each wake, and each no-event round (the round that notices the receiver going
 // down or coming back: no event is ever written for either), re-reads the local state once via
@@ -10,7 +13,7 @@
 // restored exactly once, every listener is removed, and the loop resolves. Every side effect
 // is injected (out/input/readData/nextEvent/clock/timers/signal); the only process contact is
 // the SIGINT/SIGTERM handlers, the stderr error print and the `exit`-hook safety net.
-import { renderTop } from "./top.js";
+import { renderTop, renderStrip } from "./top.js";
 
 /** Max ms a no-event wait round runs before re-reading local state (bounded like watch's liveness round). */
 export const TOP_WAIT_MS = 10_000;
@@ -23,6 +26,12 @@ const ENTER = "\u001b[?1049h\u001b[?25l";
 
 /** Show the cursor and leave the alternate screen. */
 const RESTORE = "\u001b[?25h\u001b[?1049l";
+
+/** Strip mode: hide the cursor on the normal screen (no alternate screen). */
+const STRIP_ENTER = "\u001b[?25l";
+
+/** Strip mode restore: show the cursor and drop a line so the strip stays in scrollback and the prompt lands below it. */
+const STRIP_RESTORE = "\u001b[?25h\n";
 
 /**
  * The live loop. `out` is the writable target (columns/rows + a `'resize'` event — a real
@@ -41,6 +50,7 @@ const RESTORE = "\u001b[?25h\u001b[?1049l";
  *   setInterval?: (f: () => void, ms: number) => unknown,
  *   clearInterval?: (id: unknown) => void,
  *   signal?: AbortSignal,
+ *   lines?: number,
  * }} o
  * @returns {Promise<{ok: boolean}>}
  */
@@ -61,8 +71,13 @@ export async function runTop(o) {
   /** @type {Parameters<typeof renderTop>[0]|null} */
   let data = null;
   let restored = false;
+  /** Strip mode (`lines` set): repaint in place on the normal screen — no alternate screen, no
+   * home/full-clear. `prevH` is the height of the frame last written (0 before the first paint). */
+  const strip = typeof o.lines === "number";
+  const stripN = o.lines ?? 0;
+  let prevH = 0;
 
-  /** Show the cursor + leave the alternate screen — once, even across the `exit` hook. */
+  /** Show the cursor (+ leave the alternate screen in full mode) — once, even across the `exit` hook. */
   const restore = () => {
     if (restored) return;
     restored = true;
@@ -73,12 +88,24 @@ export async function runTop(o) {
         /* already closed */
       }
     }
-    out.write(RESTORE);
+    out.write(strip ? STRIP_RESTORE : RESTORE);
   };
 
-  /** Home + clear + the renderer's lines, cut to the terminal's size. From cached data only. */
+  /** The next paint. Full mode: home + clear + the renderer's lines, cut to the terminal's size.
+   * Strip mode: the strip frame (padded to its height `h`), repainted in place — the first paint
+   * writes it as is, each later one first moves back over the previous paint (`\r`, up `prevH-1`
+   * lines, erase to end of screen). From cached data only. */
   const draw = () => {
     if (data === null) return;
+    if (strip) {
+      const h = Math.max(1, Math.min(stripN, out.rows || stripN));
+      const frame = renderStrip(data, { lines: h, width: (out.columns || 80) - 1, now: now(), color });
+      while (frame.length < h) frame.push("");
+      if (prevH > 0) out.write("\r" + (prevH > 1 ? `\u001b[${prevH - 1}A` : "") + "\u001b[J");
+      out.write(frame.join("\n"));
+      prevH = h;
+      return;
+    }
     const lines = renderTop(data, { width: out.columns || 80, now: now(), color });
     out.write("\u001b[H\u001b[2J" + lines.slice(0, out.rows || 24).join("\n"));
   };
@@ -133,7 +160,7 @@ export async function runTop(o) {
 
   let ok = true;
   try {
-    out.write(ENTER);
+    out.write(strip ? STRIP_ENTER : ENTER);
     data = await readData();
     draw();
     interval = /** @type {NodeJS.Timeout|string|number} */ (setInt(() => safe(draw), PAINT_MS));

@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- New: `agenthook top --lines N` — a strip mode for a split terminal pane (#796): a fixed
+  frame of at most N lines repainted in place on the normal screen (never the alternate
+  screen — cursor-up + erase-below between paints, a trailing line break on quit so the strip
+  stays in scrollback). Rows are needs-you first (held → failed → PR), then running; the
+  queued count stays in the header, and when rows don't fit the last line is `+K more · A
+  needs you · B running`. A pane shorter than N is clamped to the pane height; resizes
+  repaint at the new size. `--lines` must be a whole number ≥ 2 (`--once`/non-TTY prints at
+  most N lines and exits). The full-screen view is unchanged (#796).
 - New: `agenthook top [name]` — the full-screen live terminal glance (#795): enters the
   alternate screen and hides the cursor, redraws the #794 renderer on the profile's event bus
   (`waitForEvents`, bounded rounds — no polling), re-reads local state once on every no-event
