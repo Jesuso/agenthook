@@ -31,9 +31,9 @@ async function once(entry, lines = 0) {
 }
 
 /**
- * Validate `--lines` (#796): present only as a whole number ≥ 2. A missing value (`true`),
- * `"1"`, `"abc"` or `"2.5"` all come back `"bad"` (the caller prints the error and sets the
- * exit code); a valid N comes back as the number.
+ * Validate `--lines` (#796): present only as a whole number ≥ 2. A missing value (the flag
+ * parsed to `undefined`), `"1"`, `"abc"` or `"2.5"` all come back `"bad"` (the caller prints
+ * the error and sets the exit code); a valid N comes back as the number.
  * @param {unknown} v the parsed `--lines` value
  * @returns {number|"bad"}
  */
@@ -44,7 +44,9 @@ function stripLines(v) {
 
 /** @param {{once?: boolean, lines?: unknown, _?: string[], config?: string}} args */
 export async function top(args) {
-  const lines = args.lines === undefined ? 0 : stripLines(args.lines);
+  // `"lines" in args` — not an `undefined` check — is what makes a value-less `--lines` bad:
+  // `parse` leaves the key present with an `undefined` value.
+  const lines = "lines" in args ? stripLines(args.lines) : 0;
   if (lines === "bad") {
     console.error("agenthook top: --lines needs a whole number ≥ 2");
     process.exitCode = 1;

@@ -42,7 +42,7 @@ export function makeOut({ columns = 60, rows = 20, isTTY = true } = {}) {
     frames: () => buf.split(FRAME).slice(1), // one entry per drawn frame (full-screen mode)
     /** One entry per painted frame in strip mode — the buffer with the strip's hide-cursor
      * stripped and each repaint's move-back prefix (\r + up + erase-below) removed. */
-    stripFrames: () => buf.split(/\r(?:\u001b\[[0-9]+A)?\u001b\[J/).map((c, i) => (i === 0 ? c.replace("\u001b[?25l", "") : c).replace(/\u001b\[?25h\n$/, "")),
+    stripFrames: () => buf.split(/\r(?:\u001b\[[0-9]+A)?\u001b\[J/).map((c, i) => (i === 0 ? c.replace("\u001b[?25l", "") : c).replace(/\u001b\[\?25h\n$/, "")),
     on: (/** @type {string} */ e, /** @type {Function} */ f) => ee.on(e, f),
     removeListener: (/** @type {string} */ e, /** @type {Function} */ f) => ee.removeListener(e, f),
     listenerCount: (/** @type {string} */ e) => ee.listenerCount(e),

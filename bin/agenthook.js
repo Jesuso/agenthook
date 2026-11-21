@@ -88,7 +88,7 @@ export function parse(argv) {
     const a = argv[i];
     if (a.startsWith("--")) {
       const key = a.slice(2);
-      if (VALUE_FLAGS.has(key)) args[key] = argv[++i] ?? true; // a value flag with no value stays visible (true) instead of vanishing
+      if (VALUE_FLAGS.has(key)) args[key] = argv[++i];
       else args[key] = true;
     } else {
       args._.push(a);

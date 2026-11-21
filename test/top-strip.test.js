@@ -155,7 +155,7 @@ test("top: --lines validation — 1, abc, 2.5, true and a missing value print th
     }
     errors.length = 0;
     process.exitCode = 0;
-    await top({ lines: parse(["--lines"]).lines }); // `--lines` with no value
+    await top(parse(["--lines"])); // `--lines` with no value, through the real parse path
     assert.equal(process.exitCode, 1, "a value-less --lines exits 1");
     assert.ok(errors.some((e) => e.includes("--lines needs a whole number ≥ 2")), "a value-less --lines prints the error");
     errors.length = 0;
