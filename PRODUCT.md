@@ -88,8 +88,9 @@ is a pillar that holds that up:
   RCE-grade surface and must read as consequential.
 - Follows the system light/dark theme; both are first-class.
 - `ui/dist` ships inside the npm package.
-- **Terminology is binding** (see `CONTEXT.md`): Profile, Ticket, Epic, Finished, Merged, Needs you,
-  Ready to close, Digest, Service, SOUL. Avoid the listed synonyms (task, issue, alerts, done, shipped…).
+- **Terminology is binding** (see `CONTEXT.md`): Profile, Ticket, Epic, Done, Merged, Needs you,
+  Ready to close, Digest, Service, SOUL. Done = closed on the tracker; a PR awaiting merge is Needs
+  you. Avoid the listed synonyms (task, issue, alerts, finished (as a state name), shipped…).
 
 ## Brand Commitments
 

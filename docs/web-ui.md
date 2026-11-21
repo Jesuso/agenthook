@@ -1045,8 +1045,8 @@ drawn up to the step its ticket is in: a line through the steps behind it and a 
 that **need you** come first, lit with a flat tint of their status and carrying their action; they
 are `NeedsYouZone`'s rows, drawn on the board's grid (its `board` prop), so the page still has one
 Needs-you list and one headline count. Then what runs (longest first) and what waits (queue
-order, capped at 8 with "+N more queued"), then **Finished today** (newest first, capped at 6, the
-count in its heading). The board's first row says what is in flight ("3 running · 4 queued", the
+order, capped at 8 with "+N more queued"), then **Done today** (newest first, capped at 6; no
+count in its heading — the header's "N done today" carries it). The board's first row says what is in flight ("3 running · 4 queued", the
 free slots) and heads each step column with its name and how many tickets sit in it; a step's
 name opens *All tickets* on a **step filter** (`TicketFilter.step`, `tickets.ts`), the "+N more"
 rows open it on a status. Rows carry `data-now-row`/`data-now-open`, so `j`/`k` walk them.

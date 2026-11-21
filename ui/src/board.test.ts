@@ -91,7 +91,7 @@ describe("board", () => {
     expect(b.finished.tickets.map((t) => t.ref)).toEqual(today.slice(0, FINISHED_CAP).map((t) => t.ref));
   });
 
-  it("a finished ticket whose PR needs you is Needs you's, not Finished today's (forge profiles)", () => {
+  it("a finished ticket whose PR needs you is Needs you's, not Done today's (forge profiles)", () => {
     const flagged = row({ ref: "pr", status: "done", finishedAt: at(5), prUrl: "https://example.test/pr/1", prNeeds: "awaitingMerge" });
     expect(board([flagged], STEPS, [], NOW, true).finished.total).toBe(0);
     expect(board([flagged], STEPS, [], NOW, false).finished.total).toBe(1);

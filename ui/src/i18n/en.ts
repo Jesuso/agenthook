@@ -964,7 +964,7 @@ export const messages = {
   "board.moreQueued": "+{count} more queued",
   "board.moreQueuedTitle": "Show every queued ticket in All tickets",
   "overview.railLabel": "Summary and activity",
-  "board.finishedToday": "Finished today",
+  "board.finishedToday": "Done today",
   "board.stepCount": "{running} running · {queued} queued",
   "board.more": "+{count} more",
   "board.unavailable": "Pipeline steps aren't available — each row names its step instead.",

@@ -109,10 +109,11 @@ describe("the board", () => {
     expect(onMore).toHaveBeenCalledWith("queued");
   });
 
-  it("lists what finished today under the rows, quiet, with its count", async () => {
+  it("lists what finished today under the rows, quiet, with no count in its heading", async () => {
     const root = await render([ticket({ ref: "d1", status: "done", finishedAt: new Date(NOW - 60_000).toISOString() }), ticket({ ref: "r", status: "running", step: "code" })]);
     const finished = root.querySelector("[data-finished-today]")!;
-    expect(finished.querySelector("h3")!.textContent).toBe("Finished today 1");
+    expect(finished.querySelector("h3")!.textContent).toBe("Done today");
+    expect(/\d/.test(finished.querySelector("h3")!.textContent)).toBe(false);
     // Closed by default: the count is enough until the human asks.
     expect(finished.querySelector("[data-finished-row]")).toBeNull();
     await click(finished.querySelector("[data-finished-toggle]")!);

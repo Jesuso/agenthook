@@ -196,8 +196,9 @@ export function BoardRows({ board, now, onOpen, onMore }: { board: Board; now: n
         <section data-finished-today className={`${SUBGRID} border-t border-border-subtle pb-1.5`}>
           {/* Closed until asked for: what finished no longer needs you, the count says enough. */}
           <div className="col-span-full flex items-center justify-between gap-2 px-3 pt-1.5">
+            {/* The count lives in the Overview header ("N done today"); the row heading stays word-only. */}
             <h3 className="text-label font-semibold uppercase tracking-wide text-muted">
-              {t("board.finishedToday")} <span className="ml-1 font-mono normal-case">{board.finished.total}</span>
+              {t("board.finishedToday")}
             </h3>
             <ShowHide open={finishedOpen} onToggle={() => setFinishedOpen(!finishedOpen)} controls="finished-today" label={t("board.finishedToday")} data-finished-toggle />
           </div>

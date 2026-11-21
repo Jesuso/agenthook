@@ -394,7 +394,7 @@ gets one more agent turn carrying the gate's output, then the gate runs again; e
 `failed {reason}`, `merged` (`via:"recheck"` when a `recheck` learned it rather than the forge's webhook),
 `move_refused {outcome, reason, detail}` (a verdict's move did not happen — the ticket is still in
 its stage; `reason` = `not_ours` | `owner_check_failed` | `move_error`),
-`pipeline_done` (ticket finished, PR ready; `awaitingMerge: true` + `pr` = `forge.autoMerge` is on
+`pipeline_done` (agents reached the last step, PR ready; `awaitingMerge: true` + `pr` = `forge.autoMerge` is on
 and the PR has not merged yet — wait for `merged`, it is not one), `board_done {via}` (the ticket is done on the board:
 `via:"flag"` = its tracker done flag flipped — issue closed, task completed, done status — or the
 ticket entered a manual step with that flag already set; `via:"recheck"` = a `recheck` or the merge
