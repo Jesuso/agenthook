@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- UI: Home cards hide the agents / queued stats row while the receiver is down (as the profile
+  Overview already does) — no more `— / —` dashes repeating the stopped status; the cost stat is
+  unchanged, and a down card with no cost renders no empty stats row at all (#777).
 - UI: Config step cards — the expand/collapse button is named per step ("expand step: triage" /
   "collapse step: triage") instead of a bare "expand step", and the "+N advanced" count is its own
   non-truncating element beside the header summary, so it is never the part that gets cut off (#758).

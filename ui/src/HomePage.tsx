@@ -81,6 +81,7 @@ function ProfileCard({ card, now, lastEventId, items, note }: { card: CardModel;
   const badge = profileBadge(p, lang);
   const last = formatLastEvent(p.lastEvent, lastEventId, now, lang);
   const asOf = useAgo(p.lastSeenAt, now);
+  const showCost = summary.costToday + summary.estToday > 0;
   return (
     <article
       data-profile-card={p.name}
@@ -133,11 +134,14 @@ function ProfileCard({ card, now, lastEventId, items, note }: { card: CardModel;
         <NeedsYou n={summary.needsYou} hasFailed={hasFailed} stale={stale} asOf={stale ? asOf : null} />
       </div>
 
-      <dl className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-label text-muted">
-        <Stat label={t("common.agents")}>{formatAgents(p)}</Stat>
-        <Stat label={t("common.queued")}>{p.queued ?? "—"}</Stat>
-        {summary.costToday + summary.estToday > 0 && <Stat label={t("home.costToday")}>{formatSpend({ reported: summary.costToday, est: summary.estToday })}</Stat>}
-      </dl>
+      {/* Down: the status says it; dashes for agents and queue would only repeat it (as in Overview). */}
+      {(p.up || showCost) && (
+        <dl className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-label text-muted">
+          {p.up && <Stat label={t("common.agents")}>{formatAgents(p)}</Stat>}
+          {p.up && <Stat label={t("common.queued")}>{p.queued ?? "—"}</Stat>}
+          {showCost && <Stat label={t("home.costToday")}>{formatSpend({ reported: summary.costToday, est: summary.estToday })}</Stat>}
+        </dl>
+      )}
 
       {p.lastEvent && (
         <p className="mt-3 truncate text-label text-muted" title={last.title}>

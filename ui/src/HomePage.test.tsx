@@ -74,4 +74,29 @@ describe("HomePage", () => {
     expect(html).not.toContain('data-died="true"');
     expect(html).not.toContain("stopped unexpectedly");
   });
+
+  it("hides the agents and queued stats on a down card (as Overview does), and renders no empty dl without cost", () => {
+    const html = render({ profiles: [profile("sad", { up: false, pid: null })], tickets: [held("sad", "9")] });
+    expect(html).toContain('data-profile-card="sad"');
+    expect(html).toContain('data-needs-you="1"');
+    expect(html).not.toContain("<dt>agents</dt>");
+    expect(html).not.toContain("<dt>queued</dt>");
+    expect(html).not.toMatch(/— \/ —/);
+    expect(html).not.toContain("<dl");
+  });
+
+  it("keeps the cost stat on a down card even when agents and queued are hidden", () => {
+    const cost = { at: new Date(NOW - 3600e3).toISOString(), costUsd: 1.5, estUsd: 0 };
+    const html = render({ profiles: [profile("spent", { up: false, pid: null, recentCosts: [cost] })], tickets: [held("spent", "9")] });
+    expect(html).toContain("<dt>cost today</dt>");
+    expect(html).not.toContain("<dt>agents</dt>");
+    expect(html).not.toContain("<dt>queued</dt>");
+  });
+
+  it("still renders an up card's agents and queued stats exactly as before", () => {
+    const html = render({ profiles: [profile("dev")], tickets: [] });
+    expect(html).toContain("<dt>agents</dt>");
+    expect(html).toMatch(/>1 \/ 2</);
+    expect(html).toContain("<dt>queued</dt>");
+  });
 });
