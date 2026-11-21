@@ -200,7 +200,7 @@ function Row({ t, now, showProfile, selected, onOpen, onDismiss, onEpic }: { t: 
           t.displayId
         )}
       </td>
-      <td className={`${CELL} w-full`}>
+      <td className={`${CELL} w-full min-w-40 lg:max-w-0`}>
         {t.epic && (
           <button
             type="button"
@@ -221,7 +221,7 @@ function Row({ t, now, showProfile, selected, onOpen, onDismiss, onEpic }: { t: 
             e.stopPropagation();
             onOpen({ profile: t.profile, ref: t.ref });
           }}
-          className={`block min-w-40 max-w-[60ch] 2xl:max-w-[90ch] truncate text-left max-lg:max-w-64 max-lg:whitespace-normal max-lg:line-clamp-2 focus-visible:outline-2 focus-visible:outline-accent ${title.unknown ? "text-muted" : ""}`}
+          className={`block w-full min-w-0 truncate text-left max-lg:min-w-40 max-lg:max-w-64 max-lg:whitespace-normal max-lg:line-clamp-2 focus-visible:outline-2 focus-visible:outline-accent ${title.unknown ? "text-muted" : ""}`}
         >
           {title.text}
         </button>
