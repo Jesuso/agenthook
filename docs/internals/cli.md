@@ -36,7 +36,7 @@ node bin/agenthook.js alias [--remove]   # opt-in `ah` short command (symlink be
 node bin/agenthook.js ui [--port 4180] [--no-open]  # local read-only web dashboard (127.0.0.1, token→cookie; no config)
 node bin/agenthook.js mcp [--read-only]  # MCP server (stdio, all profiles) for external agents — docs/mcp.md
 node bin/agenthook.js tick [name…|--all] [--json]  # one-call status+board+PRs+events digest (same payload as the MCP `tick`; ≥2 names/--all = per-profile array)
-node bin/agenthook.js top --once [name]  # one-shot terminal glance: header + needs-you (held/failed/PR) + running, from local state only (no board/PR reads; the live loop is a later ticket; without --once it exits 1 saying so)
+node bin/agenthook.js top [name]  # full-screen live terminal glance: header + needs-you (held/failed/PR) + running, from local state only (no board/PR reads); redraws on the event bus (no polling), 1 s elapsed-time repaints, follows terminal resize, q/Ctrl-C quits; --once (or a non-TTY stdout) prints one snapshot and exits (src/top-loop.js, src/top.js)
 node bin/agenthook.js digest [name] [--json]  # write + print a profile's Digest in-process (no receiver needed)
 node bin/agenthook.js guide [topic]       # the agent guide from a shell (docs/agent-guide.md by `##` topic); `authoring` is rendered from this profile's config (src/guide.js)
 node bin/agenthook.js skill install [--agent a,b|all] [--repo [path]] [--dry-run]  # one canonical copy of skills/agenthook (global, or --repo; default this profile's repoPath) plus a symlink for each requested agent that doesn't read .agents/skills natively at that scope (today: claude, hermes at both scopes, plus cursor, gemini globally only — a copy on win32 if the symlink fails); stamps the version
