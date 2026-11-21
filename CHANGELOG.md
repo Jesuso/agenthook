@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- ui: in the Epics list, an **open** epic with no tickets now shows the muted "no tickets" text
+  (like a closed empty epic already did) instead of an empty progress bar and "0/0"; the row's
+  note column stays aligned and the link still names its state for screen readers (#776).
+
 - ui: the Statistics "Done per day" heatmap caption now reads "stronger colour = more tickets"
   (es: "color más intenso = más tickets") instead of "darker = more tickets", which was only true in
   the light theme — in dark theme busy days are brighter, not darker (#775).

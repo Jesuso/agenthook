@@ -258,8 +258,10 @@ function EpicRow({ e, profile, closed, needCol, noteCol }: { e: EpicStats; profi
   const need = e.needsYou.length;
   // The link is what j/k focus and a screen reader names: it carries the row's state by reference.
   const id = useId();
-  const described = closed ? `${id}-count` : [need > 0 && `${id}-need`, `${id}-bar`, noteCol && `${id}-note`].filter(Boolean).join(" ");
   const { done, total } = progressOf(e);
+  // An epic with no tickets has no bar: the muted count slot takes its place and the row points at it.
+  const stateId = closed || total === 0 ? `${id}-count` : `${id}-bar`;
+  const described = closed ? stateId : [need > 0 && `${id}-need`, stateId, noteCol && `${id}-note`].filter(Boolean).join(" ");
   return (
     <li
       className="relative flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border-subtle px-3 py-2 -outline-offset-2 last:border-b-0 hover:bg-surface-raised has-[[data-epic-nav]:focus-visible]:outline-2 has-[[data-epic-nav]:focus-visible]:outline-accent"
@@ -288,10 +290,24 @@ function EpicRow({ e, profile, closed, needCol, noteCol }: { e: EpicStats; profi
           </span>
         )}
       </a>
-      {closed ? (
-        <span id={`${id}-count`} className="shrink-0 text-label text-muted" data-closed-count>
-          {total === 0 ? t("epics.noTickets") : rich(t("epics.closedCount", { count: done }), { n: <span className="font-mono">{`${done}/${total}`}</span> })}
-        </span>
+      {closed || total === 0 ? (
+        <>
+          {/* Open empty rows take the bar slot's width (w-40 + gap-2 + w-24) so the note column stays aligned. */}
+          <span
+            id={`${id}-count`}
+            className={`shrink-0 text-label text-muted ${closed ? undefined : "w-66"}`}
+            data-closed-count={closed || undefined}
+            data-no-tickets={total === 0 || undefined}
+          >
+            {total === 0 ? t("epics.noTickets") : rich(t("epics.closedCount", { count: done }), { n: <span className="font-mono">{`${done}/${total}`}</span> })}
+          </span>
+          {/* The note is always empty for a 0-ticket epic, but the slot keeps the columns aligned. */}
+          {!closed && noteCol && (
+            <span id={`${id}-note`} className="w-28 shrink-0 text-label text-muted" data-eta>
+              <RowNote e={e} />
+            </span>
+          )}
+        </>
       ) : (
         <>
           <EpicStageBar epic={e} id={`${id}-bar`} />
