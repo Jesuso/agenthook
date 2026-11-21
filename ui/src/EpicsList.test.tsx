@@ -51,6 +51,8 @@ describe("EpicsList rows with no tickets", () => {
     const empty = row(out, "E0");
     expect(empty).toContain("data-closed-count");
     expect(empty).toContain("data-no-tickets");
+    // The closed row's class list is unchanged — no stray "undefined" token.
+    expect(empty).not.toContain("undefined");
     expect(empty).toContain(">no tickets<");
     expect(empty).not.toContain("data-stage-bar");
     const done = row(out, "E1");

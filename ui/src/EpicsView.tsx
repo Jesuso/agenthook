@@ -295,7 +295,7 @@ function EpicRow({ e, profile, closed, needCol, noteCol }: { e: EpicStats; profi
           {/* Open empty rows take the bar slot's width (w-40 + gap-2 + w-24) so the note column stays aligned. */}
           <span
             id={`${id}-count`}
-            className={`shrink-0 text-label text-muted ${closed ? undefined : "w-66"}`}
+            className={`shrink-0 text-label text-muted${closed ? "" : " w-66"}`}
             data-closed-count={closed || undefined}
             data-no-tickets={total === 0 || undefined}
           >
