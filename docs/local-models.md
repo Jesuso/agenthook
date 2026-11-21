@@ -367,7 +367,7 @@ is off by default for a model under an OpenAI-compatible provider — without it
 what it already reasoned and re-plans each turn. On one replayed ticket (Qwen3.8 27B, same prompt,
 hidden tests 94/94 in every run) the one run with the setting finished in 17.4 minutes with
 81,025 reasoning characters and 32.2k generated tokens, against 24.4–30.8 minutes,
-120,993–138,863 reasoning characters, and 47.1k generated tokens across the two default runs —
+120,993–138,863 reasoning characters, and 47.1k generated tokens in the first default run —
 the two default runs differ from each other by 15–21%, so treat the effect as larger than that
 spread. The trade is context: with the reasoning staying in the prompt, peak context rose from
 95k to 112k tokens in that run, so a long ticket reaches compaction sooner (see
