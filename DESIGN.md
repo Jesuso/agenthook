@@ -211,7 +211,7 @@ which is the source of truth and is enforced by `ui/src/tokens.test.ts`.
 - **Queued** (status-queued): slate.
 - **Held / Interrupted / Stalled** (status-held): amber, "waiting on a human or a restart".
 - **Failed** (status-failed): red.
-- **Done** (status-done): muted green, "agents finished" (copy says *Finished*).
+- **Done** (status-done): muted green, "closed on the tracker" (copy says *Done*).
 - **Idle / Cancelled** (status-idle): neutral.
 Each has an opaque `-bg` partner for badges.
 

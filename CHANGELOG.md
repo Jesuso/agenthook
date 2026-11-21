@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- Docs / UI wording: **Done** now means one thing — closed on the tracker — and "Finished" is
+  retired as a state name (it still works as a verb about a run). PRODUCT.md and DESIGN.md are
+  aligned with CONTEXT.md (Done replaces Finished in the binding terms; "done" leaves the avoid
+  list, "finished (as a state name)" joins it), and the Overview board's last row reads **Done
+  today** (EN) / "Terminados hoy" (ES) with its count no longer repeated in the heading — the
+  header's "N done today" is the one place for it. No identifiers, i18n keys or fields renamed
+  (#789).
 - UI: the Overview header stays quiet about harnesses at rest (#788): the `active/max` chips are
   gone while every harness is healthy, and the dashed unharnessed-agent chips with them — only a
   down/probing harness (its reason as the title, failed tint) or a quota-paused one (held tint,
