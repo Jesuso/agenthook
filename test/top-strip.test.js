@@ -168,14 +168,17 @@ test("top: --lines validation — 1, abc, 2.5, true and a missing value print th
   }
 });
 
-test("cli: --once --lines 3 prints at most 3 lines, no alternate screen", async () => {
+test("cli: --once --lines 3 cuts 4 held rows to 3 lines, no alternate screen", async () => {
   // A piped (non-TTY) stdout goes through the one-shot strip path with a real profile in a
-  // fresh registry root (the only profile, so the name-less pick resolves it).
+  // fresh registry root (the only profile, so the name-less pick resolves it). The profile
+  // holds 4 items, so `renderTop` alone prints 5 lines — only honoring `--lines` gets 3.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-topstrip-home-"));
   const dir = path.join(home, "topstrip");
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "heartbeat.json"), JSON.stringify({ name: "topstrip", maxConcurrent: 2, tracker: "github" }));
   fs.writeFileSync(path.join(dir, "server.pid"), String(process.pid));
+  const heldAt = new Date().toISOString();
+  fs.writeFileSync(path.join(dir, "held.json"), JSON.stringify({ a: { stepId: "review", heldAt }, b: { stepId: "review", heldAt }, c: { stepId: "review", heldAt }, d: { stepId: "review", heldAt } }));
   const bin = path.join(path.dirname(new URL(import.meta.url).pathname), "..", "bin", "agenthook.js");
   const child = spawn(process.execPath, [bin, "top", "--once", "--lines", "3"], { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, AGENTHOOK_HOME: home } });
   let out = "";
@@ -185,7 +188,8 @@ test("cli: --once --lines 3 prints at most 3 lines, no alternate screen", async 
   const code = await new Promise((resolve) => child.on("close", resolve));
   const lines = out.trim() ? out.trimEnd().split("\n") : [];
   assert.equal(code, 0, `--once --lines 3 exits 0, got ${code} (stderr: ${err})`);
-  assert.ok(lines.length <= 3, `at most 3 lines, got ${lines.length}: ${lines}`);
+  assert.equal(lines.length, 3, `exactly 3 lines (4 held would print 5 without --lines), got ${lines.length}: ${lines}`);
+  assert.equal(lines[2], "  +3 more · 3 needs you · 0 running", `the overflow line: ${lines}`);
   for (const bad of ["\u001b[?1049h", "\u001b[?1049l", "\u001b[2J", "\u001b[H"]) assert.ok(!out.includes(bad), `no ${JSON.stringify(bad)} in the one-shot strip`);
 });
 
