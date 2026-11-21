@@ -45,6 +45,8 @@ describe("PipelineForm cards", () => {
     expect(m.root.querySelector('input[name="tracker.pipeline.0.id"]')).toBeNull();
     const summaries = [...m.root.querySelectorAll("[data-step-summary]")].map((e) => e.textContent);
     expect(summaries).toEqual(["triage · agent:triage → agent:code", "implement · agent:code → agent:review / agent:failed · worktree", "review · agent:review → agent:done"]);
+    // None of the fixture steps set advanced keys, so no count element renders at all.
+    expect(m.root.querySelector("[data-step-advanced-count]")).toBeNull();
     expect((cards(m)[0].querySelector('[aria-label^="expand step"]') as HTMLButtonElement).getAttribute("aria-label")).toBe("expand step: triage");
   });
 
@@ -148,10 +150,15 @@ describe("PipelineForm cards", () => {
     };
     m = await mount(form({ text: JSON.stringify(withHold, null, 2), raw: withHold }));
     // The count is its own non-truncating element; the summary text never contains it.
-    expect(cards(m)[0].querySelector("[data-step-advanced-count]")!.textContent).toBe("+1 advanced");
-    const summaryEl = cards(m)[0].querySelector("[data-step-summary]") as HTMLElement;
+    const countEl = cards(m)[0].querySelector<HTMLElement>("[data-step-advanced-count]")!;
+    expect(countEl.textContent).toBe("+1 advanced");
+    const summaryEl = cards(m)[0].querySelector<HTMLElement>("[data-step-summary]")!;
     expect(summaryEl.textContent).not.toContain("advanced");
     expect(summaryEl.title).toContain("+1 advanced");
+    expect(summaryEl.contains(countEl)).toBe(false);
+    // The count never shrinks; the summary is the truncating element.
+    expect(countEl.classList).toContain("shrink-0");
+    expect(summaryEl.classList).toContain("truncate");
     // The fixture has one step, so root-wide the count appears exactly once.
     expect(m.root.querySelectorAll("[data-step-advanced-count]")).toHaveLength(1);
     await click(cards(m)[0].querySelector('[aria-label^="expand step"]')!);

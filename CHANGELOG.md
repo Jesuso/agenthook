@@ -9,7 +9,6 @@ All notable changes to this project are documented here. The format is based on
 - UI: Config step cards — the expand/collapse button is named per step ("expand step: triage" /
   "collapse step: triage") instead of a bare "expand step", and the "+N advanced" count is its own
   non-truncating element beside the header summary, so it is never the part that gets cut off (#758).
-
 - UI: the Config pipeline graph now scales down to fit its pane (to 11/12 of full size, keeping
   step names at or above 11px); panes narrower than that scroll as before (#756).
 - UI: the Harnesses table moved from Overview to the Statistics page (#754).

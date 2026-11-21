@@ -196,6 +196,9 @@ describe("PipelineForm at phone width (#372)", () => {
     const card = m.root.querySelectorAll<HTMLElement>("[data-step-card]")[1];
     const header = card.querySelector<HTMLElement>("[data-step-header]")!;
     expect(classes(header)).toEqual(expect.arrayContaining(["flex-wrap", "sm:flex-nowrap"]));
+    // The summary + advanced-count wrapper (not the inner span) takes the second line below sm.
+    const summaryWrapper = card.querySelector<HTMLElement>("[data-step-summary]")!.parentElement!;
+    expect(classes(summaryWrapper)).toEqual(expect.arrayContaining(["max-sm:order-last", "max-sm:basis-full"]));
     await click(card.querySelector('[aria-label^="expand step"]')!);
     const buttons = [
       card.querySelector('[aria-label^="collapse step"]')!,
