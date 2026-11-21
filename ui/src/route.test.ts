@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { HOME, hashFor, parseHash, sameRoute } from "./route";
+import { HOME, hashFor, parseHash, sameBase, sameRoute, withoutTicket } from "./route";
 import type { Route } from "./route";
 
 describe("parseHash", () => {
@@ -36,6 +36,22 @@ describe("parseHash", () => {
     expect(parseHash("#/p/dev/config/extra")).toEqual(HOME);
     expect(parseHash("#/p/%E0%A4%A")).toEqual(HOME);
   });
+
+  it("parses a ?t= ticket on any profile view, including an epic page", () => {
+    expect(parseHash("#/p/x?t=42")).toEqual({ kind: "profile", profile: "x", view: "overview", ticket: "42" });
+    expect(parseHash("#/p/x/stats?t=42")).toEqual({ kind: "profile", profile: "x", view: "stats", ticket: "42" });
+    expect(parseHash("#/p/x/epics/123?u=1&t=42")).toEqual({ kind: "profile", profile: "x", view: "epics", epic: "123", ticket: "42" });
+  });
+
+  it("parses an empty, missing or malformed t as if it were absent, never to Home", () => {
+    expect(parseHash("#/p/x?t=")).toEqual({ kind: "profile", profile: "x", view: "overview" });
+    expect(parseHash("#/p/x?other=1")).toEqual({ kind: "profile", profile: "x", view: "overview" });
+    expect(parseHash("#/p/x/stats?u=1&t=%E0%A4%A")).toEqual({ kind: "profile", profile: "x", view: "stats" });
+  });
+
+  it("ignores a t on the Home route", () => {
+    expect(parseHash("#/?t=42")).toEqual(HOME);
+  });
 });
 
 describe("hashFor", () => {
@@ -49,12 +65,31 @@ describe("hashFor", () => {
       { kind: "profile", profile: "dev", view: "epics" },
       { kind: "profile", profile: "dev", view: "epics", epic: "1209" },
       { kind: "profile", profile: "a/b c", view: "epics", epic: "PROJ-1" },
+      { kind: "profile", profile: "dev", view: "overview", ticket: "42" },
+      { kind: "profile", profile: "dev", view: "stats", ticket: "42" },
+      { kind: "profile", profile: "a/b c", view: "epics", epic: "PROJ-1", ticket: "a/b?c&d #% " },
     ];
     for (const r of routes) expect(parseHash(hashFor(r))).toEqual(r);
   });
 
-  it("leaves overview without a suffix", () => {
+  it("leaves overview without a suffix and appends the ticket as a t query", () => {
     expect(hashFor({ kind: "profile", profile: "dev", view: "overview" })).toBe("#/p/dev");
+    expect(hashFor({ kind: "profile", profile: "dev", view: "overview", ticket: "42" })).toBe("#/p/dev?t=42");
+  });
+});
+
+describe("sameBase / withoutTicket", () => {
+  it("sameRoute differs on the ticket alone; sameBase does not", () => {
+    const a: Route = { kind: "profile", profile: "dev", view: "config" };
+    const b: Route = { kind: "profile", profile: "dev", view: "config", ticket: "7" };
+    expect(sameRoute(a, a)).toBe(true);
+    expect(sameRoute(a, b)).toBe(false);
+    expect(sameRoute(b, { ...b, ticket: "8" })).toBe(false);
+    expect(sameBase(a, b)).toBe(true);
+    expect(sameBase(a, { kind: "profile", profile: "dev", view: "overview" })).toBe(false);
+    expect(withoutTicket(b)).toEqual(a);
+    expect(withoutTicket(a)).toBe(a);
+    expect(withoutTicket(HOME)).toBe(HOME);
   });
 });
 
