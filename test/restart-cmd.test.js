@@ -135,6 +135,21 @@ test("ok:false: prints the receiver's error and exits 1", async () => {
   }
 });
 
+test("ok:false: a config-check refusal prints the reason and the stop/start escape, prefixed, on stderr", async () => {
+  const error =
+    'restart: config check failed in the running receiver (its code may be older than the code on disk): config: harness "pi-local" agent "pi" is not a known agent (claude, cursor, hermes, opencode). — if the config is valid for the code on disk, run `agenthook stop && agenthook start`';
+  const p = await profile("cfgcheck-profile", (req) => ({ id: req.id, ok: false, error }));
+  try {
+    const res = await run(p.configPath);
+    assert.equal(res.exitCode, 1);
+    assert.match(res.errs.join("\n"), /restart: config check failed in the running receiver/);
+    assert.match(res.errs.join("\n"), /agent "pi" is not a known agent/);
+    assert.match(res.errs.join("\n"), /agenthook stop && agenthook start/);
+  } finally {
+    await new Promise((r) => p.server.close(r));
+  }
+});
+
 test("down: no socket at all → exits 1 with a clear error", async () => {
   const stateDir = path.join(registryDir, "nosocket-profile");
   fs.mkdirSync(stateDir, { recursive: true });

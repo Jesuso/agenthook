@@ -9,9 +9,24 @@ All notable changes to this project are documented here. The format is based on
 - UI: Config step cards — the expand/collapse button is named per step ("expand step: triage" /
   "collapse step: triage") instead of a bare "expand step", and the "+N advanced" count is its own
   non-truncating element beside the header summary, so it is never the part that gets cut off (#758).
+- `restart`: a refusal now reaches the CLI, MCP and UI with its reason (bounded) instead of the
+  opaque `restart failed`. A config-check failure is worded as a check that ran in the **running**
+  receiver — whose in-memory code may be older than the code on disk — and names the escape, `agenthook
+  stop && agenthook start` (#767).
+- UI: the open ticket drawer now lives in the URL as `?t=<ref>` — a ticket is bookmarkable,
+  survives a reload, and Back/× close it without losing the view; a cold load with an unknown
+  `?t=` quietly drops it (#766).
+- UI: segmented controls (the stats ranges, the tickets status filter, view switches) are now one
+  Tab stop instead of one per option; Arrow keys (wrapping), Home and End move the selection, and
+  the range and status-filter groups carry an accessible name (#765).
+- UI: on a profile's Overview the All tickets table drops the redundant profile column (the
+  `lockProfile` doc now matches the behaviour), and the ticket title takes the table's free width
+  (`max-w-[60ch]` / 90ch at 2xl) instead of being capped at 448 px (#759).
 - UI: the Config pipeline graph now scales down to fit its pane (to 11/12 of full size, keeping
   step names at or above 11px); panes narrower than that scroll as before (#756).
 - UI: the Harnesses table moved from Overview to the Statistics page (#754).
+- UI: Activity lines drop the profile name; the heading shows the count or 'N new', not both (#764).
+- UI: the browser tab title now names the Stats, Instructions and Config views and the profile, like Epics already did (#757).
 
 **Upgrading from 0.15** — nothing to migrate, three behaviours to know about:
 

@@ -118,7 +118,7 @@ export function TicketsTable(props: TicketsTableProps) {
             {tr("tickets.stepFilter", { step: stepFilter })} <span aria-hidden="true">×</span>
           </button>
         )}
-        <Segmented value={statusFilter} options={chips} onChange={props.onStatusFilter} />
+        <Segmented value={statusFilter} options={chips} onChange={props.onStatusFilter} label={tr("tickets.col.status")} />
         <label className="flex items-center gap-1">
           <input type="checkbox" checked={showAll} onChange={(e) => props.onShowAll(e.target.checked)} />
           {tr("tickets.showAll")}
@@ -132,8 +132,9 @@ export function TicketsTable(props: TicketsTableProps) {
           <thead className="sticky top-0 z-10 bg-surface shadow-[inset_0_-1px_0_var(--color-border)]">
             <tr className="text-left text-muted">
               <th className={NOWRAP}>{tr("tickets.col.id")}</th>
-              <th className={NOWRAP}>{tr("tickets.col.title")}</th>
-              <th className={NOWRAP}>{tr("tickets.col.profile")}</th>
+              {/* The title cell takes the table's free width; the rest shrink to their content. */}
+              <th className={`${NOWRAP} w-full`}>{tr("tickets.col.title")}</th>
+              {!props.lockProfile && <th className={NOWRAP}>{tr("tickets.col.profile")}</th>}
               <th className={NOWRAP}>{tr("tickets.col.step")}</th>
               <th className={NOWRAP}>{tr("tickets.col.status")}</th>
               <th className={NOWRAP}>{tr("tickets.col.model")}</th>
@@ -146,7 +147,7 @@ export function TicketsTable(props: TicketsTableProps) {
           </thead>
           <tbody>
             {shown.map((t) => (
-              <Row key={`${t.profile}\u0000${t.ref}`} t={t} now={now} selected={open?.profile === t.profile && open.ref === t.ref} onOpen={props.onOpen} onDismiss={props.onDismiss} onEpic={props.onEpicFilter} />
+              <Row key={`${t.profile}\u0000${t.ref}`} t={t} now={now} showProfile={!props.lockProfile} selected={open?.profile === t.profile && open.ref === t.ref} onOpen={props.onOpen} onDismiss={props.onDismiss} onEpic={props.onEpicFilter} />
             ))}
           </tbody>
         </table>
@@ -174,7 +175,7 @@ function ChipLabel({ text, count }: { text: string; count: number }) {
   );
 }
 
-function Row({ t, now, selected, onOpen, onDismiss, onEpic }: { t: TicketRow; now: number; selected: boolean; onOpen: TicketsTableProps["onOpen"]; onDismiss: TicketsTableProps["onDismiss"]; onEpic: (ref: string) => void }) {
+function Row({ t, now, showProfile, selected, onOpen, onDismiss, onEpic }: { t: TicketRow; now: number; showProfile: boolean; selected: boolean; onOpen: TicketsTableProps["onOpen"]; onDismiss: TicketsTableProps["onDismiss"]; onEpic: (ref: string) => void }) {
   const { t: tr, lang } = useT();
   const title = ticketTitle(t, lang);
   const model = formatModel(t.model);
@@ -199,7 +200,7 @@ function Row({ t, now, selected, onOpen, onDismiss, onEpic }: { t: TicketRow; no
           t.displayId
         )}
       </td>
-      <td className={CELL}>
+      <td className={`${CELL} w-full`}>
         {t.epic && (
           <button
             type="button"
@@ -220,12 +221,12 @@ function Row({ t, now, selected, onOpen, onDismiss, onEpic }: { t: TicketRow; no
             e.stopPropagation();
             onOpen({ profile: t.profile, ref: t.ref });
           }}
-          className={`block min-w-40 max-w-md truncate text-left max-lg:max-w-64 max-lg:whitespace-normal max-lg:line-clamp-2 focus-visible:outline-2 focus-visible:outline-accent ${title.unknown ? "text-muted" : ""}`}
+          className={`block min-w-40 max-w-[60ch] 2xl:max-w-[90ch] truncate text-left max-lg:max-w-64 max-lg:whitespace-normal max-lg:line-clamp-2 focus-visible:outline-2 focus-visible:outline-accent ${title.unknown ? "text-muted" : ""}`}
         >
           {title.text}
         </button>
       </td>
-      <td className={`${NOWRAP} font-mono`}>{t.profile}</td>
+      {showProfile && <td className={`${NOWRAP} font-mono`}>{t.profile}</td>}
       <td className={NOWRAP}>{t.step ?? "—"}</td>
       <td className={NOWRAP} title={STATUS_TITLE[t.status] && tr(STATUS_TITLE[t.status]!)}>
         <StatusBadge status={t.status} />

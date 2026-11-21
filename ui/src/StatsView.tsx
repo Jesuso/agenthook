@@ -3,6 +3,7 @@ import type { DayStats, ProfileView, StatsView as StatsData } from "./contract";
 import { Segmented, ProfileMark } from "./components";
 import type { FeedEntry } from "./feed";
 import { formatCost, formatSpend, profileLabel } from "./format";
+import { usePageTitle } from "./usePageTitle";
 import { formatEnergy } from "../../src/energy.js";
 import { HarnessesCard } from "./HarnessesCard";
 import { latestChange, shortDate, statsUrl } from "./stats";
@@ -38,6 +39,8 @@ export default function StatsView({ profile, feed }: { profile: ProfileView; fee
   const [failed, setFailed] = useState(false);
   const changed = latestChange(feed);
 
+  usePageTitle([t("statsView.title"), profileLabel(profile)]);
+
   useEffect(() => {
     let live = true;
     fetch(statsUrl(profile.name, CALENDAR_DAYS))
@@ -61,7 +64,7 @@ export default function StatsView({ profile, feed }: { profile: ProfileView; fee
           {t("statsView.title")} <span className="font-normal text-muted">· {profileLabel(profile)}</span>
         </h1>
         <span className="ml-auto">
-          <Segmented value={range} options={RANGES.map((r) => ({ value: r, label: t("stats.days", { count: Number(r) }) }))} onChange={setRange} />
+          <Segmented value={range} options={RANGES.map((r) => ({ value: r, label: t("stats.days", { count: Number(r) }) }))} onChange={setRange} label={t("stats.range")} />
         </span>
       </div>
       {failed && !data && <p className="text-label text-muted">{t("stats.loadFailed")}</p>}

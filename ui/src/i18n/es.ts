@@ -205,6 +205,7 @@ export const messages: Record<MessageKey, Message> = {
 
   // StatsStrip
   "stats.history": "Historial",
+  "stats.range": "Periodo",
   "stats.days": "{count} d",
   "stats.chartLabel": "gráfico del historial",
   "stats.loadFailed": "No se pudo cargar el historial.",

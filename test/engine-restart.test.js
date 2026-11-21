@@ -8,7 +8,7 @@ const info = (j) => ({ kind: j.kind, ref: j.ref, name: j.ref, url: "", code: 0 }
 const job = (ref) => ({ kind: "pipeline", ref, stepId: "s", dedupKey: `${ref}:s` });
 
 /** Requester over a real queue; `release()` settles the one running job. */
-function harness({ draining = false, badConfig = false, badMove = false, harnessesDown } = {}) {
+function harness({ draining = false, badConfig = false, configError = null, badMove = false, harnessesDown } = {}) {
   /** @type {(() => void)[]} */
   const releases = [];
   const run = (j) => new Promise((resolve) => releases.push(() => resolve(info(j))));
@@ -26,7 +26,7 @@ function harness({ draining = false, badConfig = false, badMove = false, harness
     queue,
     isDraining: () => h.draining,
     validateConfig: () => {
-      if (badConfig) throw new Error("bad config");
+      if (badConfig) throw new Error(configError ?? "bad config");
     },
     validateMove: (to) => {
       h.validatedMoves.push(to);
@@ -59,6 +59,66 @@ test("restart: an invalid config on disk rejects, queue not paused", async () =>
   assert.equal(h.r.isPending(), false);
   h.queue.enqueue(job("A"));
   assert.equal(h.queue.state().active, 1, "queue still pumps");
+});
+
+test("restart: a config-check failure rejects exposed, with the original reason and the stop/start escape", async () => {
+  const h = harness({ badConfig: true, configError: 'config: harness "pi-local" agent "pi" is not a known agent (claude, cursor, hermes, opencode).' });
+  await assert.rejects(
+    h.r.request({ when: "idle" }),
+    (e) => {
+      assert.equal(e.expose, true, "exposed so the client sees the reason");
+      assert.ok(e.message.includes('agent "pi" is not a known agent'), `original reason present: ${e.message}`);
+      assert.ok(e.message.includes("agenthook stop && agenthook start"), `stop/start escape present: ${e.message}`);
+      assert.ok(e.message.includes("running receiver"), `says the check ran in the running process: ${e.message}`);
+      return true;
+    },
+  );
+  assert.equal(h.r.isPending(), false);
+  assert.equal(h.pendingCalls.length, 0, "onPending not called");
+  assert.equal(h.fired, 0, "fire not called");
+  h.queue.enqueue(job("A"));
+  assert.equal(h.queue.state().active, 1, "queue not paused");
+});
+
+test("restart: a long config-check reason is bounded before the hint, so the hint survives", async () => {
+  const h = harness({ badConfig: true, configError: `config: ${"x".repeat(1000)}` });
+  await assert.rejects(h.r.request({ when: "idle" }), (e) => {
+    assert.ok(e.message.endsWith("agenthook stop && agenthook start\`"), `hint intact: ${e.message.slice(-80)}`);
+    assert.ok(e.message.length < 500, `bounded, got ${e.message.length}`);
+    return true;
+  });
+});
+
+test("restart: non-config refusals are exposed with their reason, without the stop/start hint", async () => {
+  {
+    const h = harness({ draining: true });
+    await assert.rejects(h.r.request({ when: "idle" }), (e) => {
+      assert.equal(e.expose, true);
+      assert.match(e.message, /shutdown already in progress/);
+      assert.ok(!e.message.includes("stop && agenthook start"));
+      return true;
+    });
+    assert.equal(h.pendingCalls.length, 0);
+  }
+  {
+    const h = harness();
+    await assert.rejects(h.r.request({ when: "now" }), (e) => {
+      assert.equal(e.expose, true);
+      assert.match(e.message, /unsupported when/);
+      assert.ok(!e.message.includes("stop && agenthook start"));
+      return true;
+    });
+  }
+  {
+    const h = harness({ badMove: true });
+    await assert.rejects(h.r.request({ when: "idle", moveTo: "taken" }), (e) => {
+      assert.equal(e.expose, true);
+      assert.match(e.message, /bad move taken/);
+      assert.ok(!e.message.includes("stop && agenthook start"));
+      return true;
+    });
+    assert.equal(h.r.isPending(), false);
+  }
 });
 
 test("restart: rejected while a signal shutdown is draining", async () => {
