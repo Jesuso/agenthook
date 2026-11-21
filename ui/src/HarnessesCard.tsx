@@ -27,7 +27,8 @@ export function harnessesVisible(configured: boolean, groups: StatsGroup[]): boo
 
 /**
  * The Statistics page's Harnesses card (moved off Overview, #754; the table itself is #646):
- * per-harness success rate, wall time, output throughput and cost. It fetches
+ * per-harness slots in use (live from the profile, #788), success rate, wall time, output
+ * throughput and cost. It fetches
  * `GET /api/harness-stats` itself — that endpoint has no range parameter, so the window is a
  * fixed 7 days, whatever the range selector above says — and returns `null` (no card frame at
  * all) when `harnessesVisible` says there's nothing to route between.
@@ -50,6 +51,16 @@ export function HarnessesCard({ profile }: { profile: ProfileView }) {
   const groups = data?.groups ?? [];
   if (!harnessesVisible(configured, groups)) return null;
 
+  // One row per 7-day group, plus every configured harness without one yet (no runs in the
+  // window) so its live slots stay visible even before its first run (#788).
+  const groupByKey = new Map(groups.map((g) => [g.key, g]));
+  const rows: { key: string; g: StatsGroup | null }[] = [
+    ...groups.map((g) => ({ key: g.key, g })),
+    ...Object.keys(profile.harnesses ?? {})
+      .filter((key) => !groupByKey.has(key))
+      .map((key) => ({ key, g: null })),
+  ];
+
   // The same frame as StatsView's Card (kept local to avoid an import cycle).
   return (
     <section className="min-w-0 rounded-lg border border-border bg-surface px-3 py-3 lg:col-span-2 2xl:col-span-1" data-harnesses-card>
@@ -61,6 +72,7 @@ export function HarnessesCard({ profile }: { profile: ProfileView }) {
           <thead className="text-left text-muted">
             <tr>
               <th className="px-3 py-2">{t("statsView.harnessesCol.harness")}</th>
+              <th className="px-3 py-2">{t("statsView.harnessesCol.slots")}</th>
               <th className="px-3 py-2">{t("statsView.harnessesCol.runs")}</th>
               <th className="px-3 py-2">{t("statsView.harnessesCol.success")}</th>
               <th className="px-3 py-2">{t("statsView.harnessesCol.p50")}</th>
@@ -69,9 +81,21 @@ export function HarnessesCard({ profile }: { profile: ProfileView }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-border-subtle">
-            {groups.map((g: StatsGroup) => (
-              <HarnessRow key={g.key} g={g} lang={lang} />
-            ))}
+            {rows.map(({ key, g }) => {
+              // Live slots only while the receiver is up and the harness is still configured;
+              // `(none)`, an unconfigured harness, or a down receiver reads —.
+              const slot = profile.up ? profile.harnesses?.[key] ?? null : null;
+              return (
+                <HarnessRow
+                  key={key}
+                  name={key}
+                  g={g}
+                  lang={lang}
+                  slotText={slot ? `${slot.active}/${slot.max ?? "∞"}` : "—"}
+                  slotTitle={slot ? (slot.max === null ? t("overview.harnessUncapped", { name: key, active: slot.active }) : t("overview.harnessTitle", { name: key, active: slot.active, max: slot.max })) : null}
+                />
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -79,16 +103,17 @@ export function HarnessesCard({ profile }: { profile: ProfileView }) {
   );
 }
 
-function HarnessRow({ g, lang }: { g: StatsGroup; lang: string }) {
+function HarnessRow({ name, g, lang, slotText, slotTitle }: { name: string; g: StatsGroup | null; lang: string; slotText: string; slotTitle: string | null }) {
   // Reported and estimated cost are shown apart, never summed (formatSpend, src/pricing.js).
-  const spend = formatSpend({ reported: g.costUsd, est: g.estUsd }) || formatCost(0, lang);
+  const spend = g ? formatSpend({ reported: g.costUsd, est: g.estUsd }) || formatCost(0, lang) : "—";
   return (
     <tr>
-      <td className="whitespace-nowrap px-3 py-2 font-mono">{g.key}</td>
-      <td className="whitespace-nowrap px-3 py-2 font-mono">{g.runs}</td>
-      <td className="whitespace-nowrap px-3 py-2 font-mono">{g.successRate === null ? "—" : `${Math.round(g.successRate * 100)}%`}</td>
-      <td className="whitespace-nowrap px-3 py-2 font-mono">{fmtWallMs(g.wallP50Ms)}</td>
-      <td className="whitespace-nowrap px-3 py-2 font-mono">{g.outPerMin === null ? "—" : Math.round(g.outPerMin).toLocaleString(lang)}</td>
+      <td className="whitespace-nowrap px-3 py-2 font-mono">{name}</td>
+      <td className="whitespace-nowrap px-3 py-2 font-mono" data-harness-slots-cell {...(slotTitle ? { title: slotTitle } : {})}>{slotText}</td>
+      <td className="whitespace-nowrap px-3 py-2 font-mono">{g ? g.runs : 0}</td>
+      <td className="whitespace-nowrap px-3 py-2 font-mono">{g === null || g.successRate === null ? "—" : `${Math.round(g.successRate * 100)}%`}</td>
+      <td className="whitespace-nowrap px-3 py-2 font-mono">{fmtWallMs(g?.wallP50Ms ?? null)}</td>
+      <td className="whitespace-nowrap px-3 py-2 font-mono">{g === null || g.outPerMin === null ? "—" : Math.round(g.outPerMin).toLocaleString(lang)}</td>
       <td className="whitespace-nowrap px-3 py-2 font-mono">{spend}</td>
     </tr>
   );

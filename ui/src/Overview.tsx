@@ -178,9 +178,7 @@ export function Overview(props: OverviewProps) {
                 <SlotPips active={profile.active ?? 0} max={profile.maxConcurrent ?? 0} up />
                 {t("common.agents")}
               </span>
-              {(profile.harnesses || profile.unharnessed) && (
-                <HarnessChips harnesses={profile.harnesses ?? {}} unharnessed={profile.unharnessed ?? {}} />
-              )}
+              {profile.harnesses && <HarnessChips harnesses={profile.harnesses} />}
               <span>
                 <span className="font-mono text-fg">{profile.queued ?? 0}</span> {t("common.queued")}
               </span>
@@ -452,23 +450,26 @@ function SlotPips({ active, max, up }: { active: number; max: number; up: boolea
   );
 }
 
-/** One `active/max` chip per named harness (a profile with `harnesses` only); an uncapped one reads
- * `∞`. A down/probing one (#688) tints status-failed, its title naming the reason — the full
- * diagnosis is the Needs-you row above; this is just a glance-level flag. A `cause:"quota"` closure
- * instead shows its reopen time. */
-function HarnessChips({
-  harnesses,
-  unharnessed,
-}: {
-  harnesses: NonNullable<ProfileView["harnesses"]>;
-  unharnessed?: NonNullable<ProfileView["unharnessed"]>;
-}) {
+/** A harness worth flagging at the glance level (#788): paused for quota, or down/probing under
+ * the health breaker. A healthy harness (including a missing `state`, which fixtures and an
+ * absent health state both look like) shows nothing on Overview — its `active/max` lives on the
+ * Statistics page's Harnesses card. */
+export function harnessProblem(h: NonNullable<ProfileView["harnesses"]>[string]): boolean {
+  return h.cause === "quota" || h.state === "down" || h.state === "probing";
+}
+
+/** One chip per *problem* harness only (#788): a down/probing one tints status-failed, its title
+ * naming the reason — the full diagnosis is the Needs-you row above; a `cause:"quota"` closure
+ * instead shows its reopen time. Healthy harnesses and unharnessed agents render nothing; with
+ * none to flag the chips render nothing at all, so the header stays quiet at rest. */
+function HarnessChips({ harnesses }: { harnesses: NonNullable<ProfileView["harnesses"]> }) {
   const { t } = useT();
+  const problems = Object.entries(harnesses).filter(([, h]) => harnessProblem(h));
+  if (problems.length === 0) return null;
   return (
     <span className="inline-flex flex-wrap items-center gap-1" data-harness-slots role="group" aria-label={t("overview.harnessSlots")}>
-      {Object.entries(harnesses).map(([name, h]) => {
+      {problems.map(([name, h]) => {
         const quota = h.cause === "quota";
-        const down = !quota && (h.state === "down" || h.state === "probing");
         const quotaBack = quota && h.until ? t("overview.harnessQuotaBack", { when: hhmm(h.until) }) : null;
         return (
           <span
@@ -476,25 +477,15 @@ function HarnessChips({
             data-harness={name}
             data-harness-state={h.state}
             data-harness-cause={h.cause}
-            className={`rounded border px-1.5 font-mono ${down ? "border-status-failed/40 bg-status-failed-bg text-status-failed" : quota ? "border-status-held/40 bg-status-held-bg text-status-held" : "border-border"}`}
-            title={quotaBack ?? (down ? (h.reason ?? t(h.state === "down" ? "needs.harnessDown" : "needs.harnessProbing")) : h.max === null ? t("overview.harnessUncapped", { name, active: h.active }) : t("overview.harnessTitle", { name, active: h.active, max: h.max }))}
+            className={`rounded border px-1.5 font-mono ${quota ? "border-status-held/40 bg-status-held-bg text-status-held" : "border-status-failed/40 bg-status-failed-bg text-status-failed"}`}
+            title={quotaBack ?? (h.reason ?? t(h.state === "down" ? "needs.harnessDown" : "needs.harnessProbing"))}
           >
-            {name} <span className={down || quota ? "" : "text-fg"}>{h.active}</span>
-            <span className={down || quota ? "" : "text-muted"}>/{h.max ?? "∞"}</span>
+            {name} <span>{h.active}</span>
+            <span>/{h.max ?? "∞"}</span>
             {quotaBack ? <span className="ml-1 text-muted">· {quotaBack}</span> : null}
           </span>
         );
       })}
-      {Object.entries(unharnessed ?? {}).map(([agent, n]) => (
-        <span
-          key={agent}
-          data-harness-implicit={agent}
-          className="rounded border border-dashed border-border-strong px-1.5 font-mono text-muted"
-          title={t("overview.harnessImplicit", { agent, n })}
-        >
-          {agent} <span className="text-fg">{n}</span>
-        </span>
-      ))}
     </span>
   );
 }
