@@ -64,7 +64,7 @@ export default function StatsView({ profile, feed }: { profile: ProfileView; fee
           {t("statsView.title")} <span className="font-normal text-muted">· {profileLabel(profile)}</span>
         </h1>
         <span className="ml-auto">
-          <Segmented value={range} options={RANGES.map((r) => ({ value: r, label: t("stats.days", { count: Number(r) }) }))} onChange={setRange} />
+          <Segmented value={range} options={RANGES.map((r) => ({ value: r, label: t("stats.days", { count: Number(r) }) }))} onChange={setRange} label={t("stats.range")} />
         </span>
       </div>
       {failed && !data && <p className="text-label text-muted">{t("stats.loadFailed")}</p>}
