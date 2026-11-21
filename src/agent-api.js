@@ -203,7 +203,10 @@ export function readStatus(entry, { now = Date.now() } = {}) {
   // operator cancel, not dismissed, not re-run since. Newest first, from the events tail.
   const lastFailed = new Map();
   for (const e of state.events) if (e.event === "failed") lastFailed.set(e.ref, e);
-  const failed = buildRows(entry.stateKey, state, { up: entry.up })
+  // Rows with the repository, so `failed` (below) and `prWaiting` both see the PR facts —
+  // the local view of "PR awaiting a person" (ADR 0008) the dashboard's needs-you needs.
+  const rows = buildRows(entry.stateKey, state, { up: entry.up, repository: hb.repository ?? null });
+  const failed = rows
     .filter((r) => r.status === "failed")
     .map((r) => {
       const e = lastFailed.get(r.ref);
@@ -215,6 +218,8 @@ export function readStatus(entry, { now = Date.now() } = {}) {
   const followUp = pendingFollowUp(state.refmeta).map(({ ref, checks, tier, pr, since }) =>
     label({ ref, checks: checks.map((c) => clip(c, REASON_MAX)), ...(tier ? { tier } : {}), ...(pr ? { pr } : {}), ...(since ? { since } : {}) }, state.refmeta[ref]),
   );
+  // Open PRs awaiting a person (forge profiles only) — the third needs-you input beside held/failed.
+  const prWaiting = hb.forge ? rows.filter((r) => r.prNeeds).map((r) => label({ ref: r.ref, step: r.step, pr: r.prUrl, kind: r.prNeeds, at: r.finishedAt }, state.refmeta[r.ref])) : [];
   const active = entry.up ? running.length : 0;
   const queued = entry.up ? queue.length : 0;
   // Queued jobs waiting on their step's own maxConcurrent, not on a slot (heartbeat; only set with step caps).
@@ -242,6 +247,7 @@ export function readStatus(entry, { now = Date.now() } = {}) {
     queue,
     held,
     ...(failed.length ? { failed } : {}),
+    ...(prWaiting.length ? { prWaiting } : {}),
     ...(followUp.length ? { followUp } : {}),
     ...(entry.up ? {} : { note: "receiver down — running/queue are from the last state on disk (interrupted/stalled)" }),
   };

@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- New: `agenthook top --once [name]` — a one-shot terminal glance of a profile: a header
+  (`up|down`, `active/max` agents, queued, needs-you count) plus one row per needs-you item
+  (held → failed → open-PR) and per running agent, rendered by the pure `src/top.js` renderer.
+  It reads local state only (no board/PR reads — no polling). `status`/`tick` gain an optional
+  `prWaiting[]` key (forge profiles only) — the PR half of the needs-you list (held + failed +
+  prWaiting). The live loop is a later ticket; `top` without `--once` exits 1 saying so (#794).
 - Docs / UI wording: **Done** now means one thing — closed on the tracker — and "Finished" is
   retired as a state name (it still works as a verb about a run). PRODUCT.md and DESIGN.md are
   aligned with CONTEXT.md (Done replaces Finished in the binding terms; "done" leaves the avoid

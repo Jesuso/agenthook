@@ -28,6 +28,7 @@
 //   agenthook ui [--port <n>] [--host <ip>] [--no-open]  local web dashboard + editors (127.0.0.1 unless --host)
 //   agenthook mcp [--read-only]    MCP server (stdio) for external agents — docs/mcp.md
 //   agenthook tick [name] [--json] one-call status+board+PRs+events digest for agents
+//   agenthook top --once [name]  one-shot terminal glance: needs-you + running
 //   agenthook epics [name] [--ref <epic>] [--fresh] [--json]  epics list / one epic's tickets
 //   agenthook digest [name] [--json] write + print a profile's Digest (no receiver needed)
 //   agenthook watch [name] [--event a,b] [--ref r] [--timeout s] [--follow]  block until the next event (--follow: stream JSON lines)
@@ -63,6 +64,7 @@ import { events } from "../src/commands/events.js";
 import { ui } from "../src/commands/ui.js";
 import { mcp } from "../src/commands/mcp.js";
 import { tick } from "../src/commands/tick.js";
+import { top } from "../src/commands/top.js";
 import { epics } from "../src/commands/epics.js";
 import { digest } from "../src/commands/digest.js";
 import { watch } from "../src/commands/watch.js";
@@ -106,7 +108,7 @@ export function wantsHelp(rest) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, serve: start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, recheck, ticket, doctor, alias, usage, stats, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch, guide, skill, service, followup, pause, unpause, concurrency, reload };
+const COMMANDS = { init, start, serve: start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, recheck, ticket, doctor, alias, usage, stats, events, ui, rename, restart, remove, mcp, tick, top, epics, digest, watch, guide, skill, service, followup, pause, unpause, concurrency, reload };
 
 /**
  * Levenshtein edit distance between two strings.
@@ -200,6 +202,7 @@ usage: agenthook <command> [args] [--config <path>]
   mcp [--read-only]         MCP server over stdio: read+manage the pipeline from an agent (all profiles)
   tick [name…|--all] [--json] [--cursor <n|json>] [--no-board] [--no-prs] [--epics]  status+board+PRs+new events in one call
                             (--all / ≥2 names: one per profile; --cursor '{"<key>":<n>}')
+  top --once [name]       one-shot terminal glance: needs-you + running (local state only; the live loop is a later ticket)
   epics [name] [--ref <epic>] [--fresh] [--json]  every epic's progress, or one epic's tickets
   digest [name] [--json]    write + print a profile's Digest (no receiver needed)
   watch [name…|--all] [--event a,b] [--ref r] [--cursor <n|json>] [--timeout <s>] [--json] [--follow|--stream [--heartbeat <s>]]  block until the next event (exit 2 on timeout); --follow stays attached, one JSON line per event with its resume cursor, then a final watch_end line
