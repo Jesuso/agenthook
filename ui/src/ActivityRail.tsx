@@ -12,7 +12,7 @@ export type ActivityRailProps = {
   onOpen: (t: { profile: string; ref: string }) => void;
   /** "rail" (fixed-width right column, xl+) or "panel" (capped-height disclosure, narrow). */
   variant: "rail" | "panel";
-  /** Events that arrived while the panel was collapsed; shown as a badge beside the count. */
+  /** Events that arrived while the panel was collapsed; replaces the count in the heading while > 0. */
   unread?: number;
 };
 
@@ -28,11 +28,12 @@ export function ActivityRail({ feed, displayIdFor, open, onToggle, onOpen, varia
     <div data-activity-rail={variant} className={variant === "rail" ? "flex h-full flex-col" : "rounded-lg border border-border bg-surface"}>
       <div className="flex items-center justify-between gap-2 px-3 py-2">
         <h2 className="text-label font-semibold uppercase tracking-wide text-muted">
-          {t("activity.title")} <span className="font-mono normal-case">{feed.length}</span>
-          {unread > 0 && (
+          {t("activity.title")} {unread > 0 ? (
             <span data-unread={unread} className="ml-1.5 rounded-full bg-accent px-1.5 font-mono text-meta font-medium text-accent-fg">
               {t("activity.new", { count: unread })}
             </span>
+          ) : (
+            <span className="font-mono normal-case">{feed.length}</span>
           )}
         </h2>
         <ShowHide open={open} onToggle={onToggle} label={t("activity.label")} data-activity-toggle />
@@ -67,7 +68,6 @@ export function ActivityLine({ entry, displayId, onOpen, lang = "en" }: { entry:
   const content = (
     <>
       <span className="font-mono text-label text-muted">{time}</span>
-      <span className="font-mono text-label text-muted">{entry.profile}</span>
       {label && (
         <span className="font-mono text-label" title={label.title}>
           {label.text}
