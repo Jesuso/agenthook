@@ -27,7 +27,7 @@ test("top-loop: start — enters the alternate screen, hides the cursor, draws t
   assert.equal(s.out.frames().length, 1, "one frame drawn at start");
   const frame = s.out.frames()[0].split("\n");
   assert.equal(visible(frame[0]).join(""), "dev up · agents 1/4 · 2 queued · 1 needs you");
-  assert.match(visible(frame[1]).join(""), /^\s*HELD AH-12 review 5m/);
+  assert.match(visible(frame[1]).join(""), /^\u003e HELD AH-12 review 5m/, "the first draw selects row 0 (the \u003e mark)");
   assert.equal(s.ne.calls.length, 1, "parked in the event-bus wait");
   assert.equal(s.ne.calls[0].ms, TOP_WAIT_MS, "the wait round is bounded");
   assert.equal(s.timers.slot.ms, PAINT_MS);

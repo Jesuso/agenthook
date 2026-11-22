@@ -68,6 +68,8 @@ export function makeInput() {
     },
     calls,
     key: (/** @type {number} */ b) => ee.emit("data", Buffer.from([b])),
+    /** Emit a raw multi-byte chunk (e.g. the arrow keys `ESC [ A/B`). @param {number[]} bs */
+    bytes: (bs) => ee.emit("data", Buffer.from(bs)),
   };
 }
 
@@ -121,7 +123,7 @@ export const pump = async () => {
 };
 
 /** Start the loop with a readData that returns `seq` payloads in order (last one repeats). */
-export async function start({ seq, out, input, ne, timers, now, signal, lines } = {}) {
+export async function start({ seq, out, input, ne, timers, now, signal, lines, follow } = {}) {
   const o = out ?? makeOut();
   const i = input ?? makeInput();
   const n = ne ?? makeNextEvent();
@@ -142,6 +144,7 @@ export async function start({ seq, out, input, ne, timers, now, signal, lines } 
     clearInterval: t.clearInt,
     ...(lines !== undefined ? { lines } : {}),
     ...(signal ? { signal } : {}),
+    ...(follow ? { follow } : {}),
   });
   await pump();
   return { p, out: o, input: i, ne: n, timers: t, reads: c, data: readData };
