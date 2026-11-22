@@ -15,7 +15,7 @@ function len(s) {
 }
 
 /** Shorten to at most `n` visible code points, ending in `…` when cut. @param {string} s @param {number} n */
-function cut(s, n) {
+export function cut(s, n) {
   const cps = [...plain(s)];
   return cps.length <= n ? s : cps.slice(0, Math.max(0, n - 1)).join("") + "…";
 }
@@ -65,7 +65,9 @@ function row(mk, r, el, width, color, selected = false) {
     const title = r.title && budget >= 1 ? cut(String(r.title), budget).trimEnd() : "";
     out = title ? `${fixed} ${title}` : fixed;
   }
-  const marked = `\u001b[1m${mk}\u001b[0m`;
+  // the selected row is inverse video: the marker's bold ends with `22` (not `0`, which would
+  // also kill the inverse) so the whole row, not just the marker, stays inverted
+  const marked = `\u001b[1m${mk}${color && selected ? "\u001b[22m" : "\u001b[0m"}`;
   const body = color ? out.replace(mk, marked) : out;
   return selected && color ? `> \u001b[7m${body}\u001b[27m` : `${selected ? "> " : "  "}${body}`;
 }

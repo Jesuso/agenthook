@@ -52,7 +52,11 @@ test("top: renderTop without selected is the plain indent; with selected the mar
   assert.equal(sel[0], plain[0], "the header is untouched");
   assert.equal(sel[5], plain[5], "the queued line is untouched");
   const color = renderTop(selTick(), { selected: 0, color: true });
-  assert.ok(color[1].includes("\u001b[7m") && color[1].includes("\u001b[27m"), "with color the selected row is inverse video");
+  const inv = color[1].match(/\u001b\[7m([\s\S]*)\u001b\[27m$/);
+  assert.ok(inv, "with color the selected row wraps in inverse video");
+  assert.ok(!inv[1].includes("\u001b[0m"), "the marker's bold reset does not turn the inverse off mid-row");
+  assert.ok(inv[1].includes("Waiting"), "the title sits inside the inverse span");
+  assert.ok(!color[2].includes("\u001b[7m"), "the other rows are not inverted");
 });
 
 test("top: rows never show harness/model (the glance rule) — they only appear on the detail line", () => {
@@ -119,21 +123,18 @@ const lastFrame = (s) => visible(s.out.frames().at(-1) ?? "").join("");
 test("top-loop: j/k and the arrows move the selection, clamped at both ends (no wrap)", async () => {
   const s = await start({ seq: [() => UP({ held: [{ id: "AH-1", ref: "h1", since: iso(NOW - 60e3) }], running: [{ ref: "r1", step: "code", ageS: 30 }] })] });
   assert.ok(lastFrame(s).includes("> HELD AH-1"), "the first draw selects index 0");
-  s.input.key(0x6a); // j
+  s.input.bytes([0x1b, 0x5b, 0x42]); // down arrow
   await pump();
-  assert.ok(lastFrame(s).includes("> RUN r1"), "j moves down");
-  s.input.key(0x6a);
+  assert.ok(lastFrame(s).includes("> RUN r1"), "the down arrow moves down");
+  s.input.key(0x6a); // j on the last row
   await pump();
   assert.ok(lastFrame(s).includes("> RUN r1"), "j on the last row is a no-op (no wrap)");
-  s.input.bytes([0x1b, 0x5b, 0x41]); // up arrow
+  s.input.key(0x6b); // k back up
   await pump();
-  assert.ok(lastFrame(s).includes("> HELD AH-1"), "the up arrow moves up");
-  s.input.bytes([0x1b, 0x5b, 0x41]);
+  assert.ok(lastFrame(s).includes("> HELD AH-1"), "k moves up");
+  s.input.bytes([0x1b, 0x5b, 0x41]); // up arrow on the first row
   await pump();
   assert.ok(lastFrame(s).includes("> HELD AH-1"), "up on the first row is a no-op (no wrap)");
-  s.input.key(0x6b); // k on the first row: a no-op too
-  await pump();
-  assert.ok(lastFrame(s).includes("> HELD AH-1"));
   s.input.key(0x71);
   await s.p;
 });
@@ -250,9 +251,10 @@ test("top-loop: a follow that settles on its own (the run ended) brings the dash
   await s.p;
 });
 
-test("top-loop: a rejecting follow shows its message as the hint line and top keeps running", async () => {
+test("top-loop: a rejecting follow shows its message as the hint line (cut to the width) and top keeps running", async () => {
+  const longMsg = `no run log for r1 — ${"x".repeat(200)}`;
   const s = await start({ seq: [selTick, selTick], follow: async () => {
-    throw new Error("no run log for r1");
+    throw new Error(longMsg);
   } });
   s.input.key(0x6a);
   s.input.key(0x6a);
@@ -260,7 +262,10 @@ test("top-loop: a rejecting follow shows its message as the hint line and top ke
   await pump();
   s.input.key(0x0d);
   await pump();
-  assert.ok(lastFrame(s).includes("no run log for r1"), "the error is the hint line");
+  const frame = lastFrame(s);
+  assert.ok(frame.includes("no run log for r1"), "the error is the hint line");
+  const hint = frame.split("\n").find((l) => l.includes("no run log for r1"));
+  assert.ok(hint && [...hint].length <= 60, "a long error is cut to the terminal width (60 columns here)");
   s.input.key(0x6b); // a move still works — top kept running
   await pump();
   assert.ok(lastFrame(s).includes("> PR AH-14"), "the selection moved (the hint cleared with it)");

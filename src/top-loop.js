@@ -19,7 +19,7 @@
 // restored exactly once, every listener is removed, and the loop resolves. Every side effect
 // is injected (out/input/readData/nextEvent/clock/timers/signal/follow); the only process
 // contact is the SIGINT/SIGTERM handlers, the stderr error print and the `exit`-hook safety net.
-import { build, detailLine, helpLines, hintLine, renderStrip, renderTop, selectable } from "./top.js";
+import { build, cut, detailLine, helpLines, hintLine, renderStrip, renderTop, selectable } from "./top.js";
 
 /** Max ms a no-event wait round runs before re-reading local state (bounded like watch's liveness round). */
 export const TOP_WAIT_MS = 10_000;
@@ -229,7 +229,9 @@ export async function runTop(o) {
       out.write(CLEAR + (step ? `following ${ref} ${step} — q/Ctrl-C back to top\n` : `following ${ref} — q/Ctrl-C back to top\n`));
       await o.follow?.(ref, { signal: followAc.signal, write: followWrite });
     } catch (e) {
-      if (!quitting && !failed) hint = String(e?.message || e);
+      // indented and cut like a hint line: a long message (e.g. an fs error with a path)
+      // must not push the frame past `out.rows`
+      if (!quitting && !failed) hint = cut(`  ${String(e?.message || e)}`, out.columns || 80);
     } finally {
       following = false;
       followAc = null;
