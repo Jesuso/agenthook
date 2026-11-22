@@ -24,7 +24,7 @@ Every page under `docs/`, grouped. New here? Start with the [Quickstart](quickst
 
 - [Configuration & ingress](configuration.md) — every config key and ingress type
 - [Profiles](profiles.md) — one config = one process = one state dir, side by side
-- [Operating agents](operating.md) — starting, replaying, following and cleaning up runs
+- [Operating agents](operating.md) — starting, replaying, following, watching (`agenthook top`) and cleaning up runs
 - [Web UI](web-ui.md) — the local dashboard
 - [Usage](usage.md) — token and cost tracking
 - [Events](events.md) — the append-only `events.jsonl` bus

@@ -260,8 +260,10 @@ Work starts when a ticket **enters a stage's inbox** (a section, status, label o
 `agenthook run <ref>` injects a backlog item; `catchup` / `reconcile` replay items missed while the
 receiver was down. Running agents are plain `claude -p` processes: list them with
 `agenthook agents`, tail one with `agenthook follow`, see tokens and cost with `agenthook usage`,
-and tear down finished worktrees with `agenthook cleanup`. Details:
-**[docs/operating.md](docs/operating.md)**. To drive the pipeline off the event bus instead of
+and tear down finished worktrees with `agenthook cleanup`. A live terminal glance of needs-you
+and running agents — full-screen or a fixed-height strip for a split pane — is `agenthook top`
+([docs/operating.md#watching-from-a-terminal-agenthook-top](docs/operating.md#watching-from-a-terminal-agenthook-top)).
+Details: **[docs/operating.md](docs/operating.md)**. To drive the pipeline off the event bus instead of
 polling, see [Event-driven delivery loop](docs/operating.md#event-driven-delivery-loop).
 
 ## Let other agents run it (MCP)
