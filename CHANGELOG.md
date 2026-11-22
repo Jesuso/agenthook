@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- New: `npm run check:overflow` — a real-browser horizontal-overflow check for the UI. It
+  serves the built bundle over a seeded fixture registry in headless Chromium
+  (`chromium-headless-shell` via the dev-only `playwright-core`) and fails, listing every
+  page/width/scheme (Home, Overview with *show all* on, Statistics, Epics, Config ×
+  1328/1366/1920/2560 px × light/dark) where the page or a guarded scroll container
+  (`[data-tickets-scroll]`, or the opt-in `data-overflow-guard` attribute) scrolls sideways.
+  It skips (exit 0) when the browser can't be downloaded or launched; with `CI` set the same
+  condition exits 1. Runs in its own `ui-overflow` CI job. `test/fixtures/ui/seed.js` gains an
+  opt-in `--long-titles` flag (unbreakable ~300-char titles, every optional column filled) —
+  the default seed is unchanged (#790).
+
 - Docs: a user guide for `agenthook top` in operating.md — the four ways to run it (full
   screen, `--lines N` strip, `--all`/multi-name, `--once` and non-TTY), what a row shows, and
   the full-screen key table (the strip only takes `q`/Ctrl-C); one pointer sentence in the

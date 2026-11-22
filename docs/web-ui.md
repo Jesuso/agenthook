@@ -180,6 +180,29 @@ Dependency policy:
   serves the stale bundle; `ah doctor` warns (⚠, not a failure).
 - Licenses restricted to MIT / Apache-2.0 / BSD / ISC, enforced in CI.
 
+## Horizontal-overflow check
+
+`npm run check:overflow` (builds the UI first) serves `ui/dist` over a seeded throwaway
+registry (`test/fixtures/ui/seed.js --bulk 60 --long-titles`) in an in-process `createUiServer`
+and drives **real headless Chromium** — `chromium-headless-shell` via the dev-only
+`playwright-core` dependency — through every route: Home, Overview (with *show all* checked),
+Statistics, Epics and Config, at **1328, 1366, 1920 and 2560 px × light/dark**. The scheme is
+emulated with `colorScheme` (the theme comes only from `prefers-color-scheme`; there is no
+toggle). It fails, listing one line per page/width/scheme, where something scrolls sideways:
+
+- the page itself: `document.documentElement.scrollWidth > clientWidth`;
+- every **guarded container** — `[data-tickets-scroll]` (the tickets table's scroll box, where
+  the #759 sideways scroll lived) and any element with the opt-in **`data-overflow-guard`**
+  attribute, for containers that must never scroll sideways at desktop widths.
+
+Containers that scroll sideways by design (app-bar nav, config tabs, harnesses card, copy
+commands) are deliberately **not** checked. The browser is downloaded on first use into
+playwright's cache (`~/.cache/ms-playwright`, override with `PLAYWRIGHT_BROWSERS_PATH`). If it
+can't be downloaded or launched (offline sandbox, egress blocked, missing shared libraries),
+the script prints exactly one line starting `skipped: no browser available` and exits **0** —
+except when `CI` is set, where the same condition exits **1**, so CI never goes green by
+skipping. CI runs it as its own `ui-overflow` job (`.github/workflows/ci.yml`).
+
 ## Phases
 
 ### v1 — read-only dashboard (the PoC)
