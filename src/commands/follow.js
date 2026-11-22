@@ -106,9 +106,24 @@ export async function follow(args) {
   console.log(`following: ${path.basename(file)}  (Ctrl+C to stop — agent keeps running)`);
   console.log("────────────────────────────────────────────────────────");
 
-  // Render the tail of what's already there, then stream appended lines.
+  // The tail loop, shared with `top`'s follow (#797), with the transcript renderer and a
+  // never-aborting signal (this command blocks until Ctrl-C, as before).
+  await tailFile(file, { signal: new AbortSignal(), write: (s) => console.log(s), render });
+}
+
+/**
+ * The shared tail loop: print the last `initialLines` lines of `file` through `render`,
+ * then stream appended lines through it as `fs.watch` fires (tolerating a truncated/
+ * rotated file). Resolves when `signal` aborts, closing the watcher. `write` is left to the
+ * caller's renderer (the command's `render` writes itself) — it is the channel a caller uses
+ * when it renders on its own.
+ * @param {string} file the file to tail (it must exist)
+ * @param {{signal: AbortSignal, write: (s: string) => unknown, initialLines?: number, render?: (line: string) => void}} o
+ * @returns {Promise<void>}
+ */
+export async function tailFile(file, { signal, write, initialLines = 15, render = (l) => write(l + "\n") }) {
   const initial = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
-  for (const l of initial.slice(-15)) render(l);
+  for (const l of initial.slice(-initialLines)) render(l);
 
   let pos = fs.statSync(file).size;
   let buf = "";
@@ -128,7 +143,12 @@ export async function follow(args) {
       buf = buf.slice(nl + 1);
     }
   };
-  fs.watch(file, { persistent: true }, drain);
-  // Keep the process alive until Ctrl+C.
-  await new Promise(() => {});
+  const watcher = fs.watch(file, { persistent: true }, drain);
+  try {
+    if (!signal.aborted) {
+      await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+    }
+  } finally {
+    watcher.close();
+  }
 }

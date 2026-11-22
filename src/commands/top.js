@@ -6,9 +6,18 @@
 // (src/top.js `renderStrip`) — for a split terminal pane. Without a TTY — or with `--once` —
 // it prints the one-shot view (src/top.js `renderTop`, or the strip) and exits. Always local
 // state only: no board/PR reads, never through `live(...)` — the no-polling rule.
-import { defaultProfileKey, eventsCursor, pickProfile, readTick, waitForEvents } from "../agent-api.js";
+import { defaultProfileKey, eventsCursor, pickProfile, readRuns, readTick, waitForEvents } from "../agent-api.js";
+import { registryDir } from "../config.js";
+import { resolveRunLog } from "../ui/logs.js";
 import { runTop } from "../top-loop.js";
 import { renderStrip, renderTop } from "../top.js";
+import { tailFile } from "./follow.js";
+
+/** Bounded wait round for the follow's run_end wait (the same bounded-round pattern the loop uses). */
+const FOLLOW_WAIT_MS = 10_000;
+
+/** The run_end types the follow's bus wait filters on. */
+const RUN_END_TYPES = new Set(["run_end"]);
 
 /**
  * The live loop's data source: re-resolve the profile (fresh `up` — a long-lived loop must
@@ -40,6 +49,50 @@ async function once(entry, lines = 0) {
 function stripLines(v) {
   const n = Number(v);
   return Number.isInteger(n) && n >= 2 ? n : "bad";
+}
+
+/**
+ * Block until a `run_end` for `ref` lands on the profile's bus (or the signal aborts): the
+ * same bounded `waitForEvents` round the loop itself uses — fs.watch-driven, no re-read timer
+ * for data.
+ * @param {string} dir the profile's state dir
+ * @param {string} ref
+ * @param {AbortSignal} signal
+ */
+async function waitRunEnd(dir, ref, signal) {
+  let cursor = eventsCursor(dir);
+  for (;;) {
+    const r = await waitForEvents(dir, cursor, { types: RUN_END_TYPES, ref, timeoutMs: FOLLOW_WAIT_MS, signal });
+    cursor = r.cursor;
+    if (r.events.length) return;
+    if (signal.aborted) return;
+  }
+}
+
+/**
+ * The live loop's Enter-follow (#797): tail the ref's current run log — the first `running`
+ * run from `readRuns` → `resolveRunLog` — as plain text. It ends when the profile's bus
+ * delivers a `run_end` for that ref, or when the user aborts (`signal`). Local state only:
+ * no tracker/forge read. Throws (the loop shows the message as the hint) when the ref has
+ * no readable run log.
+ * @param {string} ref
+ * @param {ReturnType<typeof import('../heartbeat.js').readProfile>} entry
+ * @param {{signal: AbortSignal, write: (s: string) => unknown}} o
+ */
+async function followRunLog(ref, entry, { signal, write }) {
+  const runs = readRuns(entry.stateKey, ref, entry.dir);
+  const run = runs.find((r) => r.running);
+  const file = run ? resolveRunLog(registryDir, entry.stateKey, run.run) : null;
+  if (!file) throw new Error(`no run log for ${ref}`);
+  const ac = new AbortController(); // ends the tail when the run does (or the user aborts)
+  const onAbort = () => ac.abort();
+  signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    await Promise.all([tailFile(file, { signal: ac.signal, write }), waitRunEnd(entry.dir, ref, signal)]);
+  } finally {
+    ac.abort();
+    signal.removeEventListener("abort", onAbort);
+  }
 }
 
 /** @param {{once?: boolean, lines?: unknown, _?: string[], config?: string}} args */
@@ -77,5 +130,8 @@ export async function top(args) {
       return r;
     },
     ...(lines ? { lines } : {}),
+    // Enter on a running row tails that ref's run log (local state only; #797) and returns to
+    // the dashboard on the run's run_end or on q.
+    follow: (ref, o) => followRunLog(ref, entry, o),
   });
 }
