@@ -67,6 +67,35 @@ function row(mk, r, el, width, color) {
 }
 
 /**
+ * The header + rows both renderers share. `header` is the (color-applied) line 0;
+ * `needs` the needs-you rows (held → failed → PR) and `running` the running rows —
+ * neither includes the queued-count line (the header already carries that count).
+ * @param {TopTick} t
+ * @param {{width?: number, now?: number, color?: boolean}} [o]
+ * @returns {{header: string, needs: string[], running: string[]}}
+ */
+function build(t, { width = 80, now, color = false } = {}) {
+  const s = t.slots ?? {};
+  const held = t.held ?? [];
+  const failed = t.failed ?? [];
+  const prWaiting = t.prWaiting ?? [];
+  const running = t.running ?? [];
+  const needsYou = held.length + failed.length + prWaiting.length;
+  const header = cut(`${t.profile} ${t.up ? "up" : "down"} · agents ${s.active ?? 0}/${s.max ?? "?"} · ${s.queued ?? 0} queued · ${needsYou} needs you`, width);
+  /** @param {string} mk @param {RowEntry} r @param {string} el */
+  const line = (mk, r, el) => row(mk, r, el, width, color);
+  /** @type {string[]} */
+  const needs = [];
+  for (const r of held) needs.push(line("HELD", r, age(ageFrom(r.since, now))));
+  for (const r of failed) needs.push(line("FAIL", r, age(ageFrom(r.at, now))));
+  for (const r of prWaiting) needs.push(line("PR", r, age(ageFrom(r.at, now))));
+  /** @type {string[]} */
+  const runs = [];
+  for (const r of running) runs.push(line("RUN", r, age(r.ageS ?? null)));
+  return { header: color ? `\u001b[1m${header}\u001b[0m` : header, needs, running: runs };
+}
+
+/**
  * Render the one-shot glance. Line 0 is always the header:
  * `<profile> up|down · agents <active>/<max or ?> · <queued> queued · <N> needs you`,
  * N = held + failed + prWaiting. With `up:false` it returns the header alone.
@@ -75,21 +104,37 @@ function row(mk, r, el, width, color) {
  * @returns {string[]}
  */
 export function renderTop(t, { width = 80, now, color = false } = {}) {
-  const s = t.slots ?? {};
-  const held = t.held ?? [];
-  const failed = t.failed ?? [];
-  const prWaiting = t.prWaiting ?? [];
-  const running = t.running ?? [];
-  const needsYou = held.length + failed.length + prWaiting.length;
-  const header = cut(`${t.profile} ${t.up ? "up" : "down"} · agents ${s.active ?? 0}/${s.max ?? "?"} · ${s.queued ?? 0} queued · ${needsYou} needs you`, width);
-  const lines = [color ? `\u001b[1m${header}\u001b[0m` : header];
+  const { header, needs, running } = build(t, { width, now, color });
+  const lines = [header];
   if (!t.up) return lines;
-  /** @param {string} mk @param {RowEntry} r @param {string} el */
-  const push = (mk, r, el) => lines.push(row(mk, r, el, width, color));
-  for (const r of held) push("HELD", r, age(ageFrom(r.since, now)));
-  for (const r of failed) push("FAIL", r, age(ageFrom(r.at, now)));
-  for (const r of prWaiting) push("PR", r, age(ageFrom(r.at, now)));
-  for (const r of running) push("RUN", r, age(r.ageS ?? null));
-  if ((s.queued ?? 0) > 0) lines.push(color ? `  \u001b[1m${s.queued} queued\u001b[0m` : `  ${s.queued} queued`);
+  lines.push(...needs, ...running);
+  const queued = t.slots?.queued ?? 0;
+  if (queued > 0) lines.push(color ? `  \u001b[1m${queued} queued\u001b[0m` : `  ${queued} queued`);
   return lines;
+}
+
+/**
+ * Render the strip (#796): the glance cut to at most `lines` lines for a fixed-height
+ * terminal pane. Line 0 is the same header as `renderTop`'s line 0 (the queued count lives
+ * in it — there is no queued line here). Rows are needs-you (held → failed → PR), then
+ * running; when they don't fit the last line is `  +K more · A needs you · B running`
+ * (K hidden rows, A/B the hidden needs-you / running split, both counts always printed).
+ * With `up:false` or `lines <= 1` it returns the header alone. Never returns more than
+ * `lines` lines.
+ * @param {TopTick} t a status/tick payload (src/agent-api.js `readTick`)
+ * @param {{lines: number, width?: number, now?: number, color?: boolean}} o `lines` the strip height (≥ 1); `now` (ms) as `renderTop`
+ * @returns {string[]}
+ */
+export function renderStrip(t, { lines, width = 80, now, color = false }) {
+  const { header, needs, running } = build(t, { width, now, color });
+  if (!t.up || lines <= 1) return [header];
+  const rows = [...needs, ...running];
+  const budget = lines - 1; // the header's line
+  if (rows.length <= budget) return [header, ...rows];
+  const shown = budget - 1; // leave the last line for the overflow summary
+  const out = [header, ...rows.slice(0, shown)];
+  const a = needs.length - Math.min(needs.length, shown); // hidden needs-you rows
+  const k = rows.length - shown; // hidden rows
+  out.push(cut(`  +${k} more · ${a} needs you · ${k - a} running`, width));
+  return out;
 }
