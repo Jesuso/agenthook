@@ -225,7 +225,8 @@ export async function runTop(o) {
     following = true;
     followAc = new AbortController();
     try {
-      out.write(CLEAR + (step ? `following ${ref} ${step} — q/Ctrl-C back to top` : `following ${ref} — q/Ctrl-C back to top`));
+      // the trailing newline is on purpose: the first tail line would otherwise land on the banner's line
+      out.write(CLEAR + (step ? `following ${ref} ${step} — q/Ctrl-C back to top\n` : `following ${ref} — q/Ctrl-C back to top\n`));
       await o.follow?.(ref, { signal: followAc.signal, write: followWrite });
     } catch (e) {
       if (!quitting && !failed) hint = String(e?.message || e);

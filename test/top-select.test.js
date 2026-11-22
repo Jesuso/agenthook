@@ -78,8 +78,8 @@ test("top: detailLine — id/ref, step, title; harness/model only for running (e
 test("top: hintLine — the per-kind hints name only commands that exist; running returns ''", () => {
   const [held, failed, pr] = selectable(selTick());
   assert.equal(hintLine(held), '  held — reply "@agent <answer>" on the ticket, or release it in agenthook ui');
-  assert.equal(hintLine(failed, { width: 120 }), "  failed at code — retry: agenthook run AH-13 code --force (or Retry in agenthook ui)");
-  assert.equal(hintLine(pr, { width: 120 }), "  PR awaiting you — https://gh/pull/1 · agenthook recheck AH-14 if it already merged/closed");
+  assert.equal(hintLine(failed, { width: 120 }), "  failed at code — retry: agenthook run f1 code --force (or Retry in agenthook ui)");
+  assert.equal(hintLine(pr, { width: 120 }), "  PR awaiting you — https://gh/pull/1 · agenthook recheck p1 if it already merged/closed");
   const noPr = UP({ prWaiting: [{ ref: "p9", at: iso(NOW - 60e3) }] });
   assert.equal(hintLine(selectable(noPr)[0]), "  PR awaiting you — agenthook recheck p9 if it already merged/closed", "no URL, the ref is named");
   assert.equal(hintLine({ kind: "running", entry: { ref: "r1" } }), "");
@@ -182,12 +182,12 @@ test("top-loop: Enter on a non-running row shows the hint; the follow and readDa
   assert.ok(!lastFrame(s).includes("release it"), "a move clears the shown hint");
   s.input.key(0x0d);
   await pump();
-  assert.ok(lastFrame(s).includes("failed at code — retry: agenthook run AH-13 code --force"), "the failed hint line");
+  assert.ok(lastFrame(s).includes("failed at code — retry: agenthook run f1 code --force"), "the failed hint line");
   s.input.key(0x6a); // move to the PR row
   await pump();
   s.input.key(0x0d);
   await pump();
-  assert.ok(lastFrame(s).includes("PR awaiting you — https://gh/pull/1 · agenthook recheck AH-14"), "the PR hint line names the URL");
+  assert.ok(lastFrame(s).includes("PR awaiting you — https://gh/pull/1 · agenthook recheck p1"), "the PR hint line names the URL");
   assert.equal(follow.calls.length, 0);
   s.input.key(0x71);
   await s.p;
@@ -207,7 +207,7 @@ test("top-loop: Enter on a running row follows it; the dashboard is frozen while
   assert.equal(follow.calls.length, 1, "the injected follow was called");
   assert.equal(follow.calls[0].ref, "r1");
   const buf = s.out.text();
-  assert.ok(buf.includes("following r1 code — q/Ctrl-C back to top"), "the one-line banner");
+  assert.ok(buf.includes("following r1 code — q/Ctrl-C back to top\n"), "the one-line banner ends its line (a tail line follows on its own)");
   assert.ok(buf.includes("line-one") && buf.includes("line-two"), "the follow's tail was written");
   // nothing draws the dashboard while the follow owns the screen
   s.timers.fire();
@@ -361,9 +361,11 @@ test("follow: tailFile prints the last N lines, streams appends, and resolves on
 test("top: followRunLog tails the ref's current run log, ends on its run_end or the user's abort, and throws without one", async () => {
   const dir = path.join(registryDir, "topflw");
   fs.mkdirSync(path.join(dir, "logs"), { recursive: true });
-  fs.writeFileSync(path.join(dir, "running.json"), JSON.stringify({ r1: { stepId: "code", startedAt: iso(NOW - 60e3) } }));
+  fs.writeFileSync(path.join(dir, "running.json"), JSON.stringify({ r1: { stepId: "code", startedAt: iso(NOW - 60e3) }, r2: { stepId: "code", startedAt: iso(NOW - 60e3) } }));
   const run = "2025-06-01T11-58-00-000Z-step-code-r1.log"; // RUN_RE-shaped, step `code` for ref `r1`
   fs.writeFileSync(path.join(dir, "logs", run), "line-a\nline-b\n");
+  const run2 = "2025-06-01T11-58-00-000Z-step-code-r2.log"; // a second ref, still running (the run_end below only marks r1)
+  fs.writeFileSync(path.join(dir, "logs", run2), "line-r2\n");
   const entry = { stateKey: "topflw", dir };
   try {
     // the user-abort case
@@ -391,6 +393,26 @@ test("top: followRunLog tails the ref's current run log, ends on its run_end or 
     }
     // a ref with no running run (and no log) throws — the loop shows it as the hint
     await assert.rejects(followRunLog("rX", entry, { signal: new AbortController().signal, write: () => {} }), /no run log for rX/);
+    // a rejecting tail settles followRunLog and takes the run_end wait down with it — the wait
+    // runs on `ac.signal`, so the abort in the finally can't leave it re-arming 10 s waitForEvents
+    // rounds (and a dir watcher) after `q`. Ref r2: by here r1's run is already marked ended by
+    // the run_end event above, so r1 would throw "no run log" instead of reaching the tail.
+    {
+      const ac = new AbortController();
+      const p = followRunLog("r2", entry, { signal: ac.signal, write: () => { throw new Error("tail broke"); } });
+      const outcome = await Promise.race([p.then(() => "resolved", (e) => e), new Promise((r) => setTimeout(() => r("pending"), 3000))]);
+      try {
+        assert.ok(outcome instanceof Error && /tail broke/.test(outcome.message), "a rejecting tail settles followRunLog");
+        await new Promise((r) => setTimeout(r, 100)); // let the wait's abort listener fire
+        // `fs.watch` shows up as an FSEventWrap in the active resources
+        const resources = process.getActiveResourcesInfo();
+        assert.ok(!resources.includes("FSEventWrap"), `no leaked run_end watcher (active: ${resources.join(", ") || "none"})`);
+      } finally {
+        // after the check: kill the wait even if the assertion failed — a broken build waits on
+        // this signal and would otherwise keep the process (and the test run) alive
+        ac.abort();
+      }
+    }
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

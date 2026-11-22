@@ -209,12 +209,14 @@ export function hintLine(sel, { width = 80 } = {}) {
       h = 'held — reply "@agent <answer>" on the ticket, or release it in agenthook ui';
       break;
     case "failed":
-      h = `failed at ${r.step ?? "?"} — retry: agenthook run ${r.id ?? r.ref} ${r.step ?? ""} --force (or Retry in agenthook ui)`;
+      // the ref, not the display id: the hint names commands you paste into a shell, and
+      // a tracker id (`#797`, `ID-1234`) isn't a valid argument to them
+      h = `failed at ${r.step ?? "?"} — retry: agenthook run ${r.ref} ${r.step ?? ""} --force (or Retry in agenthook ui)`;
       break;
     case "pr":
       h = r.pr
-        ? `PR awaiting you — ${r.pr} · agenthook recheck ${r.id ?? r.ref} if it already merged/closed`
-        : `PR awaiting you — agenthook recheck ${r.id ?? r.ref} if it already merged/closed`;
+        ? `PR awaiting you — ${r.pr} · agenthook recheck ${r.ref} if it already merged/closed`
+        : `PR awaiting you — agenthook recheck ${r.ref} if it already merged/closed`;
       break;
     default:
       return "";

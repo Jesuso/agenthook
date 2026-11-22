@@ -62,9 +62,11 @@ function stripLines(v) {
  * @param {string} dir the profile's state dir
  * @param {string} ref
  * @param {AbortSignal} signal
+ * @param {number} [startCursor] the events cursor captured before the run log was resolved,
+ * so a run_end appended in between is not skipped
  */
-async function waitRunEnd(dir, ref, signal) {
-  let cursor = eventsCursor(dir);
+async function waitRunEnd(dir, ref, signal, startCursor) {
+  let cursor = startCursor ?? eventsCursor(dir);
   for (;;) {
     const r = await waitForEvents(dir, cursor, { types: RUN_END_TYPES, ref, timeoutMs: FOLLOW_WAIT_MS, signal });
     cursor = r.cursor;
@@ -84,6 +86,8 @@ async function waitRunEnd(dir, ref, signal) {
  * @param {{signal: AbortSignal, write: (s: string) => unknown}} o
  */
 export async function followRunLog(ref, entry, { signal, write }) {
+  // the cursor first, before readRuns/resolveRunLog: a run_end appended in between must not be skipped
+  const cursor = eventsCursor(entry.dir);
   const runs = readRuns(entry.stateKey, ref, entry.dir);
   const run = runs.find((r) => r.running);
   const file = run ? resolveRunLog(registryDir, entry.stateKey, run.run) : null;
@@ -95,7 +99,9 @@ export async function followRunLog(ref, entry, { signal, write }) {
     await Promise.all([
       tailFile(file, { signal: ac.signal, write }),
       // the run's run_end settles the wait — abort the tail with it (the tail is what waits on `ac`).
-      waitRunEnd(entry.dir, ref, signal).then(() => ac.abort()),
+      // `ac.signal` — not the caller's — so a rejecting tail can't leave the wait re-arming
+      // waitForEvents rounds alive after followRunLog settles.
+      waitRunEnd(entry.dir, ref, ac.signal, cursor).then(() => ac.abort()),
     ]);
   } finally {
     ac.abort();
