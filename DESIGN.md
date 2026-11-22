@@ -199,7 +199,8 @@ which is the source of truth and is enforced by `ui/src/tokens.test.ts`.
 - **Night Apron** (bg): the page field behind everything.
 - **Hangar Slate** (surface): cards, the app bar, the board's rows.
 - **Raised Slate** (surface-raised): hover fills, neutral pills, the active nav tab.
-- **Overlay Slate** (overlay): drawers, menus, popovers.
+- **Overlay Slate** (overlay): the lightest tier, kept in reserve. No component uses it today:
+  menus and popovers sit on Raised Slate, the ticket drawer on Hangar Slate.
 - **Hairline / Rule / Strong Rule** (border-subtle, border, border-strong): internal dividers, card
   outlines, emphasised edges.
 - **Board White** (fg): titles and body text.
@@ -239,6 +240,10 @@ cool slate toward warm neutrals in a future pass, keeping every AA guarantee and
 identity palettes intact. Until that pass lands, use the tokens as they are; don't hand-tint
 individual surfaces.
 
+One warm option already exists and is the reader's choice, not the default: the reading panel can
+switch the page and panel backgrounds to a warm pair (`data-ah-bg="warm"` in `ui/src/index.css`),
+and every text tier keeps AA on it.
+
 ## Typography
 
 **Body Font:** the system sans stack (ui-sans-serif, system-ui, sans-serif)
@@ -274,19 +279,21 @@ The profile Overview is the board, with its reading zones in a right rail from 1
 side under the board below that. Forms (Config, Instructions) keep a readable cap. Spacing is a 4px base scale. Lists are full-width rows inside a
 bordered card, divided by hairlines, with fixed-width columns for state, step and age, and the action
 so they align down the board; the title column flexes. Breakpoints follow Tailwind's defaults
-(`sm` 640px, `md` 768px, `lg` 1024px); the app bar wraps its nav below `lg`. Tiles flow in a wrapping
+(`sm` 640px, `md` 768px, `lg` 1024px, `xl` 1280px, `2xl` 1536px); the app bar wraps its nav below
+`lg`. The right rail is `clamp(22rem, 20vw, 30rem)` wide. A ticket list measures its own card, not
+the window (a container query at 56rem): in a narrow card the secondary columns fold under the title. Tiles flow in a wrapping
 row. The layout is tuned for a wide second screen first; narrow widths must keep the title and
 reason readable before they keep secondary columns.
 
 ## Elevation & Depth
 
-Flat by default. Depth is tonal: Night Apron, then Hangar Slate, then Raised Slate, then Overlay
-Slate, each a step lighter, with hairline borders doing the separating. Shadows exist only on layers
+Flat by default. Depth is tonal: Night Apron, then Hangar Slate, then Raised Slate, each a step
+lighter, with hairline borders doing the separating. Shadows exist only on layers
 that float above the board.
 
 ### Shadow Vocabulary
-- **Float** (`shadow-lg`): menus, tooltips, popovers.
-- **Drawer** (`shadow-xl`): the ticket drawer and modal dialogs.
+- **Float** (`shadow-lg`): menus, tooltips, popovers, on Raised Slate.
+- **Drawer** (`shadow-xl`): the ticket drawer, on Hangar Slate.
 
 ### Named Rules
 **The Flat Board Rule.** Nothing on the board itself casts a shadow. If it sits in the page flow, it
@@ -339,6 +346,17 @@ The unit of the whole system. State badge, mono ticket id (linked to the tracker
 one-line reason beneath it, "step · age" in muted, and one action button in a fixed-width column.
 Clicking the title opens the ticket drawer. Every list of tickets (Needs you, Now, All tickets)
 follows this anatomy.
+
+### Ticket drawer
+The second level of depth: opened from any ticket title, closed with Esc or its × button, and kept in
+the address (`?t=<ref>`) so Back and reload behave. A panel on the right edge, Hangar Slate with a
+left Rule and the Drawer shadow, 720px wide from `md` and the full width below it, over a scrim
+that dims the page. It is a modal dialog: focus moves in on open and returns to the row on close.
+
+### Reading panel
+The "Aa" control in the app bar. Reader-chosen text size (three steps up from the base scale), wider
+letter and word spacing, a shorter line for rendered prose, and the warm background. It changes
+prose only: monospace keeps its size and spacing.
 
 ### Slot pips (signature)
 A row of small dots showing busy versus free agent slots for a profile, beside "n / max".
