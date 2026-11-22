@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-24T16:42:33.316Z",
+  "generatedAt": "2026-11-22T22:55:35.417Z",
   "title": "Design System: agenthook",
   "extensions": {
     "colorMeta": {
@@ -538,6 +538,10 @@
         "displayName": "Stat",
         "purpose": "Headline numbers in tiles."
       },
+      "heading": {
+        "displayName": "Heading",
+        "purpose": "The subject of a detail page, under the page title. One per page."
+      },
       "title": {
         "displayName": "Title",
         "purpose": "Page and profile headings, app name."
@@ -567,15 +571,45 @@
       {
         "name": "float",
         "value": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
-        "purpose": "Menus, tooltips, popovers (Tailwind shadow-lg)."
+        "purpose": "Menus, tooltips, popovers, on Raised Slate (Tailwind shadow-lg)."
       },
       {
         "name": "drawer",
         "value": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",
-        "purpose": "Ticket drawer and modals (Tailwind shadow-xl)."
+        "purpose": "The ticket drawer, on Hangar Slate (Tailwind shadow-xl)."
       }
     ],
     "motion": [
+      {
+        "name": "enter-fade",
+        "value": "160ms ease-out",
+        "purpose": "Answers a click: an opened section, a picked tab or view, an expanded step card. Fade with a 3px rise; fade only under reduced motion."
+      },
+      {
+        "name": "drawer-in",
+        "value": "260ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "The ticket drawer slides in 24px from its edge; a 120ms fade under reduced motion."
+      },
+      {
+        "name": "drawer-scrim",
+        "value": "160ms ease-out",
+        "purpose": "The scrim behind the drawer fades in."
+      },
+      {
+        "name": "mark-slide",
+        "value": "420ms",
+        "purpose": "A ticket that changes step slides its mark to the new column (ui/src/motion.ts). Never on first paint or in a hidden tab."
+      },
+      {
+        "name": "row-arrive",
+        "value": "320ms ease-out",
+        "purpose": "A row that turns up while the operator watches fades in."
+      },
+      {
+        "name": "needs-arrive",
+        "value": "1500ms ease-out",
+        "purpose": "A row that starts needing the operator is washed once in the held hue. The only motion that asks for attention."
+      },
       {
         "name": "status-pulse",
         "value": "1.6s ease-in-out infinite",
@@ -599,6 +633,14 @@
       {
         "name": "lg",
         "value": "1024px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      },
+      {
+        "name": "2xl",
+        "value": "1536px"
       }
     ]
   },
@@ -670,7 +712,7 @@
   ],
   "narrative": {
     "northStar": "The Air Traffic Board",
-    "overview": "The dashboard is a departures board for agent work. Every ticket is a flight: one row, the same\ncolumns in the same place every time (state, id, title, step and age, the one action), so the eye\nlearns the board once and then only reads what changed. Colour means state and nothing else. A calm\nboard is a dark, even field of quiet rows; when something needs a human, that row is the only thing\non the screen that lights up. It is built to sit on a second monitor and be read in a glance from\nacross the desk.\n\nDensity is high and type is small (13px body), because the operator is technical and the board must\nhold a whole profile without scrolling. Restraint is the default: flat tonal surfaces, hairline\nborders, outline buttons, uppercase section labels in a muted tone. Emphasis is rationed so it keeps\nits meaning.\n\nThe board is meant to feel humane, not clinical. Warmth comes first through words and moments:\nplain-language reasons on every held or failed row, an explicit \"all clear\" when nothing needs you,\na quiet confirmation after an action instead of a row silently vanishing. The current palette is a\ncool slate; a shift toward warm neutrals is the recorded direction (see Colors), not yet the\nimplementation. Dark is primary and light is first-class: both follow the system scheme, and every\ntext and status tier holds WCAG AA in both.",
+    "overview": "The dashboard is a departures board for agent work. Every ticket is a flight: one row, the same columns in the same place every time (state, id, title, step and age, the one action), so the eye learns the board once and then only reads what changed. Colour means state and nothing else. A calm board is a dark, even field of quiet rows; when something needs a human, that row is the only thing on the screen that lights up. It is built to sit on a second monitor and be read in a glance from across the desk.\n\nDensity is high and type is small (13px body), because the operator is technical and the board must hold a whole profile without scrolling. Restraint is the default: flat tonal surfaces, hairline borders, outline buttons, uppercase section labels in a muted tone. Emphasis is rationed so it keeps its meaning.\n\nThe board is meant to feel humane, not clinical. Warmth comes first through words and moments: plain-language reasons on every held or failed row, an explicit \"all clear\" when nothing needs you, a quiet confirmation after an action instead of a row silently vanishing. The current palette is a cool slate; a shift toward warm neutrals is the recorded direction (see Colors), not yet the implementation. Dark is primary and light is first-class: both follow the system scheme, and every text and status tier holds WCAG AA in both.",
     "keyCharacteristics": [
       "One ticket, one row, columns that line up across every list.",
       "Status hues reserved for state; profile hues reserved for identity.",
@@ -723,16 +765,16 @@
       "Do use monospace for ids, paths, durations, money and model names.",
       "Do give every interactive element the 2px Runway Blue `:focus-visible` outline.",
       "Do keep surfaces flat and tonal; shadows only on menus, popovers and drawers.",
-      "Do say something humane when a list is empty or an action completes (\"all clear\", \"released,",
+      "Do say something humane when a list is empty or an action completes (\"all clear\", \"released, re-running code\").",
       "Do check every new colour against `ui/src/tokens.test.ts` in both schemes."
     ],
     "donts": [
       "Don't put faint (#6b7483) on any text a person must read.",
-      "Don't use a filled accent button for more than one action per surface, or for an action that",
+      "Don't use a filled accent button for more than one action per surface, or for an action that only reads.",
       "Don't colour a profile, a button or a decoration with a status hue.",
       "Don't mix heading styles (uppercase label, sentence case, lowercase) within one page.",
       "Don't add shadows to cards or rows on the board.",
-      "Don't hand-tint surfaces toward warm before the Warm Drift pass; change the tokens, not the"
+      "Don't hand-tint surfaces toward warm before the Warm Drift pass; change the tokens, not the components."
     ]
   }
 }
