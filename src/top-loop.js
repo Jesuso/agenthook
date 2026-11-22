@@ -179,7 +179,9 @@ export async function runTop(o) {
     if (multi) {
       // No global queued line (each block carries its own); the bottom is detail, hint, help.
       if (selIdx < 0) {
-        const lines = renderAll(tickAll(), { width, now: now(), color });
+        // No selectable rows — the fit rules still apply (idle blocks collapse to their
+        // headers, then a `  +K more profiles` line); nothing else draws under the blocks.
+        const lines = renderAll(tickAll(), { width, now: now(), color, height: rowsH });
         out.write("\u001b[H\u001b[2J" + lines.slice(0, rowsH).join("\n"));
         return;
       }
@@ -332,8 +334,13 @@ export async function runTop(o) {
     }
   };
 
-  /** Redraw at the new size; a throwing render ends the loop through the error path. */
-  const onResize = () => safe(draw);
+  /** Redraw at the new size; a throwing render ends the loop through the error path. In multi
+   * mode the shown rows depend on the terminal size (the fit rules), so the selection is
+   * re-clamped to a visible row before the redraw. */
+  const onResize = () => safe(() => {
+    if (multi) resyncSelection();
+    draw();
+  });
 
   /** @param {unknown} buf a key chunk (a Buffer from a raw TTY stream, or a string). `q`/Ctrl-C
    * quit (or, while a follow owns the screen, abort only the follow). Full mode adds `j`/`k`,
@@ -362,6 +369,8 @@ export async function runTop(o) {
       else if (b === 0x0d || b === 0x0a) act(); // Enter (CR or LF)
       else if (b === 0x3f) {
         showHelp = !showHelp;
+        // the help lines change the multi frame's height — re-clamp the selection to a visible row
+        if (multi) resyncSelection();
         safe(draw);
       }
     }

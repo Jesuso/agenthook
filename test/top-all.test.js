@@ -228,6 +228,46 @@ test("top-loop multi strip: --lines N frame per the fit rules, in-place repaint,
   assert.equal(s.out.text().split("\u001b[?25h").length - 1, 1, "quitting shows the cursor exactly once");
 });
 
+test("top-loop multi full: no selectable rows — idle profiles collapse to headers, the fit rules still apply", async () => {
+  const idle = () => Array.from({ length: 8 }, (_, i) => tick(`p${i}`, { slots: { max: 2, active: 0, queued: 3 } }));
+  const s = await start({ multi: true, out: makeOut({ rows: 5 }), seq: [idle] });
+  const frame = frameLines(s.out.frames().at(-1));
+  assert.deepEqual(
+    frame,
+    [
+      "p0 up · agents 0/2 · 3 queued · 0 needs you",
+      "p1 up · agents 0/2 · 3 queued · 0 needs you",
+      "p2 up · agents 0/2 · 3 queued · 0 needs you",
+      "p3 up · agents 0/2 · 3 queued · 0 needs you",
+      "  +4 more profiles",
+    ],
+    "4 collapsed headers + the +4 more line — the idle queued lines never show, the frame fits rows=5",
+  );
+  assert.ok(frame.length <= 5);
+  s.input.key(0x71);
+  await s.p;
+});
+
+test("top-loop multi full: shrinking the terminal re-clamps the selection to a visible row", async () => {
+  const s = await start({
+    multi: true,
+    seq: [() => [tick("pa", { held: [held("h1")] }), tick("pb", { held: [held("h2", 1)] })]],
+  });
+  s.input.key(0x6a); // j → pb's held row
+  await pump();
+  const f0 = frameLines(s.out.frames().at(-1));
+  assert.ok(f0.some((l) => l.startsWith("> ") && l.includes("AH-2")), "pb's held row is selected");
+  s.out.rows = 4; // shrink: only pa's block fits, pb goes behind the +1 line
+  s.out.emitResize();
+  await pump();
+  const f1 = frameLines(s.out.frames().at(-1));
+  assert.equal(f1.filter((l) => l.startsWith("> ")).length, 1, "the selection is re-clamped to a visible row, not lost");
+  assert.ok(f1.some((l) => l.startsWith("  pa · AH-1")), "the detail line follows the re-clamped selection");
+  assert.ok(f1.length <= 4, "the frame fits the shrunken screen");
+  s.input.key(0x71);
+  await s.p;
+});
+
 // ---------------------------------------------------------------- command + CLI
 
 /** Plant a profile state dir under the isolated test registry root. */
