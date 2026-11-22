@@ -108,7 +108,7 @@ export async function follow(args) {
 
   // The tail loop, shared with `top`'s follow (#797), with the transcript renderer and a
   // never-aborting signal (this command blocks until Ctrl-C, as before).
-  await tailFile(file, { signal: new AbortSignal(), write: (s) => console.log(s), render });
+  await tailFile(file, { signal: new AbortController().signal, write: (s) => console.log(s), render });
 }
 
 /**

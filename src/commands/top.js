@@ -1,11 +1,15 @@
 // `agenthook top [name]` — the operator's live glance of a profile: a header plus the
 // needs-you items (held → failed → PR) and the running agents. On a TTY it stays open
 // (src/top-loop.js `runTop`): alternate screen, event-bus-driven redraws, 1 s elapsed-time
-// repaints, resize-follow, `q`/Ctrl-C to quit. `--lines N` switches the live loop (and the
-// one-shot view) to a fixed strip of at most N lines repainted in place on the normal screen
-// (src/top.js `renderStrip`) — for a split terminal pane. Without a TTY — or with `--once` —
-// it prints the one-shot view (src/top.js `renderTop`, or the strip) and exits. Always local
-// state only: no board/PR reads, never through `live(...)` — the no-polling rule.
+// repaints, resize-follow, `q`/Ctrl-C to quit — plus row selection (j/k/↑/↓, the `>` prefix,
+// a detail line), Enter-to-follow on a running row (this file's `followRunLog` tails that ref's
+// run log — the shared `tailFile` from `follow.js` — until the bus's `run_end` for it or q,
+// read-only) and an act-on hint for the other rows (`?` toggles the key help). `--lines N`
+// switches the live loop (and the one-shot view) to a fixed strip of at most N lines
+// repainted in place on the normal screen (src/top.js `renderStrip`) — for a split terminal
+// pane, with no keys but q. Without a TTY — or with `--once` — it prints the one-shot view
+// (src/top.js `renderTop`, or the strip) and exits. Always local state only: no board/PR
+// reads, never through `live(...)` — the no-polling rule.
 import { defaultProfileKey, eventsCursor, pickProfile, readRuns, readTick, waitForEvents } from "../agent-api.js";
 import { registryDir } from "../config.js";
 import { resolveRunLog } from "../ui/logs.js";
@@ -79,7 +83,7 @@ async function waitRunEnd(dir, ref, signal) {
  * @param {ReturnType<typeof import('../heartbeat.js').readProfile>} entry
  * @param {{signal: AbortSignal, write: (s: string) => unknown}} o
  */
-async function followRunLog(ref, entry, { signal, write }) {
+export async function followRunLog(ref, entry, { signal, write }) {
   const runs = readRuns(entry.stateKey, ref, entry.dir);
   const run = runs.find((r) => r.running);
   const file = run ? resolveRunLog(registryDir, entry.stateKey, run.run) : null;
@@ -88,7 +92,11 @@ async function followRunLog(ref, entry, { signal, write }) {
   const onAbort = () => ac.abort();
   signal.addEventListener("abort", onAbort, { once: true });
   try {
-    await Promise.all([tailFile(file, { signal: ac.signal, write }), waitRunEnd(entry.dir, ref, signal)]);
+    await Promise.all([
+      tailFile(file, { signal: ac.signal, write }),
+      // the run's run_end settles the wait — abort the tail with it (the tail is what waits on `ac`).
+      waitRunEnd(entry.dir, ref, signal).then(() => ac.abort()),
+    ]);
   } finally {
     ac.abort();
     signal.removeEventListener("abort", onAbort);

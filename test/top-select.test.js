@@ -6,6 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { renderTop, selectable, detailLine, hintLine, helpLines } from "../src/top.js";
 import { tailFile } from "../src/commands/follow.js";
+import { followRunLog } from "../src/commands/top.js";
+import { registryDir } from "../src/config.js";
 import { NOW, iso, emptyUpTick, visible, makeOut, makeInput, makeNextEvent, makeTimers, pump, start } from "./_top-helpers.js";
 
 /** Show the cursor + leave the alternate screen (what the loop writes on restore). */
@@ -352,4 +354,44 @@ test("follow: tailFile prints the last N lines, streams appends, and resolves on
   ac.abort();
   await p; // resolves on the abort
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------- the production follow
+
+test("top: followRunLog tails the ref's current run log, ends on its run_end or the user's abort, and throws without one", async () => {
+  const dir = path.join(registryDir, "topflw");
+  fs.mkdirSync(path.join(dir, "logs"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "running.json"), JSON.stringify({ r1: { stepId: "code", startedAt: iso(NOW - 60e3) } }));
+  const run = "2025-06-01T11-58-00-000Z-step-code-r1.log"; // RUN_RE-shaped, step `code` for ref `r1`
+  fs.writeFileSync(path.join(dir, "logs", run), "line-a\nline-b\n");
+  const entry = { stateKey: "topflw", dir };
+  try {
+    // the user-abort case
+    {
+      const ac = new AbortController();
+      /** @type {string[]} */
+      const written = [];
+      const p = followRunLog("r1", entry, { signal: ac.signal, write: (x) => written.push(x) });
+      await new Promise((r) => setTimeout(r, 200));
+      assert.ok(written.join("").includes("line-a"), "the current run log was tailed");
+      ac.abort();
+      await p;
+    }
+    // the run_end case (the profile's bus delivers the run's run_end)
+    {
+      const ac = new AbortController();
+      const p = followRunLog("r1", entry, { signal: ac.signal, write: () => {} });
+      const settled = await Promise.race([p.then(() => true), new Promise((r) => setTimeout(() => r(false), 3000))]);
+      assert.equal(settled, false, "still following before the run_end");
+      fs.appendFileSync(path.join(dir, "events.jsonl"), JSON.stringify({ ts: iso(NOW), event: "run_end", ref: "r1", step: "code", outcome: "advance" }) + "\n");
+      const done = await Promise.race([p.then(() => true), new Promise((r) => setTimeout(() => r(false), 3000))]);
+      ac.abort();
+      assert.equal(done, true, "the run's run_end ended the follow (the bus event, not a timer)");
+      await p;
+    }
+    // a ref with no running run (and no log) throws — the loop shows it as the hint
+    await assert.rejects(followRunLog("rX", entry, { signal: new AbortController().signal, write: () => {} }), /no run log for rX/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

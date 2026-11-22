@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- New: `agenthook top` row selection, detail line and Enter-to-follow (full-screen mode, #797): the
+  selectable rows (needs-you then running) keep a `>` selection (j/k/↑/↓, clamped at both ends,
+  survives redraws by ref) with a detail line under the rows (id/ref, step, and harness/model for a
+  running row only — the rows themselves stay glance-only). Enter on a running row tails that ref's
+  run log (per-ref, works for every agent; the dashboard pauses and q/Ctrl-C or the run's `run_end`
+  brings it back); Enter on a held/failed/PR row shows a one-line act-on hint naming existing
+  commands only (an `@agent` reply, `agenthook run <ref> <step> --force`, the PR link plus
+  `agenthook recheck <ref>`). `?` toggles a short key help. Read-only throughout — no write action
+  anywhere. Strip mode (`--lines N`) is unchanged except for the new keys being absent (only
+  q/Ctrl-C), and `agenthook follow`'s output and behaviour are unchanged (its tail loop became the
+  exported, abortable `tailFile` shared with the new follow).
 - New: `agenthook top --lines N` — a strip mode for a split terminal pane (#796): a fixed
   frame of at most N lines repainted in place on the normal screen (never the alternate
   screen — cursor-up + erase-below between paints, a trailing line break on quit so the strip
