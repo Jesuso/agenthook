@@ -234,3 +234,165 @@ export function hintLine(sel, { width = 80 } = {}) {
 export function helpLines() {
   return ["  j/k ↑/↓ move · Enter follow (running) / hint · ? help · q quit"];
 }
+
+// ---------------------------------------------------------------- multi-profile view (--all, #798)
+
+/** One profile's block in the `renderAll` fit computation: its tick, state key, whether it is
+ * idle (no needs-you and no running rows), whether it renders at all, and its current line
+ * count after the fit rules (`cut` — first block only, on truncation — caps its lines). */
+/** @typedef {{tick: TopTick, profile: string, idle: boolean, shown: boolean, shownLen: number, cut?: number}} AllBlock */
+
+/** A selectable row in the multi-profile view — the row's profile state key plus its kind and entry. */
+/** @typedef {{profile: string, kind: 'held'|'failed'|'pr'|'running', entry: RowEntry}} SelectableAllEntry */
+
+/**
+ * Stable sort of several ticks into three groups: (1) needs-you (held + failed + prWaiting > 0),
+ * (2) else running (running.length > 0), (3) the rest. Inside a group the input order
+ * (registry order for `--all`, name order otherwise) is kept.
+ * @param {TopTick[]} ticks
+ * @returns {TopTick[]}
+ */
+export function orderProfiles(ticks) {
+  const rank =
+    /** @param {TopTick} t */
+    (t) =>
+      (t.held?.length ?? 0) + (t.failed?.length ?? 0) + (t.prWaiting?.length ?? 0) > 0 ? 0 : (t.running?.length ?? 0) > 0 ? 1 : 2;
+  /** @type {[number, number, TopTick][]} */
+  const ranked = ticks.map((t, i) => [rank(t), i, t]);
+  return ranked.sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2]);
+}
+
+/**
+ * The fit computation `renderAll`/`selectableAll` share: order the profiles (`orderProfiles`),
+ * size each block (header + its rows + the queued line in full mode), then, when `height` is
+ * given and everything doesn't fit: (1) collapse every idle block (no needs-you and no running
+ * rows) to its header line (the queued count stays in the header); (2) if it still doesn't fit,
+ * keep whole blocks from the top while they fit in `height − 1` — the remaining line is reserved
+ * for the `+K more profiles` line — and, if the first block alone exceeds `height − 1`, show it
+ * cut to `height − 1` lines. `b.shown` marks a block that renders; `b.cut` (first block only, on
+ * truncation) caps its lines.
+ * @param {TopTick[]} ticks
+ * @param {{height?: number, strip?: boolean}} [o] `height` the total line budget; `strip` strip mode (no queued line)
+ * @returns {{blocks: AllBlock[]}}
+ */
+export function allLayout(ticks, { height, strip = false } = {}) {
+  /** @type {AllBlock[]} */
+  const blocks = orderProfiles(ticks).map((t) => {
+    const needs = (t.held?.length ?? 0) + (t.failed?.length ?? 0) + (t.prWaiting?.length ?? 0);
+    const runs = t.up ? (t.running?.length ?? 0) : 0;
+    const queued = t.up && !strip && (t.slots?.queued ?? 0) > 0;
+    return { tick: t, profile: t.profile ?? "", idle: needs === 0 && runs === 0, shown: true, cut: undefined, shownLen: 1 + needs + runs + (queued ? 1 : 0) };
+  });
+  const total = () => blocks.reduce((s, b) => s + b.shownLen, 0);
+  if (typeof height === "number" && height > 0 && total() > height) {
+    for (const b of blocks) if (b.idle && b.shownLen > 1) {
+      b.shownLen = 1; // collapse idle blocks to their header (the queued count stays in it)
+      b.cut = 1;
+    }
+    if (total() > height) {
+      const budget = Math.max(0, height - 1); // the last line is the `+K more profiles` line
+      let i = 0;
+      while (i < blocks.length && blocks.slice(0, i + 1).reduce((s, b) => s + b.shownLen, 0) <= budget) i += 1;
+      blocks.forEach((b, j) => {
+        b.shown = j < i;
+      });
+      if (i === 0) {
+        // the first block alone exceeds the budget: show it cut to budget lines, count the rest in K
+        blocks[0].shown = true;
+        blocks[0].cut = budget;
+      }
+    }
+  }
+  return { blocks };
+}
+
+/**
+ * The selectable rows across profiles in on-screen order, each tagged with its profile state
+ * key — only rows that are actually shown after the `allLayout` fit rules count (a cut block
+ * contributes its first `cut − 1` rows; hidden blocks none). A down profile contributes its
+ * needs-you rows only. Headers, queued lines and the `+K more profiles` line are not selectable.
+ * @param {{blocks: AllBlock[]}} layout an `allLayout` result
+ * @returns {SelectableAllEntry[]}
+ */
+export function selectableAll(layout) {
+  /** @type {SelectableAllEntry[]} */
+  const out = [];
+  for (const b of layout.blocks) {
+    if (!b.shown) continue;
+    const t = b.tick;
+    /** @type {{kind: 'held'|'failed'|'pr'|'running', entry: RowEntry}[]} */
+    const local = [];
+    for (const entry of t.held ?? []) local.push({ kind: "held", entry });
+    for (const entry of t.failed ?? []) local.push({ kind: "failed", entry });
+    for (const entry of t.prWaiting ?? []) local.push({ kind: "pr", entry });
+    if (t.up) for (const entry of t.running ?? []) local.push({ kind: "running", entry });
+    const shown = typeof b.cut === "number" ? Math.min(Math.max(0, b.cut - 1), local.length) : local.length; // the header takes line 1 of the cut
+    for (const s of local.slice(0, shown)) out.push({ profile: b.profile, ...s });
+  }
+  return out;
+}
+
+/**
+ * Render every profile in one view (#798): one block per profile in `orderProfiles` order.
+ * A block starts with the same header as `build`; an **up** profile then has its needs-you
+ * rows, its running rows and — in full/once mode only (not strip, mirroring `renderTop` /
+ * `renderStrip`) — its `  N queued` line. A **down** profile shows its needs-you rows only
+ * (nothing runs while the receiver is down), so a down profile with no needs-you rows is its
+ * header line alone. With `height` the `allLayout` fit rules apply (idle collapse, then whole
+ * trailing blocks → a final `  +K more profiles` line, an oversize first block cut), and the
+ * result never has more than `height` lines. `selected` marks the row at that index over
+ * `selectableAll(allLayout(ticks, {height, strip}))` — omitted, no row is marked.
+ * @param {TopTick[]} ticks one tick payload per profile (`readTick` output, `profile` = state key)
+ * @param {{width?: number, now?: number, color?: boolean, height?: number, strip?: boolean, selected?: number}} [o]
+ * @returns {string[]}
+ */
+export function renderAll(ticks, { width = 80, now, color = false, height, strip = false, selected } = {}) {
+  const layout = allLayout(ticks, { height, strip });
+  const sels = selectableAll(layout);
+  /** @type {string[]} */
+  const out = [];
+  for (const b of layout.blocks) {
+    if (!b.shown) continue;
+    const t = b.tick;
+    // the local selected index: this block's rows start at the count of earlier selectable rows
+    const localBase = sels.findIndex((s) => s.profile === b.profile);
+    const { header, needs, running } = build(t, {
+      width,
+      now,
+      color,
+      selected: typeof selected === "number" && selected >= localBase && localBase >= 0 ? selected - localBase : undefined,
+    });
+    const rows = t.up ? [...needs, ...running] : [...needs];
+    /** @type {string[]} */
+    const lines = [header, ...rows];
+    if (t.up && !strip && (t.slots?.queued ?? 0) > 0) lines.push(color ? `  \u001b[1m${t.slots?.queued} queued\u001b[0m` : `  ${t.slots?.queued} queued`);
+    out.push(...(typeof b.cut === "number" ? lines.slice(0, b.cut) : lines));
+  }
+  const hidden = layout.blocks.filter((b) => !b.shown).length;
+  if (hidden > 0) out.push(cut(`  +${hidden} more profiles`, width));
+  return out;
+}
+
+/**
+ * The detail line for the row at `selected` over `selectableAll(layout)`: the same parts
+ * `detailLine` shows (id/ref, step, harness/model for a running row, title) prefixed with the
+ * row's profile name. Cut to `width`. Empty string when the index has no entry.
+ * @param {{blocks: AllBlock[]}} layout an `allLayout` result (the same one the frame was drawn from)
+ * @param {number} selected index over `selectableAll(layout)`
+ * @param {{width?: number}} [o]
+ * @returns {string}
+ */
+export function detailAll(layout, selected, { width = 80 } = {}) {
+  const sel = selectableAll(layout)[selected];
+  if (!sel) return "";
+  const r = sel.entry;
+  /** @type {string[]} */
+  const parts = [sel.profile, r.id ?? r.ref];
+  if (r.step) parts.push(r.step);
+  if (sel.kind === "running") {
+    if (r.harness) parts.push(`harness ${r.harness}`);
+    if (r.model) parts.push(`model ${r.model}`);
+  }
+  if (r.title) parts.push(r.title);
+  return cut(`  ${parts.join(" · ")}`, width);
+}

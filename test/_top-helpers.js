@@ -122,8 +122,9 @@ export const pump = async () => {
   for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
 };
 
-/** Start the loop with a readData that returns `seq` payloads in order (last one repeats). */
-export async function start({ seq, out, input, ne, timers, now, signal, lines, follow } = {}) {
+/** Start the loop with a readData that returns `seq` payloads in order (last one repeats).
+ * `multi` enables the multi-profile mode (#798) — the `seq` payloads are then tick arrays. */
+export async function start({ seq, out, input, ne, timers, now, signal, lines, follow, multi } = {}) {
   const o = out ?? makeOut();
   const i = input ?? makeInput();
   const n = ne ?? makeNextEvent();
@@ -143,6 +144,7 @@ export async function start({ seq, out, input, ne, timers, now, signal, lines, f
     setInterval: t.setInt,
     clearInterval: t.clearInt,
     ...(lines !== undefined ? { lines } : {}),
+    ...(multi ? { multi: true } : {}),
     ...(signal ? { signal } : {}),
     ...(follow ? { follow } : {}),
   });

@@ -28,7 +28,7 @@
 //   agenthook ui [--port <n>] [--host <ip>] [--no-open]  local web dashboard + editors (127.0.0.1 unless --host)
 //   agenthook mcp [--read-only]    MCP server (stdio) for external agents — docs/mcp.md
 //   agenthook tick [name] [--json] one-call status+board+PRs+events digest for agents
-//   agenthook top [name] [--lines N]  full-screen live terminal glance: needs-you + running (local state only; j/k/↑/↓ select a row, Enter follows a running row's run log or shows an act-on hint, ? key help; --once = one snapshot and exit; --lines N = a fixed N-line strip repainted in place for a split pane, keys are q only)
+//   agenthook top [name…|--all] [--lines N]  full-screen live terminal glance: needs-you + running (local state only; --all/≥2 names = every selected profile in one view, one block each, needs-you profiles first; j/k/↑/↓ select a row, Enter follows a running row's run log or shows an act-on hint, ? key help; --once = one snapshot and exit; --lines N = a fixed N-line strip repainted in place for a split pane, keys are q only)
 //   agenthook epics [name] [--ref <epic>] [--fresh] [--json]  epics list / one epic's tickets
 //   agenthook digest [name] [--json] write + print a profile's Digest (no receiver needed)
 //   agenthook watch [name] [--event a,b] [--ref r] [--timeout s] [--follow]  block until the next event (--follow: stream JSON lines)
@@ -202,9 +202,11 @@ usage: agenthook <command> [args] [--config <path>]
   mcp [--read-only]         MCP server over stdio: read+manage the pipeline from an agent (all profiles)
   tick [name…|--all] [--json] [--cursor <n|json>] [--no-board] [--no-prs] [--epics]  status+board+PRs+new events in one call
                             (--all / ≥2 names: one per profile; --cursor '{"<key>":<n>}')
-  top [name] [--lines N]    live terminal glance: needs-you + running, redrawn on bus events, 1 s elapsed times, follows
+  top [name…|--all] [--lines N]  live terminal glance: needs-you + running, redrawn on bus events, 1 s elapsed times, follows
                             terminal resize (local state only — no board/PR reads; --once or a non-TTY prints
                             one snapshot and exits; --lines N = a fixed N-line strip repainted in place — for a split pane).
+                            --all / ≥2 names: every selected profile in one view, one block per profile, needs-you
+                            profiles first (one event-bus wait over all profiles; Enter follows the row's own profile).
                             Keys: j/k/↑/↓ select a row, Enter follows a running row's run log (q back) or shows an
                             act-on hint for the others, ? key help, q/Ctrl-C quits (strip mode: q only)
   epics [name] [--ref <epic>] [--fresh] [--json]  every epic's progress, or one epic's tickets
