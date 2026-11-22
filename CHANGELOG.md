@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- New: `agenthook top --all` / `agenthook top a b` — every selected profile in one view
+  (#798): one block per profile (the profile's header line, then its rows — needs-you first,
+  then running, then the `queued` line in full/once mode), ordered needs-you profiles first,
+  then running-only, then the rest (stable inside each group). A down profile shows its
+  needs-you rows only — its header line alone when it has none. At a short height (`--lines N`
+  strip, or the full-mode terminal height) idle blocks collapse to their header line first;
+  if it still doesn't fit, whole trailing blocks are replaced by a final `  +K more profiles`
+  line (an oversize first block is cut to fit, never hidden) and the output never exceeds the
+  height. `--all` combines with `--once` (or a non-TTY stdout) and with `--lines N`. The live
+  loop subscribes with one `waitForEventsMulti` wait over every profile per round (an event in
+  any profile triggers the re-read; still local state only — no board/PR reads, no timers),
+  j/k/↑/↓ move the selection across profile boundaries (keyed by profile + ref + kind, so the
+  same ref in two profiles is distinct), and Enter on a running row follows that row's own
+  profile's run log. `agenthook top` and `agenthook top <name>` are unchanged — byte-identical
+  output.
 - New: `agenthook top` row selection, detail line and Enter-to-follow (full-screen mode, #797): the
   selectable rows (needs-you then running) keep a `>` selection (j/k/↑/↓, clamped at both ends,
   survives redraws by ref) with a detail line under the rows (id/ref, step, and harness/model for a

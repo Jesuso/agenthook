@@ -19,10 +19,23 @@
 // restored exactly once, every listener is removed, and the loop resolves. Every side effect
 // is injected (out/input/readData/nextEvent/clock/timers/signal/follow); the only process
 // contact is the SIGINT/SIGTERM handlers, the stderr error print and the `exit`-hook safety net.
-import { build, cut, detailLine, helpLines, hintLine, renderStrip, renderTop, selectable } from "./top.js";
+import { allLayout, build, cut, detailAll, detailLine, helpLines, hintLine, renderAll, renderStrip, renderTop, selectable, selectableAll } from "./top.js";
 
 /** Max ms a no-event wait round runs before re-reading local state (bounded like watch's liveness round). */
 export const TOP_WAIT_MS = 10_000;
+
+/** Does the selectable row `r` (single- or multi-mode entry) match the selection key `k`? The
+ * profile is part of the key only in multi mode (a single-mode key has no `profile`). */
+/** @param {import('./top.js').SelectableEntry | (import('./top.js').SelectableEntry & {profile: string})} r @param {{profile?: string, ref: string, kind: string}} k */
+function keyMatches(r, k) {
+  if (r.kind !== k.kind || r.entry.ref !== k.ref) return false;
+  return k.profile === undefined || ("profile" in r && r.profile === k.profile);
+}
+
+/** The row's profile state key — present on multi-mode entries only. @param {import('./top.js').SelectableEntry | (import('./top.js').SelectableEntry & {profile: string})} r */
+function profileOf(r) {
+  return "profile" in r ? r.profile : undefined;
+}
 
 /** Ms between the from-cache repaints that advance elapsed times. */
 export const PAINT_MS = 1000;
@@ -45,7 +58,8 @@ const STRIP_RESTORE = "\u001b[?25h\n";
 /**
  * The live loop. `out` is the writable target (columns/rows + a `'resize'` event — a real
  * `process.stdout` or a fake); `input` the key stream (raw mode only when it is a TTY);
- * `readData()` the local-only tick payload (the caller keeps board/PR reads off);
+ * `readData()` the local-only tick payload (the caller keeps board/PR reads off) — one payload
+ * per profile when `multi: true` (the multi-profile view, #798);
  * `nextEvent(signal, timeoutMs)` the bounded event-bus wait — it must settle on an event, on
  * the timeout, or the moment `signal` aborts. Resolves `{ok:false}` after restoring the
  * terminal, printing the error to stderr and setting `process.exitCode = 1` when
@@ -53,14 +67,15 @@ const STRIP_RESTORE = "\u001b[?25h\n";
  * @param {{
  *   out: {isTTY?: boolean, columns?: number, rows?: number, write: (s: string) => unknown, on: (e: string, f: (...a: Array<unknown>) => void) => unknown, removeListener: (e: string, f: (...a: Array<unknown>) => void) => unknown},
  *   input: {isTTY?: boolean, setRawMode?: (b: boolean) => void, on: (e: string, f: (...a: Array<unknown>) => void) => unknown, removeListener: (e: string, f: (...a: Array<unknown>) => void) => unknown, resume: () => unknown, pause?: () => unknown},
- *   readData: () => Promise<Parameters<typeof renderTop>[0]>,
+ *   readData: () => Promise<Parameters<typeof renderTop>[0] | Parameters<typeof renderAll>[0]>,
  *   nextEvent: (signal: AbortSignal, timeoutMs: number) => Promise<unknown>,
  *   now?: () => number,
  *   setInterval?: (f: () => void, ms: number) => unknown,
  *   clearInterval?: (id: unknown) => void,
  *   signal?: AbortSignal,
  *   lines?: number,
- *   follow?: (ref: string, o: {signal: AbortSignal, write: (s: string) => unknown}) => Promise<void>,
+ *   multi?: boolean,
+ *   follow?: (ref: string, o: {signal: AbortSignal, write: (s: string) => unknown}, stateKey?: string) => Promise<void>,
  * }} o
  * @returns {Promise<{ok: boolean}>}
  */
@@ -70,6 +85,9 @@ export async function runTop(o) {
   const setInt = o.setInterval ?? globalThis.setInterval;
   const clearInt = o.clearInterval ?? globalThis.clearInterval;
   const color = !!out.isTTY && !process.env.NO_COLOR;
+  /** Multi-profile mode (#798): `readData` returns one tick per profile and the frame is the
+   * `renderAll` view (one block per profile) instead of `renderTop`'s single-profile view. */
+  const multi = o.multi === true;
 
   /** Aborts the pending wait so a quit/error never leaves the loop parked in `nextEvent`. */
   const ac = new AbortController();
@@ -78,7 +96,7 @@ export async function runTop(o) {
   let failed = null;
   /** @type {NodeJS.Timeout|string|number|null} */
   let interval = null;
-  /** @type {Parameters<typeof renderTop>[0]|null} */
+  /** @type {Parameters<typeof renderTop>[0] | Parameters<typeof renderAll>[0] | null} */
   let data = null;
   let restored = false;
   /** Strip mode (`lines` set): repaint in place on the normal screen — no alternate screen, no
@@ -86,16 +104,34 @@ export async function runTop(o) {
   const strip = typeof o.lines === "number";
   const stripN = o.lines ?? 0;
   let prevH = 0;
-  /** Full mode only (#797): the selected row, keyed by ref + kind (never by index) — rows may
-   * move under it between reads. `selIdx` the last index it resolved to (clamped into the new
-   * row count when the row vanished); -1 with no rows.
-   * @type {{ref: string, kind: string}|null} */
+  /** Full mode only (#797, multi #798): the selected row, keyed by ref + kind (+ the profile
+   * state key in multi mode, so the same ref in two profiles cannot collide) — rows may move
+   * under it between reads. `selIdx` the last index it resolved to (clamped into the new row
+   * count when the row vanished); -1 with no rows.
+   * @type {{profile?: string, ref: string, kind: string}|null} */
   let selKey = null;
   let selIdx = -1;
   /** The shown hint line (Enter on a non-running row, or a follow error) — cleared by any move.
    * @type {string|null} */
   let hint = null;
   let showHelp = false;
+
+  /** The cached tick as a single-profile payload (single-mode call sites; `data` is non-null there). */
+  const tickData = () =>
+    /** @type {Parameters<typeof renderTop>[0]} */ (data);
+  /** The cached ticks as the multi-profile payload (multi-mode call sites; `data` is non-null there). */
+  const tickAll = () =>
+    /** @type {Parameters<typeof renderAll>[0]} */ (data);
+  /** The number of always-visible bottom lines under the multi full-mode frame: the detail line
+   * (the selection exists when the frame is built) + the hint + the (single) help line. */
+  const bottomN = () => 1 + (hint ? 1 : 0) + (showHelp ? helpLines().length : 0);
+  /** The multi frame's layout at the current terminal size — `draw` and the selection share it,
+   * so the selectable rows always match what is on screen. */
+  const frameLayout = () => {
+    const ticks = tickAll();
+    if (strip) return allLayout(ticks, { strip: true, height: Math.max(1, Math.min(stripN, out.rows || stripN)) });
+    return allLayout(ticks, { height: Math.max(0, (out.rows || 24) - bottomN()) });
+  };
   /** True while a follow (Enter on a running row) owns the screen — no dashboard draws. */
   let following = false;
   /** @type {AbortController|null} aborts only the current follow */
@@ -129,7 +165,9 @@ export async function runTop(o) {
     if (data === null || following) return;
     if (strip) {
       const h = Math.max(1, Math.min(stripN, out.rows || stripN));
-      const frame = renderStrip(data, { lines: h, width: (out.columns || 80) - 1, now: now(), color });
+      const frame = multi
+        ? renderAll(tickAll(), { strip: true, height: h, width: (out.columns || 80) - 1, now: now(), color })
+        : renderStrip(tickData(), { lines: h, width: (out.columns || 80) - 1, now: now(), color });
       while (frame.length < h) frame.push("");
       if (prevH > 0) out.write("\r" + (prevH > 1 ? `\u001b[${prevH - 1}A` : "") + "\u001b[J");
       out.write(frame.join("\n"));
@@ -138,18 +176,37 @@ export async function runTop(o) {
     }
     const width = out.columns || 80;
     const rowsH = out.rows || 24;
-    if (!data.up || selIdx < 0) {
-      const lines = renderTop(data, { width, now: now(), color });
+    if (multi) {
+      // No global queued line (each block carries its own); the bottom is detail, hint, help.
+      if (selIdx < 0) {
+        // No selectable rows — the fit rules still apply (idle blocks collapse to their
+        // headers, then a `  +K more profiles` line); nothing else draws under the blocks.
+        const lines = renderAll(tickAll(), { width, now: now(), color, height: rowsH });
+        out.write("\u001b[H\u001b[2J" + lines.slice(0, rowsH).join("\n"));
+        return;
+      }
+      const lay = frameLayout();
+      const blocks = renderAll(tickAll(), { width, now: now(), color, height: Math.max(0, rowsH - bottomN()), selected: selIdx });
+      /** @type {string[]} */
+      const bottom = [detailAll(lay, selIdx, { width })];
+      if (hint) bottom.push(hint);
+      if (showHelp) for (const l of helpLines()) bottom.push(l);
+      out.write("\u001b[H\u001b[2J" + [...blocks, ...bottom].slice(0, rowsH).join("\n"));
+      return;
+    }
+    const t = tickData();
+    if (!t.up || selIdx < 0) {
+      const lines = renderTop(t, { width, now: now(), color });
       out.write("\u001b[H\u001b[2J" + lines.slice(0, rowsH).join("\n"));
       return;
     }
-    const { header, needs, running } = build(data, { width, now: now(), color, selected: selIdx });
+    const { header, needs, running } = build(t, { width, now: now(), color, selected: selIdx });
     const rows = [...needs, ...running];
     /** @type {string[]} the always-visible bottom: queued line, detail, hint, help. */
     const bottom = [];
-    const queued = data.slots?.queued ?? 0;
+    const queued = t.slots?.queued ?? 0;
     if (queued > 0) bottom.push(color ? `  \u001b[1m${queued} queued\u001b[0m` : `  ${queued} queued`);
-    bottom.push(detailLine(data, selIdx, { width }));
+    bottom.push(detailLine(t, selIdx, { width }));
     if (hint) bottom.push(hint);
     if (showHelp) for (const l of helpLines()) bottom.push(l);
     const avail = Math.max(0, rowsH - 1 - bottom.length); // the header's line + the bottom
@@ -159,12 +216,13 @@ export async function runTop(o) {
     out.write("\u001b[H\u001b[2J" + lines.slice(0, rowsH).join("\n"));
   };
 
-  /** Re-find the selected row in a fresh tick: it survives as long as its ref + kind are still
-   * present (even when rows above it appear or disappear); a vanished row clamps the old index
-   * into the new range, and no rows drops the selection (and with it the detail line). */
+  /** Re-find the selected row in a fresh tick: it survives as long as its ref + kind (+ profile
+   * in multi mode) are still present (even when rows above it appear or disappear); a vanished
+   * row clamps the old index into the new range, and no rows drops the selection (and with it
+   * the detail line). */
   const resyncSelection = () => {
     if (!data) return;
-    const rows = selectable(data);
+    const rows = multi ? selectableAll(frameLayout()) : selectable(tickData());
     if (!rows.length) {
       selKey = null;
       selIdx = -1;
@@ -172,33 +230,37 @@ export async function runTop(o) {
     }
     let idx = -1;
     const k = selKey;
-    if (k) idx = rows.findIndex((r) => r.kind === k.kind && r.entry.ref === k.ref);
+    if (k) idx = rows.findIndex((r) => keyMatches(r, k));
     if (idx === -1) idx = Math.max(0, Math.min(selIdx, rows.length - 1));
     selIdx = idx;
-    selKey = { ref: rows[idx].entry.ref, kind: rows[idx].kind };
+    const found = /** @type {{kind: string, entry: {ref: string}, profile?: string}} */ (rows[idx]);
+    selKey = { ref: found.entry.ref, kind: found.kind, ...(found.profile !== undefined ? { profile: found.profile } : {}) };
   };
 
-  /** Move the selection by `d` (±1), clamped at both ends (no wrap). Clears any shown hint. @param {number} d */
+  /** Move the selection by `d` (±1), clamped at both ends (no wrap). Clears any shown hint.
+   * Multi mode moves across profile boundaries over `selectableAll`. @param {number} d */
   const move = (d) => {
     if (strip || following || !data) return;
-    const rows = selectable(data);
+    const rows = multi ? selectableAll(frameLayout()) : selectable(tickData());
     if (!rows.length) return;
     let idx = -1;
     const k = selKey;
-    if (k) idx = rows.findIndex((r) => r.kind === k.kind && r.entry.ref === k.ref);
+    if (k) idx = rows.findIndex((r) => keyMatches(r, k));
     if (idx === -1) idx = Math.max(0, selIdx);
     idx = Math.max(0, Math.min(rows.length - 1, idx + d));
     selIdx = idx;
-    selKey = { ref: rows[idx].entry.ref, kind: rows[idx].kind };
+    const found = /** @type {{kind: string, entry: {ref: string}, profile?: string}} */ (rows[idx]);
+    selKey = { ref: found.entry.ref, kind: found.kind, ...(found.profile !== undefined ? { profile: found.profile } : {}) };
     hint = null;
     safe(draw);
   };
 
   /** Enter on the selected row: a running row follows (the injected `follow` — the dashboard
-   * pauses for it), any other row shows its hint line and nothing else. */
+   * pauses for it; in multi mode the row's profile state key goes as the third argument), any
+   * other row shows its hint line and nothing else. */
   const act = () => {
     if (strip || following || !data || selIdx < 0) return;
-    const sel = selectable(data)[selIdx];
+    const sel = (multi ? selectableAll(frameLayout()) : selectable(tickData()))[selIdx];
     if (!sel) return;
     if (sel.kind !== "running") {
       hint = hintLine(sel, { width: out.columns || 80 });
@@ -211,7 +273,7 @@ export async function runTop(o) {
     /** @type {string|undefined} */
     const step = sel.entry.step;
     safe(() => {
-      startFollow(ref, step);
+      startFollow(ref, step, profileOf(sel));
     });
   };
 
@@ -220,14 +282,15 @@ export async function runTop(o) {
    * settle (resolve, abort or error) the data is re-read once and the dashboard redrawn — an
    * error shows as the hint line and top keeps running. Quitting/SIGINT during it is handled
    * by `stop` aborting this controller too.
-   * @param {string} ref @param {string|undefined} step */
-  const startFollow = async (ref, step) => {
+   * @param {string} ref @param {string|undefined} step @param {string|undefined} stateKey the row's profile (multi mode)
+   */
+  const startFollow = async (ref, step, stateKey) => {
     following = true;
     followAc = new AbortController();
     try {
       // the trailing newline is on purpose: the first tail line would otherwise land on the banner's line
       out.write(CLEAR + (step ? `following ${ref} ${step} — q/Ctrl-C back to top\n` : `following ${ref} — q/Ctrl-C back to top\n`));
-      await o.follow?.(ref, { signal: followAc.signal, write: followWrite });
+      await o.follow?.(ref, { signal: followAc.signal, write: followWrite }, stateKey);
     } catch (e) {
       // indented and cut like a hint line: a long message (e.g. an fs error with a path)
       // must not push the frame past `out.rows`
@@ -271,8 +334,13 @@ export async function runTop(o) {
     }
   };
 
-  /** Redraw at the new size; a throwing render ends the loop through the error path. */
-  const onResize = () => safe(draw);
+  /** Redraw at the new size; a throwing render ends the loop through the error path. In multi
+   * mode the shown rows depend on the terminal size (the fit rules), so the selection is
+   * re-clamped to a visible row before the redraw. */
+  const onResize = () => safe(() => {
+    if (multi) resyncSelection();
+    draw();
+  });
 
   /** @param {unknown} buf a key chunk (a Buffer from a raw TTY stream, or a string). `q`/Ctrl-C
    * quit (or, while a follow owns the screen, abort only the follow). Full mode adds `j`/`k`,
@@ -301,6 +369,8 @@ export async function runTop(o) {
       else if (b === 0x0d || b === 0x0a) act(); // Enter (CR or LF)
       else if (b === 0x3f) {
         showHelp = !showHelp;
+        // the help lines change the multi frame's height — re-clamp the selection to a visible row
+        if (multi) resyncSelection();
         safe(draw);
       }
     }
