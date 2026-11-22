@@ -29,8 +29,13 @@ const FAILED_MAX = 50;
 const TITLE_MAX = 80;
 const LOG_BYTES_MAX = 24 * 1024;
 /** Control-socket call budgets: board/PR reads hit the tracker/forge; reconcile/run/release can walk a whole board. */
-const LIVE_TIMEOUT_DEFAULT_MS = 20_000;
-const LIVE_TIMEOUT_MS = /** @type {Record<string, number>} */ ({ reconcile: 120_000, run: 60_000, catchup: 60_000, release: 60_000, cancel: 60_000, pull: 60_000, recheck: 120_000, close_on_board: 60_000 });
+export const LIVE_TIMEOUT_DEFAULT_MS = 20_000;
+export const LIVE_TIMEOUT_MS = /** @type {Record<string, number>} */ ({ reconcile: 120_000, run: 60_000, catchup: 60_000, release: 60_000, cancel: 60_000, pull: 60_000, recheck: 120_000, close_on_board: 60_000 });
+
+/** The control-socket budget for one op: its override, else the default. @param {string} cmd */
+export function liveTimeoutMs(cmd) {
+  return LIVE_TIMEOUT_MS[cmd] ?? LIVE_TIMEOUT_DEFAULT_MS;
+}
 
 /** @param {any} v @param {number} n */
 const clip = (v, n) => (typeof v === "string" && v.length > n ? v.slice(0, n - 1) + "…" : v);

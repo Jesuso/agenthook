@@ -58,6 +58,19 @@ Every `claude -p` run's token counts and cost are captured to `usage.jsonl` and 
 `agenthook usage` (with `--day`/`--week` rollups) plus token/cost columns on `agents`, `status`,
 and `ls`. See [Token & cost tracking](usage.md).
 
+**Run control from a shell** — the same ops the dashboard and the MCP tools use, against a live
+receiver (profile picked by `--config`, as for `pause`; `--json` on every one):
+
+```bash
+agenthook cancel <ref>               # abandon a running/queued/held task (to the failure lane)
+agenthook release <ref> [comment…]   # answer a held task and re-run its step
+agenthook dismiss <ref>              # mark a failed/cancelled task or PR row dismissed (no board change)
+agenthook retry <ref>                # re-run a failed task's failed step
+agenthook pull                       # pull the backlog (queue stage) into free slots
+agenthook harness-reset <name>       # reset a harness's health breaker
+agenthook set-concurrency <n|reset>  # alias of `concurrency` (also takes --reset, --json)
+```
+
 Agents never remove their own worktrees (INSTRUCTIONS §7); `cleanup` is the one place that
 does, and only once the PR is merged/closed or the tracker item is completed.
 

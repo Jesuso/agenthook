@@ -8,13 +8,17 @@ import { controlSockPath } from "../paths.js";
 import { controlRequest } from "../ui/control-client.js";
 
 /** The CLI args these commands read: the parsed positional/flag map from bin/agenthook.js. */
-/** @typedef {{_: string[], config?: string, harness?: string}} OverrideArgs */
+/** @typedef {{_: string[], config?: string, harness?: string, json?: boolean, reset?: boolean}} OverrideArgs */
 
 /**
- * Send one override op and print its reply (including its note). Exits 1 when the receiver is down
- * or the op failed. @param {OverrideArgs} args @param {string} cmd @param {Record<string, unknown>} payload
+ * Send one control op over the control socket and print its reply. Exits 1 when the receiver is
+ * down or the op failed; prints the reply as JSON with `--json`, else `plain`'s lines. Shared by
+ * the override ops (this file) and the run-control ops (control-ops.js). @param {OverrideArgs} args
+ * @param {string} cmd @param {Record<string, unknown>} payload
+ * @param {{ timeoutMs?: number, plain?: (r: Record<string, unknown>) => void }} [opts]
  */
-async function send(args, cmd, payload) {
+export async function send(args, cmd, payload, opts = {}) {
+  const { timeoutMs = 5000, plain = printReply } = opts;
   const { name, stateKey, stateDir } = peekConfig({ configPath: args.config });
   const profile = readProfile(stateKey);
   if (!profile.up) {
@@ -35,7 +39,8 @@ async function send(args, cmd, payload) {
     process.exitCode = 1;
     return;
   }
-  printReply(reply.result);
+  if (args.json) console.log(JSON.stringify(reply.result, null, 2));
+  else plain(reply.result);
 }
 
 /** @param {Record<string, unknown>} r */
@@ -68,17 +73,26 @@ export async function unpause(args) {
   await send(args, "resume", harness ? { harness } : {});
 }
 
-/** `agenthook concurrency <n|reset> [--harness <name>]` — set (or reset) a cap. @param {OverrideArgs} args */
+/** `agenthook concurrency <n|reset> [--reset] [--harness <name>] [--json]` (alias `set-concurrency`) —
+ * set (or reset) a cap. @param {OverrideArgs} args */
 export async function concurrency(args) {
   const value = args._[0];
   const harness = harnessArg(args);
-  if (value === "reset") {
+  const wantReset = value === "reset" || args.reset === true;
+  const wantMax = value !== undefined && value !== "reset";
+  // Exactly one of a number and a reset — like the `set_concurrency` op itself.
+  if (wantReset === wantMax) {
+    console.error(`usage: agenthook concurrency <n|reset> [--reset] [--harness <name>] [--json]`);
+    process.exitCode = 1;
+    return;
+  }
+  if (wantReset) {
     await send(args, "set_concurrency", harness ? { reset: true, harness } : { reset: true });
     return;
   }
   const n = Number(value);
   if (!Number.isInteger(n) || n < 0 || n > 64) {
-    console.error(`usage: agenthook concurrency <n|reset> [--harness <name>]`);
+    console.error(`usage: agenthook concurrency <n|reset> [--reset] [--harness <name>] [--json]`);
     process.exitCode = 1;
     return;
   }

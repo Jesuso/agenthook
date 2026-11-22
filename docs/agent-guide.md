@@ -37,9 +37,10 @@ Vocabulary you will see in tool output:
 - **ref** — the tracker-native task id (Asana gid, GitHub issue number…). Every tool takes `ref`.
   `id` / `title` next to a ref are the human display id and a clipped title.
 - **slot** — concurrency: at most `slots.max` agents run at once; the rest wait in the **queue**.
-- **held** — a task whose agent asked for input. It stays parked until someone answers (`release`)
+- **held** — a task whose agent asked for input. It stays parked until someone answers (`release`
+  (shell: `agenthook release <ref> [comment…]`))
   or the ticket is completed on the board (the hold is then dropped: `hold_cleared`).
-- **failed** — `status.failed[]`: tasks whose last word is a real failure (`why`, `at`; an operator `cancel` is not listed), until they run again, you `retry` them, or you `dismiss` them.
+- **failed** — `status.failed[]`: tasks whose last word is a real failure (`why`, `at`; an operator `cancel` is not listed), until they run again, you `retry` them (shell: `agenthook retry <ref>`), or you `dismiss` them (shell: `agenthook dismiss <ref>`).
 - **prWaiting** — `status.prWaiting[]` (forge profiles only): done tickets whose PR is still open and awaiting a person (`ref`, `step`, `pr`, `kind`, `at`). `held` + `failed` + `prWaiting` is the dashboard's needs-you.
 - **follow-up checks** — `status.followUp[]` (`ref`, `checks`, `tier`, `pr?`, `since`): approvals
   the review let merge (low/medium tier, or `forge.autoMerge.tiers`) with criteria only checkable
@@ -128,7 +129,7 @@ unchanged check.
   with the `reason`) or `probing` (cooldown over; one probe run at a time decides). A step whose
   harnesses are all down waits in `capped`; it never fails. `harness_down` / `harness_up` events mark
   the transitions, and a run that tripped it ends `run_end` with `outcome: "requeued"` (it re-runs
-  first, on another harness). `harness_reset {harness}` clears it once the backend is fixed. A
+  first, on another harness). `harness_reset {harness}` (shell: `agenthook harness-reset <name>`) clears it once the backend is fixed. A
   `down`/`probing` harness is a receiver-level error, not routing noise — the web UI's Needs-you zone
   lists it until `harness_up` fires (#688), and the `tick` text digest's harness line ends with
   `— fix the cause, then harness_reset <name>`; a routed-around spill (a step's other harness
@@ -150,8 +151,8 @@ unchanged check.
   running`.
 - `harnessUsage` (present only when the profile has `harnesses` and some run used one) is
   `{"<name>": {"runs": n, "input": n, "output": n, "cacheRead": n, "cacheCreate": n}}` — token
-  totals per harness, summed from the usage records. `set_concurrency {max, harness}` changes one
-  harness's `max` live.
+  totals per harness, summed from the usage records. `set_concurrency {max, harness}`
+  (shell: `agenthook set-concurrency <n> --harness <name>`) changes one harness's `max` live.
 - A `running[]` row carries `ctx`/`ctxMax` (#658) when known: `ctx` is the latest turn's live
   prompt size (input + cache read + cache write — claude/opencode/cursor only, absent on hermes),
   `ctxMax` the model's context window (an explicit step/harness `contextTokens`, else an opencode
@@ -313,14 +314,15 @@ assignee read; `not_ours` = it is assigned to someone else; `move_error` = the m
 `run {ref, step:<next>, force:true}`.
 
 **Agent is stuck or wrong** (`status.running[].ageS` far above normal, or you saw its log head
-the wrong way). `runs {ref, tail}` to look, then `cancel {ref}`. The run resolves as `fail`
+the wrong way). `runs {ref, tail}` to look, then `cancel {ref}` (shell: `agenthook cancel <ref>`). The run resolves as `fail`
 ("cancelled by operator"), the worktree is kept, the ticket lands in the failure lane.
 
 **Free slots but nothing running and the board has tickets.** Tickets rest in a source stage
 without firing if their webhook was missed (receiver was down). `reconcile` replays them
 (explicit one-shot board read). With a forge it also replays agent PRs **merged** while the receiver
 was down, so their tickets complete and the tickets they blocked are released, then re-checks the tickets
-already flagged with a PR reason (`recheck {all:true}`). If a backlog lane is configured, `pull` fills free slots from it.
+already flagged with a PR reason (`recheck {all:true}`). If a backlog lane is configured, `pull`
+(shell: `agenthook pull`) fills free slots from it.
 
 **A PR ticket stuck in needs you after the board closed or the PR merged.** Its `board_done` or
 `merged` webhook was missed. `recheck {ref}` asks the tracker and forge again and records only

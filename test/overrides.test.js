@@ -277,13 +277,21 @@ test("doctor harnessSlotLints still shows global overrides on a profile without 
 
 // --- CLI ---
 
-test("pause / unpause / concurrency are registered in HELP and resolvable", () => {
-  assert.match(HELP, /pause \[--harness <name>\]/);
-  assert.match(HELP, /unpause \[--harness <name>\]/);
-  assert.match(HELP, /concurrency <n\|reset> \[--harness <name>\]/);
+test("pause / unpause / concurrency / the run-control ops are registered in HELP and resolvable", () => {
+  assert.match(HELP, /pause \[--harness <name>\] \[--json\]/);
+  assert.match(HELP, /unpause \[--harness <name>\] \[--json\]/);
+  assert.match(HELP, /concurrency <n\|reset> \[--reset\] \[--harness <name>\] \[--json\]/);
+  assert.match(HELP, /alias: set-concurrency/);
+  assert.match(HELP, /cancel <ref>/);
+  assert.match(HELP, /release <ref> \[comment…\]/);
+  assert.match(HELP, /dismiss <ref>/);
+  assert.match(HELP, /retry <ref>/);
+  assert.match(HELP, /harness-reset <name>/);
   assert.equal(suggestCommand("paus"), "pause");
   assert.equal(suggestCommand("unpuse"), "unpause");
   assert.equal(suggestCommand("concurrenc"), "concurrency");
+  assert.equal(suggestCommand("set-concurrenc"), "set-concurrency");
+  assert.equal(suggestCommand("cancell"), "cancel");
 });
 
 // --- engine boot wiring (the seedOverrides call inside createEngine) ---

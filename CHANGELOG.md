@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- New: run control from a shell — `agenthook cancel <ref>`, `release <ref> [comment…]`,
+  `dismiss <ref>`, `retry <ref>`, `pull` and `harness-reset <name>` are thin front-ends of the
+  control-socket ops of the same names (src/ops.js), so an operator without an MCP client can
+  abandon/answer/retry/dismiss tasks, pull the backlog and reset a harness breaker. Profile
+  selection is `--config` only, as for `pause` (no positional name); the per-op timeouts are the
+  MCP path's (`liveTimeoutMs`, src/agent-api.js), and every one takes `--json` (as does
+  `pause`/`unpause` now, via the shared sender). `set-concurrency` is an alias of the existing
+  `concurrency` command, which additionally accepts `--reset` and `--json` and, like the op,
+  takes exactly one of `<n>` and a reset (#808).
+
 - Docs: a user guide for `agenthook top` in operating.md — the four ways to run it (full
   screen, `--lines N` strip, `--all`/multi-name, `--once` and non-TTY), what a row shows, and
   the full-screen key table (the strip only takes `q`/Ctrl-C); one pointer sentence in the
