@@ -204,9 +204,12 @@ export function readStatus(entry, { now = Date.now() } = {}) {
   const lastFailed = new Map();
   /** The ref's last `merged` event — a mergedOpen PR row's board is open, so `finishedAt` is null there; the merge is its finish. */
   const lastMerged = new Map();
+  /** The ref's newest event ts — the last age source for a prWaiting row that has no `finishedAt` and no merge. */
+  const lastEventTs = new Map();
   for (const e of state.events) {
     if (e.event === "failed") lastFailed.set(e.ref, e);
     else if (e.event === "merged") lastMerged.set(e.ref, e);
+    if (typeof e.ts === "string" && e.ts) lastEventTs.set(e.ref, e.ts);
   }
   // Rows with the repository, so `failed` (below) and `prWaiting` both see the PR facts —
   // the local view of "PR awaiting a person" (ADR 0008) the dashboard's needs-you needs.
@@ -225,7 +228,7 @@ export function readStatus(entry, { now = Date.now() } = {}) {
   );
   // Open PRs awaiting a person (forge profiles only) — the third needs-you input beside held/failed.
   const prWaiting = hb.forge
-    ? rows.filter((r) => r.prNeeds).map((r) => label({ ref: r.ref, step: r.step, pr: r.prUrl, kind: r.prNeeds, at: r.finishedAt ?? (r.prNeeds === "mergedOpen" ? (lastMerged.get(r.ref)?.ts ?? null) : null) }, state.refmeta[r.ref]))
+    ? rows.filter((r) => r.prNeeds).map((r) => label({ ref: r.ref, step: r.step, pr: r.prUrl, kind: r.prNeeds, at: r.finishedAt ?? (r.prNeeds === "mergedOpen" ? lastMerged.get(r.ref)?.ts : null) ?? lastEventTs.get(r.ref) ?? null }, state.refmeta[r.ref]))
     : [];
   const active = entry.up ? running.length : 0;
   const queued = entry.up ? queue.length : 0;

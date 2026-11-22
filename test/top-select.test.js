@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { renderTop, selectable, detailLine, hintLine, helpLines } from "../src/top.js";
+import { renderTop, selectable, detailLine, hintLine, helpLines, allLayout, detailAll } from "../src/top.js";
 import { tailFile } from "../src/commands/follow.js";
 import { followRunLog } from "../src/commands/top.js";
 import { registryDir } from "../src/config.js";
@@ -65,11 +65,29 @@ test("top: rows never show harness/model (the glance rule) — they only appear 
   assert.equal(detailLine(t, 3), "  r1 · code · harness claude · model opus · Building");
 });
 
-test("top: detailLine — id/ref, step, title; harness/model only for running (each part left out when absent); no cost/ctx/reason", () => {
+test("top: detailLine — needs-you rows say the kind in words plus the title; running rows keep id/step/harness/model", () => {
   const t = selTick();
-  assert.equal(detailLine(t, 0), "  AH-12 · review · Waiting");
-  assert.equal(detailLine(t, 1), "  AH-13 · code · It broke");
-  assert.equal(detailLine(t, 2), "  AH-14"); // the PR entry has no step and no title
+  assert.equal(detailLine(t, 0), "  held at review · Waiting");
+  assert.equal(detailLine(t, 1), "  failed at code · It broke");
+  assert.equal(detailLine(t, 2), "  PR waiting"); // the PR entry has no kind and no title
+  const kinds = UP({
+    prWaiting: [
+      { ref: "p1", kind: "openOnDone", title: "T" },
+      { ref: "p2", kind: "awaitingMerge", title: "T" },
+      { ref: "p3", kind: "mergedOpen", title: "T" },
+      { ref: "p4", kind: "closedUnmerged", title: "T" },
+      { ref: "p5", kind: "bogus", title: "T" },
+      { ref: "p6", title: "T" },
+    ],
+    held: [{ ref: "h1" }], // no step → the bare word
+    failed: [{ ref: "f1" }],
+  });
+  assert.deepEqual(
+    kinds.prWaiting.map((e, i) => detailLine(kinds, i + 2).replace(/ · T$/, "")), // held and failed come first in `selectable`
+    ["  PR open, ticket done", "  PR open, awaiting merge", "  PR merged, ticket open", "  PR closed unmerged, ticket open", "  PR waiting", "  PR waiting"],
+  );
+  assert.equal(detailLine(kinds, 0), "  held");
+  assert.equal(detailLine(kinds, 1), "  failed");
   const noHarness = UP({ running: [{ ref: "r2", step: "code", ageS: 5 }] });
   assert.equal(detailLine(noHarness, 0), "  r2 · code", "absent harness/model are left out");
   assert.equal(detailLine(UP({ running: [{ ref: "r3", step: "code", ageS: 5, harness: "claude" }] }), 0), "  r3 · code · harness claude", "absent model is left out");
@@ -79,15 +97,54 @@ test("top: detailLine — id/ref, step, title; harness/model only for running (e
   assert.equal(detailLine(t, 99), "", "an out-of-range index gives no detail line");
 });
 
+test("top: detailLine — a needs-you row adds information: kind in words plus more of the title than the row shows", () => {
+  const title = "Ship the recheck hint and detail line changes that keep the command visible to the operator";
+  const t = UP({ prWaiting: [{ id: "#1234", ref: "p1", step: "implement-review-and-deploy", kind: "openOnDone", title, at: iso(NOW - 60e3) }] });
+  const width = 60;
+  const rowLine = renderTop(t, { width, now: NOW })[1];
+  const d = detailLine(t, 0, { width });
+  assert.ok(rowLine.endsWith("…") && d.endsWith("…"), "both the row and the detail cut the title");
+  assert.ok(d !== rowLine, "the detail line differs from the row");
+  assert.ok(d.includes("PR open, ticket done"), "the kind in words");
+  /** The longest prefix of the title visible in `s`. */
+  const shown = (s) => {
+    let n = 0;
+    while (n < title.length && s.includes(title.slice(0, n + 1))) n += 1;
+    return n;
+  };
+  assert.ok(shown(d) > shown(rowLine), `the detail shows more of the title (${shown(d)}) than the row (${shown(rowLine)})`);
+  // the same holds for detailAll (the profile prefix first)
+  const a = detailAll(allLayout([t]), 0, { width });
+  assert.ok(a.startsWith("  dev · PR open, ticket done"), "detailAll keeps the profile, then the kind in words");
+  assert.ok(a !== rowLine && shown(a) > shown(rowLine), "detailAll differs from the row and shows more of the title");
+});
+
 test("top: hintLine — the per-kind hints name only commands that exist; running returns ''", () => {
   const [held, failed, pr] = selectable(selTick());
-  assert.equal(hintLine(held), '  held — reply "@agent <answer>" on the ticket, or release it in agenthook ui');
-  assert.equal(hintLine(failed, { width: 120 }), "  failed at code — retry: agenthook run f1 code --force (or Retry in agenthook ui)");
-  assert.equal(hintLine(pr, { width: 120 }), "  PR awaiting you — https://gh/pull/1 · agenthook recheck p1 if it already merged/closed");
+  assert.equal(hintLine(held), '  held — reply "@agent <answer>" on the ticket, or release: agenthook ui');
+  assert.equal(hintLine(failed, { width: 120 }), "  failed at code — retry: agenthook run f1 code --force · or Retry in agenthook ui");
+  assert.equal(hintLine(pr, { width: 120 }), "  PR awaiting you — if it already merged/closed: agenthook recheck p1 · https://gh/pull/1");
   const noPr = UP({ prWaiting: [{ ref: "p9", at: iso(NOW - 60e3) }] });
-  assert.equal(hintLine(selectable(noPr)[0]), "  PR awaiting you — agenthook recheck p9 if it already merged/closed", "no URL, the ref is named");
+  assert.equal(hintLine(selectable(noPr)[0]), "  PR awaiting you — if it already merged/closed: agenthook recheck p9", "no URL, the ref is named");
   assert.equal(hintLine({ kind: "running", entry: { ref: "r1" } }), "");
   assert.equal([...visible(hintLine(failed, { width: 24 }))].length, 24, "the hint is cut to width");
+});
+
+test("top: hintLine — the command survives narrow widths (the extra drops first, then the head, then a cut of the command alone)", () => {
+  const held = { kind: "held", entry: { ref: "805" } };
+  const failed = { kind: "failed", entry: { ref: "805", step: "implement-long-step-name" } };
+  const pr = { kind: "pr", entry: { ref: "805", pr: "https://github.com/Jesuso/agenthook/pull/806" } };
+  const cmds = { held: "agenthook ui", failed: "agenthook run 805 implement-long-step-name --force", pr: "agenthook recheck 805" };
+  for (const [kind, sel] of Object.entries({ held, failed, pr })) {
+    const h80 = hintLine(sel, { width: 80 });
+    assert.ok(h80.includes(cmds[kind]), `width 80 keeps the whole ${kind} command: ${h80}`);
+    const h40 = hintLine(sel, { width: 40 });
+    assert.ok([...h40].length <= 40 && h40.startsWith("  "), `width 40 fits: ${h40}`);
+    assert.ok(h40.includes(cmds[kind]) || (h40.startsWith("  agenthook") && h40.endsWith("…")), `width 40: the whole command or a cut of the command alone: ${h40}`);
+  }
+  // no step: no double space, no step token in the command
+  assert.equal(hintLine({ kind: "failed", entry: { ref: "805" } }, { width: 200 }), "  failed — retry: agenthook run 805 --force · or Retry in agenthook ui");
+  assert.ok(!hintLine({ kind: "failed", entry: { ref: "805" } }, { width: 200 }).includes("  --force"), "no double space without a step");
 });
 
 test("top: helpLines — the short fixed key help", () => {
@@ -174,8 +231,8 @@ test("top-loop: Enter on a non-running row shows the hint; the follow and readDa
   s.input.key(0x0d); // Enter on the held row (index 0)
   await pump();
   const frame = lastFrame(s);
-  assert.ok(frame.includes('held — reply "@agent <answer>" on the ticket, or release it in agenthook ui'), "the held hint line");
-  assert.ok(frame.includes("  AH-12 · review · Waiting"), "the detail line stays above it");
+  assert.ok(frame.includes('held — reply "@agent <answer>" on the ticket, or release: agenthook ui'), "the held hint line");
+  assert.ok(frame.includes("  held at review · Waiting"), "the detail line stays above it");
   assert.equal(follow.calls.length, 0, "the follow was not called");
   assert.equal(s.reads.n, 1, "Enter does not re-read");
   s.input.key(0x6a); // move to failed
@@ -188,7 +245,7 @@ test("top-loop: Enter on a non-running row shows the hint; the follow and readDa
   await pump();
   s.input.key(0x0d);
   await pump();
-  assert.ok(lastFrame(s).includes("PR awaiting you — https://gh/pull/1 · agenthook recheck p1"), "the PR hint line names the URL");
+  assert.ok(lastFrame(s).includes("PR awaiting you — if it already merged/closed: agenthook recheck p1"), "the PR hint line names the command (the URL drops at narrow widths)");
   assert.equal(follow.calls.length, 0);
   s.input.key(0x71);
   await s.p;
