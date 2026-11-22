@@ -8,7 +8,7 @@ import { spawn } from "node:child_process";
 import { parse } from "../bin/agenthook.js";
 import { top } from "../src/commands/top.js";
 import { renderStrip, renderTop } from "../src/top.js";
-import { NOW, iso, visible, makeOut, pump, start } from "./_top-helpers.js";
+import { NOW, iso, visible, emptyUpTick, makeOut, pump, start } from "./_top-helpers.js";
 
 const HIDE = "\u001b[?25l"; // strip start: hide the cursor only (no alternate screen)
 const SHOW = "\u001b[?25h"; // strip restore: show the cursor (+ line break, the prompt lands below)
@@ -119,6 +119,27 @@ test("top-loop strip: no alternate screen, home or full clear; h-line frames; mo
   assert.ok(!done.includes("\u001b[?1049l"), "still no alternate screen on quit");
 });
 
+test("top-loop strip: a frame with fewer rows than the strip height pads to exactly h lines; the repaint moves up h-1", async () => {
+  // The tick has no rows (an empty-up profile), so the h=5 frame is header + 4 padding lines —
+  // the padding is what keeps the next paint's move-back from climbing past the strip.
+  const s = await start({ lines: 5, seq: [emptyUpTick] });
+  const first = s.out.stripFrames().at(-1).split("\n");
+  assert.equal(first.length, 5, "the frame is exactly h=5 lines (header + padding)");
+  assert.ok(first[0].length > 0, "line 0 is the header");
+  assert.deepEqual(first.slice(1), ["", "", "", ""], "the extra lines are empty padding");
+  s.timers.fire(); // the 1 s from-cache repaint: over the h=5 frame it must move up h-1 = 4
+  await pump();
+  const buf = s.out.text();
+  assert.ok(buf.includes("\r\u001b[4A\u001b[J"), "the next paint starts with \\r\\e[4A\\e[J (previous height 5)");
+  assert.equal(buf.split("\u001b[J").length - 1, 1, "one move-back prefix after one repaint");
+  const f2 = s.out.stripFrames().at(-1).split("\n");
+  assert.equal(f2.length, 5, "the repaint is padded to exactly h lines too");
+  assert.deepEqual(f2, first, "the repaint is the same padded frame");
+  s.input.key(0x71);
+  await s.p;
+  assert.equal(s.out.text().split(SHOW).length - 1, 1, "quitting shows the cursor exactly once");
+});
+
 test("top-loop strip: a pane shorter than N clamps to the pane height; a resize repaints at the new size", async () => {
   const out = makeOut({ rows: 2, columns: 80 });
   const s = await start({ lines: 5, seq: [sevenTick], out });
@@ -129,9 +150,13 @@ test("top-loop strip: a pane shorter than N clamps to the pane height; a resize 
   out.columns = 40;
   out.emitResize();
   await pump();
+  assert.ok(s.out.text().includes("\r\u001b[1A\u001b[J"), "the paint right after the resize moves up prevH-1 = 1 (the previous height, not the new one)");
   const next = s.out.stripFrames().at(-1).split("\n");
   assert.equal(next.length, 5, "the resize repaints at h = min(5, 8) = 5");
   for (const l of next) assert.ok(visible(l).length <= 39, `line off the last column (columns-1): "${l}"`);
+  s.timers.fire(); // one more repaint over the h=5 frame: up prevH-1 = 4
+  await pump();
+  assert.ok(s.out.text().includes("\r\u001b[4A\u001b[J"), "the paint after the resized frame moves up prevH-1 = 4 (the previous height 5)");
   s.input.key(0x71);
   await s.p;
 });
