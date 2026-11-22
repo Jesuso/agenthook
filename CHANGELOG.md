@@ -15,6 +15,10 @@ All notable changes to this project are documented here. The format is based on
   information instead of repeating the row: the kind in words (`held at <step>`, `failed at
   <step>`, `PR open, ticket done`, `PR open, awaiting merge`, `PR merged, ticket open`, `PR closed
   unmerged, ticket open`, `PR waiting`), then the title cut to the whole line width.
+- Docs: a user guide for `agenthook top` in operating.md — the four ways to run it (full
+  screen, `--lines N` strip, `--all`/multi-name, `--once` and non-TTY), what a row shows, and
+  the full-screen key table (the strip only takes `q`/Ctrl-C); one pointer sentence in the
+  README and the docs index. No code changes (#804).
 - New: `agenthook top --all` / `agenthook top a b` — every selected profile in one view
   (#798): one block per profile (the profile's header line, then its rows — needs-you first,
   then running, then the `queued` line in full/once mode), ordered needs-you profiles first,

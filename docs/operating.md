@@ -95,6 +95,88 @@ Your own pause/resume always wins:
   pauses when it later crosses it. Restarting the receiver drops this override.
 - A pending restart or decommission keeps the queue paused even when the quota resets.
 
+## Watching from a terminal: `agenthook top`
+
+`agenthook top` is a lean second view of a profile for servers and split panes: the needs-you
+items and the running agents in one glance. The [web UI](web-ui.md) stays the full view — `top`
+is the one to keep open next to a working session. It reads local state only: no tracker or
+forge calls and no polling — redraws come from the profile's event bus, and the elapsed times
+are repainted once a second from the cached data.
+
+### The four ways to run it
+
+```bash
+agenthook top [name]    # the full-screen live view of one profile
+agenthook top --lines 4 # a strip of at most N lines, repainted in place (N is a whole number ≥ 2)
+agenthook top --all     # one block per profile — or: agenthook top a b for a named set
+agenthook top --once    # one snapshot, then exit
+```
+
+- The strip (`--lines N`) is the split-pane form: it repaints its N lines in place on the normal
+  screen (no alternate screen), so the pane keeps its scrollback below it.
+- In the all-profiles view, profiles that need you come first, then running-only profiles, then
+  the rest; a down profile shows its needs-you rows only (its header line alone when it has
+  none).
+- Piping or otherwise capturing the output (non-TTY stdout) behaves like `--once`, and `--all`
+  and `--lines N` both combine with `--once`.
+
+### What a row shows
+
+Line 0 is the header: `<profile> up|down · agents <active>/<max or ?> · <N> queued · <M> needs
+you`. Then one row per item — `MARKER id step age title`, the title cut to fit — in the order
+`HELD`, then `FAIL`, then `PR`, then `RUN`:
+
+```text
+dev up · agents 1/4 · 2 queued · 2 needs you
+  HELD #139 review 25m Ship the new settings screen
+  FAIL #137 code 47m Fix the export button alignment
+  RUN #142 code 6m Add retry for webhook delivery
+  2 queued
+```
+
+In the full and `--once` views, queued work is a count line at the bottom when there is any;
+in the strip it stays in the header, and rows that don't fit are replaced by a trailing
+`  +K more · A needs you · B running` line:
+
+```text
+dev up · agents 1/4 · 2 queued · 2 needs you
+  HELD #139 review 25m Ship the new settings screen
+  +2 more · 1 needs you · 1 running
+```
+
+The all-profiles view is one such block per profile:
+
+```text
+dev up · agents 1/4 · 2 queued · 2 needs you
+  HELD #139 review 25m Ship the new settings screen
+  FAIL #137 code 47m Fix the export button alignment
+  RUN #142 code 6m Add retry for webhook delivery
+  2 queued
+qa up · agents 1/2 · 0 queued · 0 needs you
+  RUN #88 verify 10m Regression pass for the login flow
+web down · agents 0/? · 0 queued · 0 needs you
+```
+
+A row deliberately leaves out cost, model and harness — the glance stays one line. For those,
+use `agenthook agents` (live token tally) or `agenthook usage` (per-run tokens and cost);
+in the full-screen view the detail line under the selected row also names the running row's
+harness and model.
+
+### Keys (full-screen view)
+
+| Key | Effect |
+|-----|--------|
+| `j` / `k` or `↓` / `↑` | move the selection (clamped at both ends — no wrap) |
+| `Enter` | on a `RUN` row: follow that run's log — the screen shows it with `following <ref> <step> — q/Ctrl-C back to top`, and it ends on the run's `run_end` or on `q`/Ctrl-C, which goes back to top without quitting. On a `HELD`, `FAIL` or `PR` row: show the one-line next action — reply `@agent <answer>` on the ticket (or release it in `agenthook ui`), `agenthook run <ref> <step> --force`, or the PR URL plus `agenthook recheck <ref>` |
+| `?` | show or hide the key help: `j/k ↑/↓ move · Enter follow (running) / hint · ? help · q quit` |
+| `q` / Ctrl-C | quit |
+
+The strip has no keys but `q`/Ctrl-C to quit.
+
+**Split-pane recipe.** Split the terminal in two: `agenthook top --lines 4` in the top pane
+and the working session (shell, `agenthook follow`, an editor) in the bottom one — the strip
+stays in place while the session scrolls.
+
 ## Event-driven delivery loop
 
 Drive one or more profiles off the event bus instead of polling the board. The loop:
