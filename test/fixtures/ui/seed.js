@@ -6,14 +6,19 @@
 // now so nothing falls behind the dashboard's 24h stale filter. Not a test — `npm test` only
 // globs test/*.test.js.
 //
-//   node test/fixtures/ui/seed.js <dir> [--bulk <n>]
+//   node test/fixtures/ui/seed.js <dir> [--bulk <n>] [--long-titles]
 //
 // `--bulk <n>` (opt-in) adds n recent `done` tickets to the "agenthook" profile so the tickets
-// table's paging and scroll region show up; without it the seed is unchanged.
+// table's paging and scroll region show up. `--long-titles` (opt-in) adds 4 `done` rows with
+// unbreakable ~300-char titles and every optional column filled (PR, model, cost, epic), so a
+// title-width bug shows up (test/ui-overflow/check.mjs). Without the flags the seed is
+// unchanged.
 import fs from "node:fs";
 import path from "node:path";
 
 const args = process.argv.slice(2);
+const longTitles = args.includes("--long-titles");
+if (longTitles) args.splice(args.indexOf("--long-titles"), 1);
 const bulkAt = args.indexOf("--bulk");
 const bulk = bulkAt === -1 ? 0 : Number(args.splice(bulkAt, 2)[1]);
 const root = args[0];
@@ -190,6 +195,32 @@ for (let i = 0; i < bulk; i++) {
     { ts: ago(start - 1), event: "run_end", ref, step: "code", outcome: "advance", costUsd: 0.1 + (i % 7) * 0.37 },
     { ts: ago(start - 1), event: "pipeline_done", ref, step: "done" },
   );
+}
+
+// --long-titles: unbreakable ~300-char titles (no spaces — the browser can't wrap them), each
+// on a row with PR, model, cost and epic filled, so a title-width bug widens the whole row
+// (the #759 sideways scroll). Refs start at 3000, clear of the bulk 1000s and the bulk PR
+// numbers.
+if (longTitles) {
+  const f = fixtures[0];
+  const words = ["OverflowProbe", "Unbreakable", "Sideways", "Longform"];
+  for (let i = 0; i < words.length; i++) {
+    const ref = String(3000 + i);
+    const start = 10 + i * 3;
+    f.refmeta[ref] = {
+      displayId: `#${ref}`,
+      title: words[i] + "abcdefghijklmnopqrstuvwxyz0123456789".repeat(8) + "tail",
+      url: `https://github.com/Jesuso/agenthook/issues/${ref}`,
+      pr: 2900 + i,
+      epic: { ref: `LP-${i + 1}`, name: `Polish track ${i + 1}` },
+    };
+    // Prepended, so the heartbeat's lastEvent (the file's last line) stays the same.
+    f.events.unshift(
+      { ts: ago(start), event: "run_start", ref, step: "code", model: "claude-opus-5-5" },
+      { ts: ago(start - 1), event: "run_end", ref, step: "code", outcome: "advance", costUsd: 1.2 + i },
+      { ts: ago(start - 1), event: "pipeline_done", ref, step: "done" },
+    );
+  }
 }
 
 for (const f of fixtures) {

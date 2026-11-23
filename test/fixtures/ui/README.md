@@ -7,7 +7,10 @@ dashboard. The seed covers every ticket status (`running`, `queued`, `held`, `fa
 
 `seed.js <dir> --bulk <n>` (opt-in) also adds n recent `done` tickets (titles, mixed model ids, a
 PR on every third) to the `agenthook` profile, so the tickets table's 50-row paging and scroll
-region show up — e.g. `--bulk 60`. Without the flag the seed is unchanged.
+region show up — e.g. `--bulk 60`. Without the flag the seed is unchanged. `--long-titles` (also opt-in) adds 4 rows
+with unbreakable ~300-char titles and every optional column filled (PR, model, cost, epic), so
+a title-width bug shows up — `npm run check:overflow` ("Horizontal-overflow check" in
+docs/web-ui.md) seeds with both flags and fails on any sideways scroll in a real browser.
 
 ```bash
 npm run build:ui                                   # ui/dist — the server serves the built bundle
