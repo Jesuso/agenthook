@@ -514,21 +514,22 @@ function Dashboard() {
 
   return (
     <Shell connection={connection} nav={nav}>
-      {docking ? (
-        <div className="flex min-w-0 items-start gap-6">
-          <div className="min-w-0 flex-1">{page}</div>
-          {/* Below the sticky app bar (44px at ≥ lg, and docking starts at 2xl), its own height and
-              its own scroll. */}
-          <div data-drawer-dock className="sticky top-11 h-[calc(100vh-3.25rem)] w-[clamp(720px,calc(25vw+240px),880px)] shrink-0">
+      {/* Same wrappers in every mode — only the classes switch — so opening or closing the drawer
+          never remounts the page (focus, the expanded ticket list and the rail's state survive);
+          `display: contents` keeps the non-docked layout exactly today's. */}
+      <div className={docking ? "flex min-w-0 items-start gap-6" : "contents"}>
+        <div className={docking ? "min-w-0 flex-1" : "contents"}>{page}</div>
+        {drawer && (
+          /* Below the sticky app bar (44px at ≥ lg, and docking starts at 2xl), its own height and
+              its own scroll. */
+          <div
+            data-drawer-dock={docking ? "" : undefined}
+            className={docking ? "sticky top-11 h-[calc(100vh-3.25rem)] w-[clamp(720px,calc(25vw+240px),880px)] shrink-0" : "contents"}
+          >
             {drawer}
           </div>
-        </div>
-      ) : (
-        <>
-          {page}
-          {drawer}
-        </>
-      )}
+        )}
+      </div>
       {removing && (
         <RemoveProfile
           profile={removing}
