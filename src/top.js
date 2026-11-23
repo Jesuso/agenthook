@@ -38,8 +38,9 @@ function ageFrom(ts, now) {
 }
 
 /** A tick entry rendered as a row (the age comes from `since`/`at`/`ageS` depending on its kind;
- * running entries also carry `model`/`harness` from `running.json`, PR entries a `pr` URL). */
-/** @typedef {{ref: string, id?: string, step?: string, title?: string, since?: string, at?: string, ageS?: number|null, model?: string, harness?: string, pr?: string}} RowEntry */
+ * running entries also carry `model`/`harness` from `running.json`, PR entries a `pr` URL and
+ * their `prNeeds` word in `kind`). */
+/** @typedef {{ref: string, id?: string, step?: string, title?: string, since?: string, at?: string, ageS?: number|null, model?: string, harness?: string, pr?: string, kind?: string}} RowEntry */
 
 /** The payload `renderTop` reads: `src/agent-api.js` `readTick` output, local-only fields. */
 /** @typedef {{profile?: string, up?: boolean, slots?: {max?: number|null, active?: number, queued?: number}, held?: RowEntry[], failed?: RowEntry[], prWaiting?: RowEntry[], running?: RowEntry[]}} TopTick */
@@ -50,7 +51,7 @@ function ageFrom(ts, now) {
  * `> ` when `selected` (which, with color, is also inverse video so it reads without color).
  * @param {string} mk state marker (plain text — reads without color)
  * @param {RowEntry} r tick entry (ref/id, step, title, plus the age source)
- * @param {string} el formatted elapsed
+ * @param {string|undefined} el formatted elapsed (left `undefined` omits the age token instead of "-" — PR rows with an unknown `at`)
  * @param {number} width
  * @param {boolean} color
  * @param {boolean} [selected]
@@ -89,14 +90,14 @@ export function build(t, { width = 80, now, color = false, selected } = {}) {
   const running = t.running ?? [];
   const needsYou = held.length + failed.length + prWaiting.length;
   const header = cut(`${t.profile} ${t.up ? "up" : "down"} · agents ${s.active ?? 0}/${s.max ?? "?"} · ${s.queued ?? 0} queued · ${needsYou} needs you`, width);
-  /** @param {string} mk @param {RowEntry} r @param {string} el @param {number} i index over needs+running */
+  /** @param {string} mk @param {RowEntry} r @param {string|undefined} el @param {number} i index over needs+running */
   const line = (mk, r, el, i) => row(mk, r, el, width, color, selected === i);
   /** @type {string[]} */
   const needs = [];
   let i = 0;
   for (const r of held) needs.push(line("HELD", r, age(ageFrom(r.since, now)), i++));
   for (const r of failed) needs.push(line("FAIL", r, age(ageFrom(r.at, now)), i++));
-  for (const r of prWaiting) needs.push(line("PR", r, age(ageFrom(r.at, now)), i++));
+  for (const r of prWaiting) needs.push(line("PR", r, ageFrom(r.at, now) === null ? undefined : age(ageFrom(r.at, now)), i++)); // PR rows drop the age token when `at` is unknown (not "-")
   /** @type {string[]} */
   const runs = [];
   for (const r of running) runs.push(line("RUN", r, age(r.ageS ?? null), i++));
@@ -169,11 +170,57 @@ export function selectable(t) {
   return out;
 }
 
+/** The needs-you kind in words — the detail line says the kind, not the row's id/step/title
+ * again. PR rows fold in their `prNeeds` word (an unknown or absent word reads "PR waiting").
+ * @param {SelectableEntry} sel the selected row
+ * @returns {string} */
+export function needsYouKind(sel) {
+  if (sel.kind === "held") return "held";
+  if (sel.kind === "failed") return "failed";
+  switch (sel.entry.kind) {
+    case "openOnDone":
+      return "PR open, ticket done";
+    case "awaitingMerge":
+      return "PR open, awaiting merge";
+    case "mergedOpen":
+      return "PR merged, ticket open";
+    case "closedUnmerged":
+      return "PR closed unmerged, ticket open";
+    default:
+      return "PR waiting";
+  }
+}
+
+/** The detail line's parts for a selected row — the one place harness/model appear, and the
+ * place a needs-you row adds information instead of repeating the row: the kind in words
+ * (`held at <step>` / `failed at <step>` / the PR kind in words, bare without a step), then the
+ * title (cut to the whole line — the row showed it cut shorter). Running rows keep
+ * `id · step · harness · model` — with the measured bits where absent left out — and the title
+ * last.
+ * @param {SelectableEntry} sel the selected row
+ * @returns {string[]} the parts, joined ` · ` by the callers
+ */
+function detailParts(sel) {
+  const r = sel.entry;
+  if (sel.kind === "running") {
+    /** @type {string[]} */
+    const parts = [r.id ?? r.ref];
+    if (r.step) parts.push(r.step);
+    if (r.harness) parts.push(`harness ${r.harness}`);
+    if (r.model) parts.push(`model ${r.model}`);
+    if (r.title) parts.push(r.title);
+    return parts;
+  }
+  const word = needsYouKind(sel);
+  /** @type {string[]} */
+  const parts = [sel.kind === "pr" ? word : r.step ? `${word} at ${r.step}` : word];
+  if (r.title) parts.push(r.title);
+  return parts;
+}
+
 /**
- * The detail line for the row at `selected` over `selectable(t)`: `  <id ?? ref> · <step>`
- * plus, for a running row only, ` · harness <h>` / ` · model <m>` (each part left out when
- * absent) and ` · <title>` when the entry has one. Cut to `width`. Empty string when the
- * index has no entry. The one place harness/model appear — never on the rows.
+ * The detail line for the row at `selected` over `selectable(t)` — `detailParts` cut to
+ * `width`. Empty string when the index has no entry.
  * @param {TopTick} t a tick payload
  * @param {number} selected index over `selectable(t)`
  * @param {{width?: number}} [o]
@@ -182,22 +229,14 @@ export function selectable(t) {
 export function detailLine(t, selected, { width = 80 } = {}) {
   const sel = selectable(t)[selected];
   if (!sel) return "";
-  const r = sel.entry;
-  /** @type {string[]} */
-  const parts = [r.id ?? r.ref];
-  if (r.step) parts.push(r.step);
-  if (sel.kind === "running") {
-    if (r.harness) parts.push(`harness ${r.harness}`);
-    if (r.model) parts.push(`model ${r.model}`);
-  }
-  if (r.title) parts.push(r.title);
-  return cut(`  ${parts.join(" · ")}`, width);
+  return cut(`  ${detailParts(sel).join(" · ")}`, width);
 }
 
 /**
- * The Enter hint for a row that isn't running — the one-line "how to act on this", naming
- * only commands that exist (a held ticket resumes on an `@agent` reply; release/retry live in
- * `agenthook ui`). The running kind returns "" (Enter follows it instead). Cut to `width`.
+ * The Enter hint for a row that isn't running — the one-line "how to act on this". The shell
+ * command is the last thing cut at a narrow width: the `head` and the `extra` drop first, then
+ * the head alone, and only a cut of the command alone is last (it is the only part of the line
+ * that does anything). The running kind returns "" (Enter follows it instead). Cut to `width`.
  * @param {SelectableEntry} sel
  * @param {{width?: number}} [o]
  * @returns {string}
@@ -205,25 +244,36 @@ export function detailLine(t, selected, { width = 80 } = {}) {
 export function hintLine(sel, { width = 80 } = {}) {
   const r = sel.entry;
   /** @type {string} */
-  let h;
+  let head, cmd;
+  /** @type {string|null} */
+  let extra = null;
   switch (sel.kind) {
     case "held":
-      h = 'held — reply "@agent <answer>" on the ticket, or release it in agenthook ui';
+      head = 'held — reply "@agent <answer>" on the ticket, or release';
+      cmd = "agenthook ui";
       break;
     case "failed":
       // the ref, not the display id: the hint names commands you paste into a shell, and
       // a tracker id (`#797`, `ID-1234`) isn't a valid argument to them
-      h = `failed at ${r.step ?? "?"} — retry: agenthook run ${r.ref} ${r.step ?? ""} --force (or Retry in agenthook ui)`;
+      head = `failed${r.step ? ` at ${r.step}` : ""} — retry`;
+      cmd = `agenthook run ${r.ref}${r.step ? ` ${r.step}` : ""} --force`;
+      extra = "or Retry in agenthook ui";
       break;
     case "pr":
-      h = r.pr
-        ? `PR awaiting you — ${r.pr} · agenthook recheck ${r.ref} if it already merged/closed`
-        : `PR awaiting you — agenthook recheck ${r.ref} if it already merged/closed`;
+      head = "PR awaiting you — if it already merged/closed";
+      cmd = `agenthook recheck ${r.ref}`;
+      extra = r.pr || null;
       break;
     default:
       return "";
   }
-  return cut(`  ${h}`, width);
+  const full = extra ? `  ${head}: ${cmd} · ${extra}` : `  ${head}: ${cmd}`;
+  if (len(full) <= width) return full;
+  const headCmd = `  ${head}: ${cmd}`;
+  if (len(headCmd) <= width) return headCmd;
+  const cmdOnly = `  ${cmd}`;
+  if (len(cmdOnly) <= width) return cmdOnly;
+  return `  ${cut(cmd, width - 2)}`;
 }
 
 /**
@@ -374,9 +424,8 @@ export function renderAll(ticks, { width = 80, now, color = false, height, strip
 }
 
 /**
- * The detail line for the row at `selected` over `selectableAll(layout)`: the same parts
- * `detailLine` shows (id/ref, step, harness/model for a running row, title) prefixed with the
- * row's profile name. Cut to `width`. Empty string when the index has no entry.
+ * The detail line for the row at `selected` over `selectableAll(layout)` — `detailParts` with
+ * the row's profile name first, cut to `width`. Empty string when the index has no entry.
  * @param {{blocks: AllBlock[]}} layout an `allLayout` result (the same one the frame was drawn from)
  * @param {number} selected index over `selectableAll(layout)`
  * @param {{width?: number}} [o]
@@ -385,14 +434,5 @@ export function renderAll(ticks, { width = 80, now, color = false, height, strip
 export function detailAll(layout, selected, { width = 80 } = {}) {
   const sel = selectableAll(layout)[selected];
   if (!sel) return "";
-  const r = sel.entry;
-  /** @type {string[]} */
-  const parts = [sel.profile, r.id ?? r.ref];
-  if (r.step) parts.push(r.step);
-  if (sel.kind === "running") {
-    if (r.harness) parts.push(`harness ${r.harness}`);
-    if (r.model) parts.push(`model ${r.model}`);
-  }
-  if (r.title) parts.push(r.title);
-  return cut(`  ${parts.join(" · ")}`, width);
+  return cut(`  ${[sel.profile, ...detailParts({ kind: sel.kind, entry: sel.entry })].join(" · ")}`, width);
 }
