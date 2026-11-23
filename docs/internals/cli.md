@@ -14,7 +14,13 @@ node bin/agenthook.js rename <newName> [--move]  # relabel (inserts stateId); --
 node bin/agenthook.js restart            # restart the running receiver once idle
 node bin/agenthook.js pause [--harness <name>]  # pause the profile (persists across restarts); --harness drains one harness (0 slots)
 node bin/agenthook.js unpause [--harness <name>]  # clear the pause / a harness's drain (the MCP `resume` op)
-node bin/agenthook.js concurrency <n|reset> [--harness <name>]  # set (or reset) the global cap / a harness's slots, persisted until reset
+node bin/agenthook.js concurrency <n|reset> [--reset] [--harness <name>] [--json]  # set (or reset) the global cap / a harness's slots, persisted until reset (alias: set-concurrency)
+node bin/agenthook.js cancel <ref>            # abandon a running/queued/held task (the MCP `cancel` op; a failed failure-lane move prints a second line, exit stays 0)
+node bin/agenthook.js release <ref> [comment…]  # answer a held task and re-run its step (the MCP `release` op; the comment is optional)
+node bin/agenthook.js dismiss <ref>           # mark a failed/cancelled task or PR row dismissed (the MCP `dismiss` op; no board change)
+node bin/agenthook.js retry <ref>             # re-run a failed task's failed step (the MCP `retry` op)
+node bin/agenthook.js pull                    # pull the backlog (queue stage) into free slots (the MCP `pull` op)
+node bin/agenthook.js harness-reset <name>    # reset a harness's health breaker (the MCP `harness_reset` op)
 node bin/agenthook.js reload            # re-read + validate the config and apply its reloadable keys (harnesses, step spawn knobs, egress, caps, quota) to runs that start after — no restart
 node bin/agenthook.js remove <name|key> [--purge] [--yes] [--keep-hooks]  # retire a profile: archive ~/.agenthook/<key>/ to ~/.agenthook-archive/ (running: decommission at idle; --purge = delete permanently, stopped only)
 node bin/agenthook.js ls                 # table of ALL profiles under ~/.agenthook + live status
@@ -73,7 +79,10 @@ lint config.
   webhook/catchup/reconcile/doctor/alias/pause). These replace the old bash `scripts/`.
   `pause`/`unpause`/`concurrency` (`src/commands/pause.js`) send the `pause`/`resume`/`set_concurrency`
   ops over the control socket; the CLI uses `unpause` (not `resume`) because `agenthook resume`
-  already means agent-session resume. `reload` (`src/commands/reload.js`) sends the `reload` op the
+  already means agent-session resume. `set-concurrency` is an alias of `concurrency`. The run-control
+  ops — `cancel`/`release`/`dismiss`/`retry`/`pull`/`harness-reset` (`src/commands/control-ops.js`) —
+  are the same thin front-end over the same socket, with the MCP path's per-op timeouts
+  (`liveTimeoutMs`, `src/agent-api.js`) instead of the 5 s override default, and `--json` in all of them. `reload` (`src/commands/reload.js`) sends the `reload` op the
   same way (with a longer timeout for the optional sandbox image check) and prints the reloaded keys.
 - `src/sessions.js` — ref → worktree → Claude transcript dir resolution, plus `recentRuns` (last-N
   from the per-run logs) and `listSessions` (every session a ref has, each labelled with its pipeline
