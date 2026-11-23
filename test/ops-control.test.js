@@ -403,6 +403,8 @@ test("release reports a dropped resume job instead of claiming it was queued", a
 test("dismiss writes a dismissed event; refuses running, queued and held refs", async () => {
   const killed = new Set(["RUN"]);
   const s = setup({ killed });
+  // seed a failure on disk (the row gate reads events.jsonl, not the in-memory emitter)
+  fs.appendFileSync(path.join(s.dir, "events.jsonl"), JSON.stringify({ ts: "2026-10-25T00:00:00Z", event: "failed", ref: "F", step: "code", reason: "x" }) + "\n");
   const ok = await s.ops.dismiss({ ref: "F" });
   assert.deepEqual(ok, { ref: "F", dismissed: true });
   assert.deepEqual(s.events.at(-1), ["dismissed", "F", "", { by: "operator" }]);
