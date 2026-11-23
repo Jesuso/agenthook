@@ -14,6 +14,10 @@ All notable changes to this project are documented here. The format is based on
   unchanged, a ticket swap re-renders the body in place (same node, the slide-in plays once per
   open), and page shortcuts are idle only while focus is inside it. Below the breakpoint the
   overlay is unchanged (scrim, 720px, `dialog` + `aria-modal`).
+- New: `npm run check:overflow` also checks Overview **with a ticket open** (`?t=` on the seeded
+  fixture, list expanded) at 1920/2560px, where the docked drawer narrows the ticket list — the
+  case the original matrix never opened, which is how the #708 docked-width defect went unseen.
+  CI's `ui overflow` job is the run; the sandbox cannot launch a browser (#708).
 - New: `AH_OVERFLOW_BROWSER=<path>` for `npm run check:overflow` — set it to an installed
   Chrome/Chromium executable and the check launches that browser, skipping playwright's
   download/install entirely (needed where the download is blocked, e.g. the agent sandbox).

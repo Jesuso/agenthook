@@ -16,6 +16,9 @@ const mark = () => createElement(() => (useDocked() ? "docked" : "overlay"));
 
 describe("useDocked (#708)", () => {
   it("reads the min-width query for the single DOCK_MIN_PX constant", async () => {
+    // The settled product decision (#708): dock from 1880, measured — the tickets table
+    // needs ~1030 px, so docking earlier leaves it scrolling sideways. Not the rail's 2xl.
+    expect(DOCK_MIN_PX).toBe(1880);
     const seen: string[] = [];
     vi.stubGlobal("matchMedia", (q: string) => {
       seen.push(q);

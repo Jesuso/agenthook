@@ -570,7 +570,8 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
   (no drawer, no new history entry); a `t` opened in the app (e.g. just created, row not arrived
   yet) keeps the drawer's plain undefined-ticket behaviour. An empty or malformed `t` parses as
   if it were absent, never to Home; other query keys are ignored.
-- At `DOCK_MIN_PX` (1536px — the one constant in `ui/src/layout.ts`, `useDocked()`) and wider, the
+- At `DOCK_MIN_PX` (1880px — the one constant in `ui/src/layout.ts`, `useDocked()`) and wider, the
+  drawer **docks**:
   drawer **docks**: a live column beside the page instead of a modal overlay — no scrim, nothing
   dimmed, the page stays clickable, and the page narrows. It takes the Overview rail's place (the
   rail hides but stays mounted, and comes back on close); on the other views it simply takes the
@@ -581,7 +582,8 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
   to the row that opened the current ticket on close; a swap re-renders the body in place — same
   node, so the slide-in plays once per open, never per ticket. Page shortcuts (j/k/…) work beside
   it but not while focus is inside it. Below the breakpoint the overlay is exactly as before:
-  fixed 720px panel, scrim, `role="dialog"` + `aria-modal`.
+  fixed 720px panel, scrim, `role="dialog"` + `aria-modal` — including between the rail's `2xl`
+  breakpoint (1536px) and `DOCK_MIN_PX`, where the page shows its rail and the drawer overlays it.
 - App bar: on Home brand + connection dot; in a profile `‹ Home`, profile emoji/name, a profile
   switcher dropdown, and tabs Overview · Instructions · Config.
 - Last-opened profile remembered in `localStorage` (try/catch, page works without it).

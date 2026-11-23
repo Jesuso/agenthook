@@ -520,8 +520,8 @@ function Dashboard() {
       <div className={docking ? "flex min-w-0 items-start gap-6" : "contents"}>
         <div className={docking ? "min-w-0 flex-1" : "contents"}>{page}</div>
         {drawer && (
-          /* Below the sticky app bar (44px at ≥ lg, and docking starts at 2xl), its own height and
-              its own scroll. */
+          /* Below the sticky app bar (44px at ≥ lg; docking starts at DOCK_MIN_PX, well above
+              lg), its own height and its own scroll. */
           <div
             data-drawer-dock={docking ? "" : undefined}
             className={docking ? "sticky top-11 h-[calc(100vh-3.25rem)] w-[clamp(720px,calc(25vw+240px),880px)] shrink-0" : "contents"}

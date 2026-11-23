@@ -350,10 +350,10 @@ follows this anatomy.
 
 ### Ticket drawer
 The second level of depth: opened from any ticket title, closed with Esc or its × button, and kept in
-the address (`?t=<ref>`) so Back and reload behave. Below 1536px it is a panel on the right edge,
+the address (`?t=<ref>`) so Back and reload behave. Below 1880px (`DOCK_MIN_PX`) it is a panel on the right edge,
 Hangar Slate with a left Rule and the Drawer shadow, 720px wide from `md` and the full width below
 it, over a scrim that dims the page. It is a modal dialog: focus moves in on open and returns to
-the row on close. At ≥1536px (`DOCK_MIN_PX`, `ui/src/layout.ts`) it **docks**: the same panel as a
+the row on close. At ≥1880px (`DOCK_MIN_PX`, `ui/src/layout.ts`) it **docks**: the same panel as a
 column beside the live page — no scrim, a region rather than a modal dialog, `clamp(720px,
 25vw+240px, 880px)` wide, taking the Overview rail's place. The frame mounts once per open, so a
 ticket swap re-renders the body in place and the slide-in plays once, not per ticket.

@@ -122,6 +122,11 @@ const PAGES = [
   // through the [data-tickets-toggle] button; the section header is what the ready selector waits
   // for, and openTickets expands it before measuring.
   { name: "Overview", route: "#/p/agenthook", ready: "[data-all-tickets]", openTickets: true, showAll: true },
+  // #708 rework: the matrix above never opened a ticket, which is how the docked-drawer width
+  // defect went unseen. Opening one (221 is a seeded running ticket on the "agenthook" profile)
+  // docks the drawer beside the page at 1920/2560 (≥ DOCK_MIN_PX, 1880) and narrows the list —
+  // the guarded [data-tickets-scroll] catches a sideways table there.
+  { name: "Overview (ticket open)", route: "#/p/agenthook?t=221", ready: "[data-drawer]", openTickets: true, showAll: true, widths: [1920, 2560] },
   { name: "Statistics", route: "#/p/agenthook/stats", ready: "[data-chart]" },
   // The fixture registry has no running receiver, so this page settles in its 503 state; the
   // status line renders on mount in every state, the rows never do.
@@ -146,6 +151,7 @@ try {
     for (const scheme of SCHEMES) {
       await page.emulateMedia({ colorScheme: scheme });
       for (const p of PAGES) {
+        if (p.widths && !p.widths.includes(width)) continue;
         await page.goto(`${base}/${p.route}`, { waitUntil: "domcontentloaded", timeout: WAIT_MS });
         await page.waitForSelector(p.ready, { timeout: WAIT_MS });
         if (p.openTickets) {
