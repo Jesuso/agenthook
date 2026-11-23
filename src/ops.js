@@ -15,6 +15,7 @@ import { isPipeline, findStep, resumeJob, queueStageOf } from "./pipeline.js";
 import { entryBlock } from "./commands/run.js";
 import { runMergeCatchup, runReconcile } from "./commands/reconcile.js";
 import { readRecheckState, recheckRef } from "./recheck.js";
+import { isRerunEvent } from "./ui/rows.js";
 import { isStateDedupKey } from "./store.js";
 import { CANCELLED_REASON } from "./events.js";
 import { EPIC_REF_RE, epicDetail, epicStats } from "./epics.js";
@@ -534,14 +535,29 @@ export function createOps(deps) {
       return { ref, killed, dequeued: dropped.map((j) => j.stepId), ...(held && !killed ? { releasedHold: true } : {}), ...outcome };
     }),
     // Acknowledge a failed/cancelled ticket or a PR row (`prNeeds`): a `dismissed` event; the
-    // ticket and board are untouched. The next re-run brings a PR row back.
+    // ticket and board are untouched. The next re-run brings a PR row back. Anything else — an
+    // unknown, idle or done ref, and one already dismissed since its last re-run — is refused,
+    // writing nothing.
     dismiss: write("dismiss", async (args) => {
       const ref = needString(args.ref, "ref");
       if (ref in store.listRunning()) throw new Error(`${ref} is running — nothing to dismiss`);
       if (store.listQueued().some((j) => j.ref === ref)) throw new Error(`${ref} is queued — nothing to dismiss`);
       if (store.getHeld(ref)) throw new Error(`${ref} is held — answer it with release, or abandon it with cancel`);
-      emit("dismissed", ref, "", { by: "operator" });
-      return { ref, dismissed: true };
+      const { rows, events } = readRecheckState(cfg);
+      const row = rows.find((r) => r.ref === ref);
+      if (row?.status === "failed" || row?.status === "cancelled" || row?.prNeeds) {
+        emit("dismissed", ref, "", { by: "operator" });
+        return { ref, dismissed: true };
+      }
+      // Already dismissed? Reverse-scan the tail until the ref's last re-run (a re-run stands:
+      // the earlier dismiss no longer counts).
+      for (let i = events.length - 1; i >= 0; i--) {
+        const e = events[i];
+        if (e.ref !== ref) continue;
+        if (isRerunEvent(e)) break;
+        if (e.event === "dismissed") throw new Error(`${ref} is already dismissed — nothing to dismiss`);
+      }
+      throw new Error(`${ref} is not failed, cancelled or a PR needing you — nothing to dismiss`);
     }),
     // Follow-up checks verified (src/followup.js): drop the ref's record, a `followup_done` event.
     followup_done: write("followup_done", async (args) => markFollowUpDone(store, emit, needString(args.ref, "ref"))),

@@ -336,7 +336,8 @@ export function createUiServer({ port, token, distDir, host: listenHost = "127.0
    * `POST /api/dismiss` — readGuardedJson, then `{profile, ref}` both strings → else 400; unknown
    * profile → 404 (socket never contacted); else sends `{cmd:'dismiss', args:{ref, actor:'ui'}}`
    * (the receiver writes a `dismissed` event and audits it in control-audit.jsonl; it refuses a
-   * running, queued or held ref → 502 `{error}`) and maps the reply via `callControl`.
+   * ref that is running, queued or held, is not failed/cancelled or a PR row needing you, or is
+   * already dismissed → 502 `{error}`) and maps the reply via `callControl`.
    * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {string} host the validated Host
    */
   const postDismiss = (req, res, host) =>
