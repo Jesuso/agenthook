@@ -196,20 +196,26 @@ toggle). It fails, listing one line per page/width/scheme, where something scrol
   attribute, for containers that must never scroll sideways at desktop widths.
 
 Containers that scroll sideways by design (app-bar nav, config tabs, harnesses card, copy
-commands) are deliberately **not** checked. The browser is downloaded on first use into
-playwright's cache (`~/.cache/ms-playwright`, override with `PLAYWRIGHT_BROWSERS_PATH`). If it
-can't be downloaded or launched (offline sandbox, egress blocked, missing shared libraries),
-the script prints exactly one line starting `skipped: no browser available` and exits **0** —
-except when `CI` is set, where the same condition exits **1**, so CI never goes green by
-skipping. CI runs it as its own `ui-overflow` job (`.github/workflows/ci.yml`).
+commands) are deliberately **not** checked.
 
-**Inside the agent sandbox the check always takes the skip path.** The Chromium zip that
-playwright downloads from `cdn.playwright.dev` redirects to `storage.googleapis.com`, which is
+**Choosing the browser.** Set `AH_OVERFLOW_BROWSER=<path>` to an installed Chrome/Chromium
+executable and the script launches that browser, skipping the playwright download/install
+entirely. A path that doesn't exist, or a browser that fails to launch, prints exactly one line
+naming `AH_OVERFLOW_BROWSER` and the path and exits **1** — with or without `CI` (a typo in the
+variable is never a silent skip). With the variable unset (or empty) the browser is downloaded
+on first use into playwright's cache (`~/.cache/ms-playwright`, override with
+`PLAYWRIGHT_BROWSERS_PATH`); if it can't be downloaded or launched (offline sandbox, egress
+blocked, missing shared libraries), the script prints exactly one line starting
+`skipped: no browser available` — pointing at `AH_OVERFLOW_BROWSER` — and exits **0**, except
+when `CI` is set, where the same condition exits **1**, so CI never goes green by skipping. CI
+runs it as its own `ui-overflow` job (`.github/workflows/ci.yml`).
+
+**In the agent sandbox, point it at an installed browser.** The Chromium zip that playwright
+downloads from `cdn.playwright.dev` redirects to `storage.googleapis.com`, which is
 *deliberately* kept off the sandbox egress allow-list (that host serves every bucket of every
-Google Cloud customer, so allowing it would open a general upload path). Running the check in
-the sandbox is therefore out of scope; the real-browser run is the CI `ui-overflow` job. (A way
-to point the script at an already-installed browser — an env var for the executable path — is
-the likely follow-up.)
+Google Cloud customer, so allowing it would open a general upload path) — so the download path
+always skips there. An already-installed browser runs the full matrix instead:
+`AH_OVERFLOW_BROWSER=/usr/bin/google-chrome npm run check:overflow`.
 
 ## Phases
 

@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
-- UI: the ticket drawer docks beside the page on wide screens (≥ `DOCK_MIN_PX`, 1536px — one
+- UI: the ticket drawer docks beside the page on wide screens (≥ `DOCK_MIN_PX`, 1880px — one
   constant in `ui/src/layout.ts`, `useDocked()`) instead of overlaying it (#708): no scrim, nothing
   dimmed, the page stays live and narrows. It takes the Overview rail's place (the rail hides but
   stays mounted, returning on close); its width is `clamp(720px, 25vw+240px, 880px)`. A docked
@@ -14,6 +14,12 @@ All notable changes to this project are documented here. The format is based on
   unchanged, a ticket swap re-renders the body in place (same node, the slide-in plays once per
   open), and page shortcuts are idle only while focus is inside it. Below the breakpoint the
   overlay is unchanged (scrim, 720px, `dialog` + `aria-modal`).
+- New: `AH_OVERFLOW_BROWSER=<path>` for `npm run check:overflow` — set it to an installed
+  Chrome/Chromium executable and the check launches that browser, skipping playwright's
+  download/install entirely (needed where the download is blocked, e.g. the agent sandbox).
+  A missing path or a browser that fails to launch prints one line naming the variable and the
+  path and exits 1 with or without `CI`; unset, the behaviour is unchanged (download + launch,
+  `skipped: no browser available` now pointing at the variable) (#815).
 - New: `npm run check:overflow` — a real-browser horizontal-overflow check for the UI. It
   serves the built bundle over a seeded fixture registry in headless Chromium
   (`chromium-headless-shell` via the dev-only `playwright-core`) and fails, listing every
