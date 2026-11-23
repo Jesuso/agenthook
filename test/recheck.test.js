@@ -11,7 +11,7 @@ import path from "node:path";
 import { createOps } from "../src/ops.js";
 import { createStore } from "../src/store.js";
 import { createQueue } from "../src/queue.js";
-import { createEmitter } from "../src/events.js";
+import { createEmitter, CANCELLED_REASON } from "../src/events.js";
 import { buildRows, readProfileState } from "../src/ui/rows.js";
 import { isNeedsYou } from "../src/epics.js";
 import { recheckLine, recheckRequest } from "../src/commands/recheck.js";
@@ -222,6 +222,43 @@ test("dismiss on a PR row: accepted, nulls prNeeds (Needs you false), a later ru
   s.emit("run_start", "A", "code");
   s.emit("run_end", "A", "code", { outcome: "advance" });
   assert.equal(s.rowOf("A")?.prNeeds, "awaitingMerge");
+});
+
+test("dismiss: refuses an unknown ref, an idle row and a done row without prNeeds, writing nothing", async () => {
+  const s = setup();
+  s.emit("run_start", "B", "code");
+  s.emit("run_end", "B", "code", { outcome: "advance" }); // idle row
+  s.emit("run_start", "C", "code");
+  s.emit("run_end", "C", "code", { outcome: "advance" });
+  s.emit("board_done", "C", ""); // done row, no prNeeds
+  const n0 = s.events().length;
+  const refuse = /not failed, cancelled or a PR needing you — nothing to dismiss/;
+  await assert.rejects(() => s.ops.dismiss({ ref: "999999" }), refuse);
+  await assert.rejects(() => s.ops.dismiss({ ref: "B" }), refuse);
+  await assert.rejects(() => s.ops.dismiss({ ref: "C" }), refuse);
+  assert.equal(s.events().length, n0, "refusals write nothing");
+  const audit = fs.readFileSync(path.join(s.dir, "control-audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.ok(audit.length === 3 && audit.every((l) => l.cmd === "dismiss" && l.ok === false), "refusals audited ok:false");
+});
+
+test("dismiss: a failed task, a cancelled task and a prNeeds row each dismiss once; a second dismiss refuses", async () => {
+  const s = setup({ prs: { 1: "merged" } });
+  s.emit("failed", "F", "code", { reason: "boom" });
+  s.emit("failed", "K", "code", { reason: CANCELLED_REASON });
+  s.ran("A", 1);
+  assert.equal(s.rowOf("F")?.status, "failed");
+  assert.equal(s.rowOf("K")?.status, "cancelled");
+  assert.equal(s.rowOf("A")?.prNeeds, "awaitingMerge");
+  for (const ref of ["F", "K", "A"]) assert.deepEqual(await s.ops.dismiss({ ref }), { ref, dismissed: true });
+  assert.deepEqual(s.events().filter((e) => e.event === "dismissed").map((e) => e.ref), ["F", "K", "A"], "one dismissed event per ref");
+  const n = s.events().length;
+  await assert.rejects(() => s.ops.dismiss({ ref: "F" }), /already dismissed — nothing to dismiss/);
+  assert.equal(s.events().length, n, "no second event");
+  s.emit("run_start", "F", "code"); // a re-run stands
+  s.emit("run_end", "F", "code", { outcome: "fail" });
+  s.emit("failed", "F", "code", { reason: "again" });
+  assert.deepEqual(await s.ops.dismiss({ ref: "F" }), { ref: "F", dismissed: true });
+  assert.equal(s.events().filter((e) => e.event === "dismissed" && e.ref === "F").length, 2);
 });
 
 test("close_on_board: completes a mergedOpen/openOnDone ticket once, emits nothing; refuses other rows, no complete(), not ours", async () => {

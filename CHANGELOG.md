@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- Fixed: `dismiss` (the op, the CLI command, the MCP tool and the UI's `POST /api/dismiss`) now
+  succeeds only when the ref has something to dismiss — a failed/cancelled task or a PR row with
+  `prNeeds` — and writes a `dismissed` event. An unknown ref, an idle or done row, and an already
+  dismissed ref are refused with a clear error and write nothing; running, queued and held refs
+  refuse as before (#814).
+
 - New: `AH_OVERFLOW_BROWSER=<path>` for `npm run check:overflow` — set it to an installed
   Chrome/Chromium executable and the check launches that browser, skipping playwright's
   download/install entirely (needed where the download is blocked, e.g. the agent sandbox).

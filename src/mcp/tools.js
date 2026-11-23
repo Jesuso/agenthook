@@ -218,7 +218,7 @@ const TOOLS = {
   dismiss: {
     write: true,
     def: schema(
-      "Acknowledge a FAILED or CANCELLED task, or a PR row where code and board disagree (`prNeeds`), so the dashboard stops counting it as needing attention (writes a `dismissed` event; the ticket and board are untouched). Errors if the task is running, queued or held. A later run of the ref shows up normally.",
+      "Acknowledge a FAILED or CANCELLED task, or a PR row where code and board disagree (`prNeeds`), so the dashboard stops counting it as needing attention (writes a `dismissed` event; the ticket and board are untouched). Errors if the task is not failed/cancelled or a PR row needing you, is already dismissed, or is running, queued or held. A later run of the ref shows up normally.",
       { profile: PROFILE, ref: REF },
       ["ref"],
     ),
