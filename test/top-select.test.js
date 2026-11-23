@@ -65,7 +65,7 @@ test("top: rows never show harness/model (the glance rule) — they only appear 
   assert.equal(detailLine(t, 3), "  r1 · code · harness claude · model opus · Building");
 });
 
-test("top: detailLine — needs-you rows say the kind in words plus the title; running rows keep id/step/harness/model", () => {
+test("top: detailLine — needs-you rows say the kind in words plus the title; running rows keep id/step/harness/model; no cost/ctx/reason", () => {
   const t = selTick();
   assert.equal(detailLine(t, 0), "  held at review · Waiting");
   assert.equal(detailLine(t, 1), "  failed at code · It broke");
@@ -95,6 +95,13 @@ test("top: detailLine — needs-you rows say the kind in words plus the title; r
   assert.equal([...visible(cut)].length, 20, "the detail line is cut to width");
   assert.ok(cut.endsWith("…"));
   assert.equal(detailLine(t, 99), "", "an out-of-range index gives no detail line");
+  // tick entries carry the reason as `why` (src/agent-api.js) — the detail line must not print it
+  const withWhy = UP({
+    held: [{ ref: "h1", step: "review", title: "W", why: "waiting on the operator" }],
+    failed: [{ ref: "f1", step: "code", title: "B", why: "tests red" }],
+  });
+  assert.equal(detailLine(withWhy, 0), "  held at review · W", "a held reason is not a detail part");
+  assert.equal(detailLine(withWhy, 1), "  failed at code · B", "a failed reason is not a detail part");
 });
 
 test("top: detailLine — a needs-you row adds information: kind in words plus more of the title than the row shows", () => {

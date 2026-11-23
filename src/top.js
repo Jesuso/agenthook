@@ -39,8 +39,8 @@ function ageFrom(ts, now) {
 
 /** A tick entry rendered as a row (the age comes from `since`/`at`/`ageS` depending on its kind;
  * running entries also carry `model`/`harness` from `running.json`, PR entries a `pr` URL and
- * their `prNeeds` word in `kind`, held/failed entries their reason). */
-/** @typedef {{ref: string, id?: string, step?: string, title?: string, since?: string, at?: string, ageS?: number|null, model?: string, harness?: string, pr?: string, kind?: string, reason?: string, why?: string}} RowEntry */
+ * their `prNeeds` word in `kind`). */
+/** @typedef {{ref: string, id?: string, step?: string, title?: string, since?: string, at?: string, ageS?: number|null, model?: string, harness?: string, pr?: string, kind?: string}} RowEntry */
 
 /** The payload `renderTop` reads: `src/agent-api.js` `readTick` output, local-only fields. */
 /** @typedef {{profile?: string, up?: boolean, slots?: {max?: number|null, active?: number, queued?: number}, held?: RowEntry[], failed?: RowEntry[], prWaiting?: RowEntry[], running?: RowEntry[]}} TopTick */
@@ -194,9 +194,9 @@ export function needsYouKind(sel) {
 /** The detail line's parts for a selected row — the one place harness/model appear, and the
  * place a needs-you row adds information instead of repeating the row: the kind in words
  * (`held at <step>` / `failed at <step>` / the PR kind in words, bare without a step), then the
- * title (cut to the whole line — the row showed it cut shorter) and the row's reason. Running
- * rows keep `id · step · harness · model` — with the measured bits where absent left out — and
- * the title last.
+ * title (cut to the whole line — the row showed it cut shorter). Running rows keep
+ * `id · step · harness · model` — with the measured bits where absent left out — and the title
+ * last.
  * @param {SelectableEntry} sel the selected row
  * @returns {string[]} the parts, joined ` · ` by the callers
  */
@@ -215,8 +215,6 @@ function detailParts(sel) {
   /** @type {string[]} */
   const parts = [sel.kind === "pr" ? word : r.step ? `${word} at ${r.step}` : word];
   if (r.title) parts.push(r.title);
-  if (sel.kind === "held" && r.reason) parts.push(r.reason);
-  if (sel.kind === "failed" && r.why) parts.push(r.why);
   return parts;
 }
 
