@@ -12,7 +12,8 @@ import path from "node:path";
 import { registryDir } from "../src/config.js";
 import { controlSockPath } from "../src/paths.js";
 import { cancel, release, dismiss, retry, pull, harnessReset } from "../src/commands/control-ops.js";
-import { concurrency } from "../src/commands/pause.js";
+import { concurrency, setControlRequest } from "../src/commands/pause.js";
+import { controlRequest } from "../src/ui/control-client.js";
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-control-ops-"));
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -137,6 +138,52 @@ test("cancel with no <ref> exits 1 and sends no request", async () => {
   }
 });
 
+test("cancel with moved:false shows the moveError line, still exit 0", async () => {
+  const p = await profile("op-cancel-moved", { ref: "5", killed: true, dequeued: ["code"], moved: false, moveError: "board refused the move" });
+  try {
+    const r = await run(cancel, { _: ["5"] }, p.configPath);
+    assert.equal(r.exitCode, undefined);
+    assert.equal(r.out.split("\n")[0], "5: killed its run, dequeued code");
+    assert.match(r.out, /moving it to the failure lane failed: board refused the move/);
+  } finally {
+    await new Promise((r) => p.server.close(r));
+  }
+});
+
+test("each command sends with the MCP-path live timeout (cancel/release/pull 60 s, the rest 20 s)", async () => {
+  const d = downProfile("op-timeouts");
+  fs.writeFileSync(path.join(d.stateDir, "server.pid"), String(process.pid)); // make readProfile report up
+  /** @type {Array<[string, number]>} */ const seen = [];
+  setControlRequest(async (sockPath, cmd, payload, opts) => {
+    seen.push([cmd, opts.timeoutMs]);
+    return { ok: true, result: RESULT.cancel };
+  });
+  try {
+    for (const [fn, args] of [
+      [cancel, { _: ["5"] }],
+      [release, { _: ["5", "why?"] }],
+      [pull, { _: [] }],
+      [dismiss, { _: ["5"] }],
+      [retry, { _: ["5"] }],
+      [harnessReset, { _: ["h"] }],
+      [concurrency, { _: ["3"] }],
+    ]) {
+      await run(fn, args, d.configPath);
+    }
+    assert.deepEqual(seen, [
+      ["cancel", 60_000],
+      ["release", 60_000],
+      ["pull", 60_000],
+      ["dismiss", 20_000],
+      ["retry", 20_000],
+      ["harness_reset", 20_000],
+      ["set_concurrency", 20_000],
+    ]);
+  } finally {
+    setControlRequest(controlRequest);
+  }
+});
+
 test("release joins the remaining words as comment; with none, no comment key; --json; refusal", async () => {
   const p = await profile("op-release", RESULT.release);
   try {
@@ -200,6 +247,13 @@ test("retry sends {cmd:\"retry\", args:{ref}}; --json; refusal", async () => {
     assert.match(r.out, /^5: step "code" queued$/);
     r = await run(retry, { _: ["5"], json: true }, p.configPath);
     assert.deepEqual(JSON.parse(r.out), RESULT.retry);
+    // not re-queued (e.g. already running): the plain output names the stage and the note
+    const stage = await profile("op-retry-stage", { ref: "5", step: "code", stage: "blocked", note: "already running in another worktree" });
+    r = await run(retry, { _: ["5"] }, stage.configPath);
+    assert.equal(r.exitCode, undefined);
+    assert.equal(r.out.split("\n")[0], '5: step "code" re-entered stage "blocked"');
+    assert.equal(r.out.split("\n")[1], "already running in another worktree");
+    await new Promise((r) => stage.server.close(r));
     r = await run(retry, { _: [] }, p.configPath);
     assert.equal(r.exitCode, 1);
     assert.match(r.err, /^usage: agenthook retry <ref>$/);

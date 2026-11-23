@@ -6,9 +6,22 @@ import { peekConfig } from "../config.js";
 import { readProfile } from "../heartbeat.js";
 import { controlSockPath } from "../paths.js";
 import { controlRequest } from "../ui/control-client.js";
+import { liveTimeoutMs } from "../agent-api.js";
 
 /** The CLI args these commands read: the parsed positional/flag map from bin/agenthook.js. */
 /** @typedef {{_: string[], config?: string, harness?: string, json?: boolean, reset?: boolean}} OverrideArgs */
+
+/** The control-request function `send` uses — swapped by tests to observe the per-op timeoutMs.
+ * @type {(sockPath: string, cmd: string, args: Record<string, unknown>, opts: { timeoutMs: number }) =>
+ *   Promise<{ ok: true, result: Record<string, unknown> } | { ok: false, error: string }>} */
+let request = controlRequest;
+
+/** Swap the control-request function (tests only).
+ * @param {(sockPath: string, cmd: string, args: Record<string, unknown>, opts: { timeoutMs: number }) =>
+ *   Promise<{ ok: true, result: Record<string, unknown> } | { ok: false, error: string }>} fn */
+export function setControlRequest(fn) {
+  request = fn;
+}
 
 /**
  * Send one control op over the control socket and print its reply. Exits 1 when the receiver is
@@ -28,7 +41,7 @@ export async function send(args, cmd, payload, opts = {}) {
   }
   let reply;
   try {
-    reply = await controlRequest(controlSockPath(stateDir, stateKey), cmd, payload, { timeoutMs: 5000 });
+    reply = await request(controlSockPath(stateDir, stateKey), cmd, payload, { timeoutMs });
   } catch (e) {
     console.error(`${cmd}: ${e.code === "timeout" ? "timed out waiting for the receiver" : "receiver is down"}`);
     process.exitCode = 1;
@@ -87,7 +100,7 @@ export async function concurrency(args) {
     return;
   }
   if (wantReset) {
-    await send(args, "set_concurrency", harness ? { reset: true, harness } : { reset: true });
+    await send(args, "set_concurrency", harness ? { reset: true, harness } : { reset: true }, { timeoutMs: liveTimeoutMs("set_concurrency") });
     return;
   }
   const n = Number(value);
@@ -96,5 +109,5 @@ export async function concurrency(args) {
     process.exitCode = 1;
     return;
   }
-  await send(args, "set_concurrency", harness ? { max: n, harness } : { max: n });
+  await send(args, "set_concurrency", harness ? { max: n, harness } : { max: n }, { timeoutMs: liveTimeoutMs("set_concurrency") });
 }
