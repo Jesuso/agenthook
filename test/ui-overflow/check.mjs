@@ -65,7 +65,7 @@ const closeServer = () => {
   }
 };
 
-/** Close the browser (if any), stop the server and remove the fixture. */
+/** Remove the fixture's temp dir (best effort). The browser and server are closed by the caller. */
 const cleanup = () => {
   try {
     fs.rmSync(home, { recursive: true, force: true, maxRetries: 3 });

@@ -203,6 +203,14 @@ the script prints exactly one line starting `skipped: no browser available` and 
 except when `CI` is set, where the same condition exits **1**, so CI never goes green by
 skipping. CI runs it as its own `ui-overflow` job (`.github/workflows/ci.yml`).
 
+**Inside the agent sandbox the check always takes the skip path.** The Chromium zip that
+playwright downloads from `cdn.playwright.dev` redirects to `storage.googleapis.com`, which is
+*deliberately* kept off the sandbox egress allow-list (that host serves every bucket of every
+Google Cloud customer, so allowing it would open a general upload path). Running the check in
+the sandbox is therefore out of scope; the real-browser run is the CI `ui-overflow` job. (A way
+to point the script at an already-installed browser — an env var for the executable path — is
+the likely follow-up.)
+
 ## Phases
 
 ### v1 — read-only dashboard (the PoC)
