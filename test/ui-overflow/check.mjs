@@ -104,7 +104,11 @@ const PAGES = [
   { name: "Home", route: "#/", ready: "[data-profile-card]" },
   // "show all" lifts the 24h-stale filter (the fixture's rows are all fresh, so the count is the
   // same either way — the toggle is on because that app state is what #770 asked us to cover).
-  { name: "Overview", route: "#/p/agenthook", ready: "[data-tickets-scroll]", showAll: true },
+  // The "All tickets" section is collapsed by default (Overview's ticketsOpen starts false and
+  // resets on every remount), so the table — and [data-tickets-scroll] — is only reachable
+  // through the [data-tickets-toggle] button; the section header is what the ready selector waits
+  // for, and openTickets expands it before measuring.
+  { name: "Overview", route: "#/p/agenthook", ready: "[data-all-tickets]", openTickets: true, showAll: true },
   { name: "Statistics", route: "#/p/agenthook/stats", ready: "[data-chart]" },
   // The fixture registry has no running receiver, so this page settles in its 503 state; the
   // status line renders on mount in every state, the rows never do.
@@ -131,10 +135,18 @@ try {
       for (const p of PAGES) {
         await page.goto(`${base}/${p.route}`, { waitUntil: "domcontentloaded", timeout: WAIT_MS });
         await page.waitForSelector(p.ready, { timeout: WAIT_MS });
+        if (p.openTickets) {
+          // Overview remounts between visits, so the section is collapsed again each time;
+          // expand it (idempotent when a hash-only revisit left it open).
+          const expanded = await page.getAttribute("[data-tickets-toggle]", "aria-expanded");
+          if (expanded !== "true") await page.click("[data-tickets-toggle]");
+          await page.waitForSelector("[data-tickets-scroll]", { timeout: WAIT_MS });
+        }
         if (p.showAll) {
-          // App state survives the hash navigation, so on revisits the box is already checked.
+          // The box lives in the table's toolbar (only rendered once the section is open);
+          // showAll itself is App-level state, so on revisits the box is already checked.
           await page.evaluate(() => {
-            const c = document.querySelector('input[type="checkbox"]');
+            const c = document.querySelector('[data-all-tickets] input[type="checkbox"]');
             if (c && !c.checked) c.click();
           });
           // 60 bulk + 4 long-title + the manual seed rows → the 50-row page fills up.
