@@ -15,11 +15,16 @@
 //
 //   npm run check:overflow   # = build:ui + this script
 //
-// The browser is downloaded on first use into playwright's cache (PLAYWRIGHT_BROWSERS_PATH if
-// set, else ~/.cache/ms-playwright). If it can't be downloaded or launched (offline sandbox,
-// egress blocked, missing shared libraries), the script prints exactly one line starting
-// `skipped: no browser available` and exits 0 — except when CI is set, where the same
-// condition exits 1, so CI can never go green by skipping.
+// Browser selection (test/ui-overflow/browser.mjs, pure; AH_OVERFLOW_BROWSER):
+//   AH_OVERFLOW_BROWSER=<installed Chrome/Chromium path> → launch that executable and never
+//   touch playwright's download; a missing path, or a path that fails to launch, prints one
+//   line naming AH_OVERFLOW_BROWSER and the path and exits 1, with or without CI.
+//   unset (or empty) → the playwright path: chromium-headless-shell is downloaded on first use
+//   into playwright's cache (PLAYWRIGHT_BROWSERS_PATH if set, else ~/.cache/ms-playwright). If
+//   it can't be downloaded or launched (offline sandbox, egress blocked, missing shared
+//   libraries), the script prints exactly one line starting `skipped: no browser available`
+//   (and pointing at AH_OVERFLOW_BROWSER) and exits 0 — except when CI is set, where the same
+//   condition exits 1, so CI can never go green by skipping.
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -28,6 +33,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createUiServer } from "../../src/ui/server.js";
+import { browserPlan, launchFailure } from "./browser.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const distDir = path.join(repo, "ui", "dist");
@@ -74,30 +80,37 @@ const cleanup = () => {
   }
 };
 
-/** One-line reason from an error. @param {unknown} e */
-const brief = (e) =>
-  String(e instanceof Error ? e.message : e).replace(/\s+/g, " ").trim().slice(0, 200);
-
 /** One-line reason from the installer's combined output. @param {string} text */
 const installReason = (text) => {
   const lines = text.trim().split("\n").filter(Boolean);
   return (lines.find((l) => /^Error:|failed|denied|blocked|refused|not in this sandbox/i.test(l)) ?? lines.at(-1) ?? "install failed").replace(/\s+/g, " ").trim().slice(0, 200);
 };
 
-// Browser: make sure chromium-headless-shell is installed (the install is a no-op when the
-// build is already in the cache), then launch. Any download/launch failure → skip.
+// Browser: browser.mjs decides. With AH_OVERFLOW_BROWSER set to an existing executable the
+// playwright install step is skipped entirely; without it, make sure chromium-headless-shell
+// is installed (the install is a no-op when the build is already in the cache), then launch.
+const plan = browserPlan(process.env);
+if (plan.mode === "error") {
+  console.error(plan.line);
+  await closeServer();
+  cleanup();
+  process.exit(plan.code);
+}
 let browser = null;
 try {
-  const bin = path.join(repo, "node_modules", "playwright-core", "cli.js");
-  const install = spawnSync(process.execPath, [bin, "install", "chromium-headless-shell"], { cwd: repo, encoding: "utf8", timeout: 10 * 60 * 1000 });
-  if (install.status !== 0) throw new Error(`install exited ${install.status ?? "null"}: ${installReason(String(install.stderr || "") + "\n" + String(install.stdout || ""))}`);
-  browser = await chromium.launch();
+  if (plan.mode === "playwright") {
+    const bin = path.join(repo, "node_modules", "playwright-core", "cli.js");
+    const install = spawnSync(process.execPath, [bin, "install", "chromium-headless-shell"], { cwd: repo, encoding: "utf8", timeout: 10 * 60 * 1000 });
+    if (install.status !== 0) throw new Error(`install exited ${install.status ?? "null"}: ${installReason(String(install.stderr || "") + "\n" + String(install.stdout || ""))}`);
+  }
+  browser = await chromium.launch(plan.launchOptions);
 } catch (e) {
-  console.log(`skipped: no browser available (${brief(e)})`);
+  const f = launchFailure(plan, e, process.env);
+  console.log(f.line);
   await browser?.close().catch(() => {});
   await closeServer();
   cleanup();
-  process.exit(process.env.CI ? 1 : 0);
+  process.exit(f.code);
 }
 
 const PAGES = [

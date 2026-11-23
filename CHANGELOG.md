@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- New: `AH_OVERFLOW_BROWSER=<path>` for `npm run check:overflow` — set it to an installed
+  Chrome/Chromium executable and the check launches that browser, skipping playwright's
+  download/install entirely (needed where the download is blocked, e.g. the agent sandbox).
+  A missing path or a browser that fails to launch prints one line naming the variable and the
+  path and exits 1 with or without `CI`; unset, the behaviour is unchanged (download + launch,
+  `skipped: no browser available` now pointing at the variable) (#815).
+
 - New: `npm run check:overflow` — a real-browser horizontal-overflow check for the UI. It
   serves the built bundle over a seeded fixture registry in headless Chromium
   (`chromium-headless-shell` via the dev-only `playwright-core`) and fails, listing every
