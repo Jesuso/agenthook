@@ -26,6 +26,7 @@
     "typecheck:ui": "tsc -p ui --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json",
     "test:ui": "vitest run --root ui",
+    "check:overflow": "npm run build:ui && node test/ui-overflow/check.mjs",
     "prepublishOnly": "npm run typecheck && npm test && npm run build:ui",
     "release:smoke": "node test/release/smoke.mjs",
     "version": "node -e \"import('./src/skill-install.js').then((m) => console.log('stamped skill', m.stampSourceSkill()))\" && git add skills/agenthook/SKILL.md"
@@ -82,6 +83,7 @@
     "d3-shape": "^3.2.0",
     "happy-dom": "^21.0.3",
     "jsonc-parser": "^3.3.1",
+    "playwright-core": "1.65.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",

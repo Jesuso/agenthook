@@ -47,6 +47,28 @@ jobs:
           # name rather than widening --onlyAllow. Any other non-allowlisted
           # license still fails this step.
 
+  # Real-browser horizontal-overflow check: serves the built UI over a seeded fixture registry
+  # in headless Chromium and fails if the page or a guarded scroll container scrolls sideways
+  # at desktop widths (test/ui-overflow/check.mjs; docs/web-ui.md). Own job so the browser
+  # download never slows the matrix; a skip (no browser) is a red job here (CI set).
+  ui-overflow:
+    runs-on: ubuntu-latest
+    name: ui overflow
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          # playwright-core is pinned in devDependencies — bump this key when you bump it.
+          key: playwright-core-1.65.1-${{ runner.os }}
+      - run: npm ci
+      - run: npx playwright-core install --with-deps chromium-headless-shell
+      - run: npm run check:overflow
+
   # The packed tarball, installed like a user would, running docs/quickstart.md verbatim with a
   # stub agent, plus the failure tour, the CLI's own remedy hints, restart, teardown and an
   # upgrade from the latest published version. See test/release/smoke.mjs.

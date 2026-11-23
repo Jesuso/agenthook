@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- New: `npm run check:overflow` — a real-browser horizontal-overflow check for the UI. It
+  serves the built bundle over a seeded fixture registry in headless Chromium
+  (`chromium-headless-shell` via the dev-only `playwright-core`) and fails, listing every
+  page/width/scheme (Home, Overview with *show all* on, Statistics, Epics, Config ×
+  1328/1366/1920/2560 px × light/dark) where the page or a guarded scroll container
+  (`[data-tickets-scroll]`, or the opt-in `data-overflow-guard` attribute) scrolls sideways.
+  It skips (exit 0) when the browser can't be downloaded or launched; with `CI` set the same
+  condition exits 1. Runs in its own `ui-overflow` CI job. `test/fixtures/ui/seed.js` gains an
+  opt-in `--long-titles` flag (unbreakable ~300-char titles, every optional column filled) —
+  the default seed is unchanged (#790).
+
 - New: run control from a shell — `agenthook cancel <ref>`, `release <ref> [comment…]`,
   `dismiss <ref>`, `retry <ref>`, `pull` and `harness-reset <name>` are thin front-ends of the
   control-socket ops of the same names (src/ops.js), so an operator without an MCP client can
@@ -15,6 +26,7 @@ All notable changes to this project are documented here. The format is based on
   `pause`/`unpause` now, via the shared sender). `set-concurrency` is an alias of the existing
   `concurrency` command, which additionally accepts `--reset` and `--json` and, like the op,
   takes exactly one of `<n>` and a reset (#808).
+
 - Changed: `agenthook top` fixes (#805): a PR row whose age is unknown no longer prints `-` — a
   `prWaiting` row without a `finishedAt` (the `awaitingMerge`/`closedUnmerged` kinds) falls back to
   the ref's newest event ts, and when no event carries a ts the age token is left out (held/failed
