@@ -40,7 +40,7 @@ Vocabulary you will see in tool output:
 - **held** — a task whose agent asked for input. It stays parked until someone answers (`release`)
   or the ticket is completed on the board (the hold is then dropped: `hold_cleared`).
 - **failed** — `status.failed[]`: tasks whose last word is a real failure (`why`, `at`; an operator `cancel` is not listed), until they run again, you `retry` them, or you `dismiss` them.
-- **prWaiting** — `status.prWaiting[]` (forge profiles only): done tickets whose PR is still open and awaiting a person (`ref`, `step`, `pr`, `kind`, `at`). `held` + `failed` + `prWaiting` is the dashboard's needs-you.
+- **prWaiting** — `status.prWaiting[]` (forge profiles only): done tickets whose PR is still open and awaiting a person (`ref`, `step`, `pr`, `kind`, `at`). `at` is when the PR started waiting — the ticket's board-done, the merge, else the ticket's last event; null only when no event timestamp is known. `held` + `failed` + `prWaiting` is the dashboard's needs-you.
 - **follow-up checks** — `status.followUp[]` (`ref`, `checks`, `tier`, `pr?`, `since`): approvals
   the review let merge (low/medium tier, or `forge.autoMerge.tiers`) with criteria only checkable
   once the change is live. Verify each on the live change, then `followup_done {ref}`
