@@ -15,7 +15,15 @@ All notable changes to this project are documented here. The format is based on
   `pause`/`unpause` now, via the shared sender). `set-concurrency` is an alias of the existing
   `concurrency` command, which additionally accepts `--reset` and `--json` and, like the op,
   takes exactly one of `<n>` and a reset (#808).
-
+- Changed: `agenthook top` fixes (#805): a PR row whose age is unknown no longer prints `-` — a
+  `prWaiting` row without a `finishedAt` (the `awaitingMerge`/`closedUnmerged` kinds) falls back to
+  the ref's newest event ts, and when no event carries a ts the age token is left out (held/failed
+  rows still print `-`). The Enter hint line keeps its shell command as the last thing cut at a
+  narrow width — the prose head and the extra (URL / `agenthook ui`) drop first, then the head
+  alone, and only a cut of the command alone is last. The detail line of a needs-you row adds
+  information instead of repeating the row: the kind in words (`held at <step>`, `failed at
+  <step>`, `PR open, ticket done`, `PR open, awaiting merge`, `PR merged, ticket open`, `PR closed
+  unmerged, ticket open`, `PR waiting`), then the title cut to the whole line width.
 - Docs: a user guide for `agenthook top` in operating.md — the four ways to run it (full
   screen, `--lines N` strip, `--all`/multi-name, `--once` and non-TTY), what a row shows, and
   the full-screen key table (the strip only takes `q`/Ctrl-C); one pointer sentence in the

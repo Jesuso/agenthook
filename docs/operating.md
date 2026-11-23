@@ -180,7 +180,7 @@ harness and model.
 | Key | Effect |
 |-----|--------|
 | `j` / `k` or `↓` / `↑` | move the selection (clamped at both ends — no wrap) |
-| `Enter` | on a `RUN` row: follow that run's log — the screen shows it with `following <ref> <step> — q/Ctrl-C back to top`, and it ends on the run's `run_end` or on `q`/Ctrl-C, which goes back to top without quitting. On a `HELD`, `FAIL` or `PR` row: show the one-line next action — reply `@agent <answer>` on the ticket (or release it in `agenthook ui`), `agenthook run <ref> <step> --force`, or the PR URL plus `agenthook recheck <ref>` |
+| `Enter` | on a `RUN` row: follow that run's log — the screen shows it with `following <ref> <step> — q/Ctrl-C back to top`, and it ends on the run's `run_end` or on `q`/Ctrl-C, which goes back to top without quitting. On a `HELD`, `FAIL` or `PR` row: show the one-line next action — reply `@agent <answer>` on the ticket (or release it in `agenthook ui`), `agenthook run <ref> <step> --force`, or `agenthook recheck <ref>` (the PR URL at wide widths) |
 | `?` | show or hide the key help: `j/k ↑/↓ move · Enter follow (running) / hint · ? help · q quit` |
 | `q` / Ctrl-C | quit |
 
