@@ -30,11 +30,15 @@ const focusedRow = () => {
   return row?.getAttribute("data-needs-row") ?? row?.getAttribute("data-now-row") ?? undefined;
 };
 
-async function render(onDismiss: (r: { ref: string }) => void = () => {}, onRetry: (r: { ref: string }) => Promise<ReleaseOutcome> = async () => ({ ok: true, text: "" })) {
+async function render(
+  onDismiss: (r: { ref: string }) => void = () => {},
+  onRetry: (r: { ref: string }) => Promise<ReleaseOutcome> = async () => ({ ok: true, text: "" }),
+  opts: { drawerDocked?: boolean } = {},
+) {
   m = await mount(
     createElement(Overview, {
       profile: p, snapshot: { profiles: [p], tickets: [t("1", "failed"), t("2", "failed"), t("3", "held"), t("4", "running")] }, now: Date.now(), feed: [], statusFilter: "", setStatusFilter: () => {}, epicFilter: "", setEpicFilter: () => {}, stepFilter: "", setStepFilter: () => {}, showAll: false, setShowAll: () => {},
-      open: null, onOpen: () => {}, displayIdFor: () => null, menuItems: [], note: "", onDismiss, onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }), onRetry,
+      open: null, drawerDocked: opts.drawerDocked, onOpen: () => {}, displayIdFor: () => null, menuItems: [], note: "", onDismiss, onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }), onRetry,
     }),
   );
 }
@@ -95,5 +99,49 @@ describe("Overview keyboard shortcuts", () => {
     expect(document.querySelector("[data-shortcuts]")?.textContent).toContain("Dismiss the focused failed ticket");
     await press("j", document.body);
     expect(focusedRow()).toBeUndefined();
+  });
+
+  it("a docked drawer hides the rail (still mounted) and closing restores it", async () => {
+    await render(undefined, undefined, { drawerDocked: true });
+    const rail = document.querySelector<HTMLElement>("[data-overview-rail]")!;
+    expect(rail.hasAttribute("hidden")).toBe(true);
+    expect(rail.className).toContain("hidden");
+    await m!.rerender(
+      createElement(Overview, {
+        profile: p, snapshot: { profiles: [p], tickets: [t("1", "failed")] }, now: Date.now(), feed: [], statusFilter: "", setStatusFilter: () => {}, epicFilter: "", setEpicFilter: () => {}, stepFilter: "", setStepFilter: () => {}, showAll: false, setShowAll: () => {},
+        open: null, onOpen: () => {}, displayIdFor: () => null, menuItems: [], note: "", onDismiss: () => {}, onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }), onRetry: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }),
+      }),
+    );
+    expect(document.querySelector<HTMLElement>("[data-overview-rail]")!.hasAttribute("hidden")).toBe(false);
+  });
+
+  it("an open non-modal dialog (the reading panel) keeps j/k idle", async () => {
+    await render();
+    const panel = document.createElement("aside");
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-label", "Reading"); // role=dialog without aria-modal, as ReadingPanel
+    document.body.appendChild(panel);
+    try {
+      await press("j");
+      expect(focusedRow()).toBeUndefined(); // the dialog holds the page keys off
+    } finally {
+      panel.remove();
+    }
+  });
+
+  it("j/k are idle while focus is inside the ticket drawer (docked), live in the page", async () => {
+    await render(undefined, undefined, { drawerDocked: true });
+    const drawer = document.createElement("aside");
+    drawer.setAttribute("data-drawer", "");
+    const inner = document.createElement("button");
+    drawer.appendChild(inner);
+    document.body.appendChild(drawer);
+    inner.focus();
+    await press("j");
+    expect(focusedRow()).toBeUndefined(); // focus is in the drawer, not the page
+    inner.remove();
+    await press("j");
+    expect(focusedRow()).toBe("1"); // focus is back in the page
+    drawer.remove();
   });
 });

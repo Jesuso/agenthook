@@ -76,6 +76,14 @@ const navigate = async (hash: string) => {
   });
 };
 
+/** What the browser does on Back: the URL steps back, then hashchange fires. */
+const back = async () => {
+  await act(async () => {
+    window.history.back();
+    window.dispatchEvent(new Event("hashchange"));
+  });
+};
+
 describe("the open drawer lives in the URL", () => {
   it("opening a ticket from an Overview row sets ?t=<encoded ref> and renders the drawer", async () => {
     await mountApp("#/p/dev");
@@ -180,5 +188,89 @@ describe("the open drawer lives in the URL", () => {
     expect(drawer()).toBeNull();
     expect(window.location.hash).toBe("#/p/dev/config");
     expect(document.body.textContent).toContain("● modified"); // the buffer survived the close
+  });
+});
+
+describe("docked at ≥ DOCK_MIN_PX (#708)", () => {
+  const wide = () =>
+    vi.stubGlobal("matchMedia", (q: string) => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
+  const esc = () => act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+  const rowOpen = (ref: string) => document.querySelector<HTMLElement>(`[data-ticket-row='${ref}'] [data-ticket-open]`);
+
+  it("docks beside the page: no scrim, a region, the rail hidden — and the page never remounts", async () => {
+    wide();
+    snapshot.tickets = [ticket, { ...ticket, ref: "T-2", displayId: "T-2", title: "Second ticket" }];
+    await mountApp("#/p/dev");
+    await waitOverview();
+    const list = document.querySelector("[data-all-tickets]")!;
+    const rail = document.querySelector("[data-overview-rail]")!;
+    await click(document.querySelector("[data-tickets-toggle]")!);
+    const opener = rowOpen("T-1")!;
+    opener.focus();
+    await click(opener);
+    await until(() => drawer());
+    const first = drawer()!;
+    expect(first.getAttribute("role")).toBe("region");
+    expect(first.hasAttribute("aria-modal")).toBe(false);
+    expect(document.querySelector(".drawer-scrim")).toBeNull();
+    // The docked column grows with the viewport inside the clamp, beside the page.
+    expect(document.querySelector("[data-drawer-dock]")!.className).toContain("clamp(720px,calc(25vw+240px),880px)");
+    expect(rail.hasAttribute("hidden")).toBe(true); // the rail gives the drawer its column…
+    // …but the page did not remount: the same nodes, the list still expanded.
+    expect(document.querySelector("[data-overview-rail]")).toBe(rail);
+    expect(document.querySelector("[data-all-tickets]")).toBe(list);
+    expect(list.getAttribute("data-open")).toBe("true");
+    // Swap to the second ticket: same DOM node, new content, no scrim ever.
+    const second = rowOpen("T-2")!;
+    second.focus();
+    await click(second);
+    expect(window.location.hash).toBe("#/p/dev?t=T-2");
+    await until(() => drawer()!.textContent!.includes("T-2"));
+    expect(drawer()).toBe(first); // the frame did not remount
+    expect(document.querySelector(".drawer-scrim")).toBeNull();
+    // Back returns to T-1, Back again closes — as the URL did for the overlay.
+    await back();
+    expect(window.location.hash).toBe("#/p/dev?t=T-1");
+    await until(() => drawer()!.textContent!.includes("T-1"));
+    expect(drawer()).toBe(first);
+    await back();
+    expect(window.location.hash).toBe("#/p/dev");
+    await until(() => drawer() === null);
+    expect(document.querySelector("[data-drawer-dock]")).toBeNull();
+    expect(rail.hasAttribute("hidden")).toBe(false); // and the rail is back
+    expect(document.querySelector("[data-all-tickets]")).toBe(list);
+    expect(list.getAttribute("data-open")).toBe("true");
+  });
+
+  it("Esc closes the docked drawer and returns focus to the row that opened the current ticket, also after a swap", async () => {
+    wide();
+    snapshot.tickets = [ticket, { ...ticket, ref: "T-2", displayId: "T-2", title: "Second ticket" }];
+    await mountApp("#/p/dev");
+    await waitOverview();
+    await click(document.querySelector("[data-tickets-toggle]")!);
+    const openerA = rowOpen("T-1")!;
+    openerA.focus();
+    await click(openerA);
+    await until(() => drawer());
+    expect(drawer()!.contains(document.activeElement as Node)).toBe(true); // open moved focus in
+    const openerB = rowOpen("T-2")!;
+    openerB.focus();
+    await click(openerB);
+    await until(() => drawer()!.textContent!.includes("T-2"));
+    expect(drawer()!.contains(document.activeElement as Node)).toBe(true); // the swap moved focus in again
+    await esc();
+    await until(() => drawer() === null);
+    expect(document.activeElement).toBe(openerB); // the row that opened the *current* ticket
+  });
+
+  it("below the breakpoint the same deep link keeps today's overlay", async () => {
+    snapshot.tickets = [ticket];
+    await mountApp("#/p/dev?t=T-1");
+    await until(() => drawer());
+    expect(drawer()!.getAttribute("role")).toBe("dialog");
+    expect(drawer()!.hasAttribute("aria-modal")).toBe(true);
+    expect(document.querySelector(".drawer-scrim")).not.toBeNull();
+    expect(document.querySelector("[data-drawer-dock]")).toBeNull();
+    expect(document.querySelector<HTMLElement>("[data-overview-rail]")!.hasAttribute("hidden")).toBe(false);
   });
 });

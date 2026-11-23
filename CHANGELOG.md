@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- UI: the ticket drawer docks beside the page on wide screens (≥ `DOCK_MIN_PX`, 1880px — one
+  constant in `ui/src/layout.ts`, `useDocked()`) instead of overlaying it (#708): no scrim, nothing
+  dimmed, the page stays live and narrows. It takes the Overview rail's place (the rail hides but
+  stays mounted, returning on close); its width is `clamp(720px, 25vw+240px, 880px)`. A docked
+  drawer is a `region`, not a `dialog` (no `aria-modal`): `?t=`, ×/Esc and focus behaviour are
+  unchanged, a ticket swap re-renders the body in place (same node, the slide-in plays once per
+  open), and page shortcuts are idle only while focus is inside it. Below the breakpoint the
+  overlay is unchanged (scrim, 720px, `dialog` + `aria-modal`).
+- New: `npm run check:overflow` also checks Overview **with a ticket open** (`?t=` on the seeded
+  fixture, list expanded) at 1920/2560px, where the docked drawer narrows the ticket list — the
+  case the original matrix never opened, which is how the #708 docked-width defect went unseen.
+  CI's `ui overflow` job is the run; the sandbox cannot launch a browser (#708).
 - Fixed: `dismiss` (the op, the CLI command, the MCP tool and the UI's `POST /api/dismiss`) now
   succeeds only when the ref has something to dismiss — a failed/cancelled task or a PR row with
   `prNeeds` — and writes a `dismissed` event. An unknown ref, an idle or done row, and an already
@@ -18,7 +30,6 @@ All notable changes to this project are documented here. The format is based on
   A missing path or a browser that fails to launch prints one line naming the variable and the
   path and exits 1 with or without `CI`; unset, the behaviour is unchanged (download + launch,
   `skipped: no browser available` now pointing at the variable) (#815).
-
 - New: `npm run check:overflow` — a real-browser horizontal-overflow check for the UI. It
   serves the built bundle over a seeded fixture registry in headless Chromium
   (`chromium-headless-shell` via the dev-only `playwright-core`) and fails, listing every
@@ -29,7 +40,6 @@ All notable changes to this project are documented here. The format is based on
   condition exits 1. Runs in its own `ui-overflow` CI job. `test/fixtures/ui/seed.js` gains an
   opt-in `--long-titles` flag (unbreakable ~300-char titles, every optional column filled) —
   the default seed is unchanged (#790).
-
 - New: run control from a shell — `agenthook cancel <ref>`, `release <ref> [comment…]`,
   `dismiss <ref>`, `retry <ref>`, `pull` and `harness-reset <name>` are thin front-ends of the
   control-socket ops of the same names (src/ops.js), so an operator without an MCP client can

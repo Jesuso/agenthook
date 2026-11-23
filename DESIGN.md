@@ -293,7 +293,8 @@ that float above the board.
 
 ### Shadow Vocabulary
 - **Float** (`shadow-lg`): menus, tooltips, popovers, on Raised Slate.
-- **Drawer** (`shadow-xl`): the ticket drawer, on Hangar Slate.
+- **Drawer** (`shadow-xl`): the ticket drawer (overlay mode), on Hangar Slate. Docked, it sits in
+  the page flow and separates by a left Rule, not elevation.
 
 ### Named Rules
 **The Flat Board Rule.** Nothing on the board itself casts a shadow. If it sits in the page flow, it
@@ -349,9 +350,13 @@ follows this anatomy.
 
 ### Ticket drawer
 The second level of depth: opened from any ticket title, closed with Esc or its × button, and kept in
-the address (`?t=<ref>`) so Back and reload behave. A panel on the right edge, Hangar Slate with a
-left Rule and the Drawer shadow, 720px wide from `md` and the full width below it, over a scrim
-that dims the page. It is a modal dialog: focus moves in on open and returns to the row on close.
+the address (`?t=<ref>`) so Back and reload behave. Below 1880px (`DOCK_MIN_PX`) it is a panel on the right edge,
+Hangar Slate with a left Rule and the Drawer shadow, 720px wide from `md` and the full width below
+it, over a scrim that dims the page. It is a modal dialog: focus moves in on open and returns to
+the row on close. At ≥1880px (`DOCK_MIN_PX`, `ui/src/layout.ts`) it **docks**: the same panel as a
+column beside the live page — no scrim, a region rather than a modal dialog, `clamp(720px,
+25vw+240px, 880px)` wide, taking the Overview rail's place. The frame mounts once per open, so a
+ticket swap re-renders the body in place and the slide-in plays once, not per ticket.
 
 ### Reading panel
 The "Aa" control in the app bar. Reader-chosen text size (three steps up from the base scale), wider
@@ -364,7 +369,8 @@ A row of small dots showing busy versus free agent slots for a profile, beside "
 ## Motion
 Motion says one of three things and nothing else; each plays once, none loops.
 - **It answers you** (120–260 ms): a section you opened, a tab or view you picked, a step card you
-  expanded, the ticket drawer. A short fade; the drawer slides in from its edge.
+  expanded, the ticket drawer (which, docked, slides in once per open and stays a live column). A
+  short fade; the drawer slides in from its edge.
 - **Something changed while you watched**: a ticket that changes step slides its mark to the new
   column (420 ms); a row that turns up fades in. Never on the first paint, never in a hidden tab.
 - **It needs you**: a row that starts needing the operator is washed once in the held hue. This is

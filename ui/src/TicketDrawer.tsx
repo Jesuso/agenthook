@@ -72,14 +72,85 @@ function runEndMs(r: RunView, now: number): number {
 type RunsState = { kind: "loading" } | { kind: "error"; status: number } | { kind: "ok"; runs: RunView[] };
 
 /**
- * Right-hand drawer for one ticket over a backdrop (Esc / backdrop click / × close it): a header
- * from its `TicketRow` (undefined once it's filtered out of the snapshot — `profile`/`ticketRef`
- * still name it), its runs (refetched when `runsNonce` bumps — the parent bumps it on a
- * run_start/run_end for this ref off the existing /api/stream, no polling) and a live-tailed log
- * of the selected run. The newest run is selected until the user picks one. The parent keys it
- * by ticket, so a different ticket starts fresh.
+ * Right-hand drawer for one ticket (Esc / backdrop click / × close it): a header from its
+ * `TicketRow` (undefined once it's filtered out of the snapshot — `profile`/`ticketRef` still
+ * name it), its runs (refetched when `runsNonce` bumps — the parent bumps it on a run_start/run_end
+ * for this ref off the existing /api/stream, no polling) and a live-tailed log of the selected run.
+ * The newest run is selected until the user picks one. The frame mounts once per open and a
+ * ticket swap re-renders the keyed body in place, so the slide plays once and focus returns to the
+ * row that opened the *current* ticket. `docked` (≥ `DOCK_MIN_PX`) renders it as a plain column
+ * beside the live page — no scrim, a region, not a modal (#708).
  */
-export function TicketDrawer(props: { profile: string; ticketRef: string; ticket: TicketRow | undefined; runsNonce: number; onClose: () => void; onRelease?: (t: { profile: string; ref: string }, comment: string) => Promise<ReleaseOutcome> }) {
+export function TicketDrawer(props: { profile: string; ticketRef: string; ticket: TicketRow | undefined; runsNonce: number; onClose: () => void; onRelease?: (t: { profile: string; ref: string }, comment: string) => Promise<ReleaseOutcome>; docked?: boolean }) {
+  const { profile, ticketRef, ticket, docked } = props;
+  const { t } = useT();
+  const onCloseRef = useRef(props.onClose);
+  onCloseRef.current = props.onClose;
+  const dialog = useRef<HTMLElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+
+  // The frame survives a ticket swap: focus moves in on open and on every swap, and the opener
+  // is re-remembered from wherever focus sat before the swap when it was outside the drawer.
+  useEffect(() => {
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (active && dialog.current && !dialog.current.contains(active)) opener.current = active;
+    dialog.current?.focus();
+  }, [profile, ticketRef]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      // A modal on top (New ticket, the shortcut sheet, a confirm) owns its Esc; the drawer stays.
+      const modal = document.querySelector('[aria-modal="true"]');
+      if (modal && modal !== dialog.current) return;
+      onCloseRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (opener.current?.isConnected) opener.current.focus();
+    };
+  }, []);
+
+  const label = ticket?.displayId ?? ticketRef;
+  const aside = (
+    <aside
+      ref={dialog}
+      tabIndex={-1}
+      data-drawer
+      data-docked={docked ? true : undefined}
+      role={docked ? "region" : "dialog"}
+      aria-modal={docked ? undefined : "true"}
+      aria-label={t("drawer.aria", { id: label })}
+      className={
+        docked
+          ? "drawer-in flex h-full w-full flex-col border-l border-border bg-surface outline-none"
+          : "drawer-in fixed inset-y-0 right-0 flex w-full flex-col border-l border-border bg-surface shadow-xl outline-none md:w-[720px]"
+      }
+    >
+      {/* Runs, the picked run, the answer state and the localized summary reset per ticket — the
+          frame does not remount, so the body is keyed by the ticket. */}
+      <TicketDrawerBody
+        key={`${profile}\u0000${ticketRef}`}
+        profile={profile}
+        ticketRef={ticketRef}
+        ticket={ticket}
+        runsNonce={props.runsNonce}
+        onClose={props.onClose}
+        onRelease={props.onRelease}
+      />
+    </aside>
+  );
+  // Docked, the drawer is a column in the page flow: no scrim element at all, nothing dims.
+  return docked ? aside : (
+    <div className="drawer-scrim fixed inset-0 z-40 bg-black/40" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
+      {aside}
+    </div>
+  );
+}
+
+/** The drawer's per-ticket content: everything that resets when a different ticket is swapped in. */
+function TicketDrawerBody(props: { profile: string; ticketRef: string; ticket: TicketRow | undefined; runsNonce: number; onClose: () => void; onRelease?: (t: { profile: string; ref: string }, comment: string) => Promise<ReleaseOutcome> }) {
   const { profile, ticketRef, ticket, runsNonce, onRelease } = props;
   const { t, lang } = useT();
   const [runs, setRuns] = useState<RunsState>({ kind: "loading" });
@@ -96,9 +167,6 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
       setAnswerError(out.error);
     }
   };
-  const onClose = useRef(props.onClose);
-  onClose.current = props.onClose;
-  const dialog = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (ticket?.status !== "held") {
@@ -137,20 +205,6 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
     };
   }, [profile, ticketRef, runsNonce]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose.current();
-    };
-    // Focus moves into the drawer and back to whatever opened it (the row's title) on close.
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    window.addEventListener("keydown", onKey);
-    dialog.current?.focus();
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      if (opener?.isConnected) opener.focus();
-    };
-  }, []);
-
   const list = runs.kind === "ok" ? runs.runs : [];
   // A user's pick sticks while that run is still listed; otherwise follow the newest.
   const selected = list.find((r) => r.run === picked) ?? list[0] ?? null;
@@ -167,210 +221,200 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
   const span = timeScale(seq.map((r) => ({ start: Date.parse(r.startedAt), end: Math.max(runEndMs(r, now), Date.parse(r.startedAt) + 1000) })));
 
   return (
-    <div className="drawer-scrim fixed inset-0 z-40 bg-black/40" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
-      <aside
-        ref={dialog}
-        tabIndex={-1}
-        data-drawer
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("drawer.aria", { id: label })}
-        className="drawer-in fixed inset-y-0 right-0 flex w-full flex-col border-l border-border bg-surface shadow-xl outline-none md:w-[720px]"
-      >
-        <header className="relative flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border pl-4 pr-10 py-3">
-          {ticket?.trackerUrl ? (
-            <a className="shrink-0 font-mono text-accent hover:underline" href={ticket.trackerUrl} target="_blank" rel="noopener noreferrer">
-              {label} ↗
-            </a>
-          ) : (
-            <span className="shrink-0 font-mono">{label}</span>
-          )}
-          {/* The title gets its own full line below the facts: `order-last` keeps it right after
-              the id in the DOM (screen readers read the id, then the title) while it renders last. */}
-          <h2 className="order-last basis-full line-clamp-2 break-words text-title font-semibold" title={ticket?.title ?? undefined}>
-            {ticket ? (
-              ticketTitle(ticket, lang).unknown ? (
-                <>
-                  {label} <span className="text-muted">{ticketTitle(ticket, lang).text}</span>
-                </>
-              ) : (
-                ticketTitle(ticket, lang).text
-              )
+    <>
+      <header className="relative flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border pl-4 pr-10 py-3">
+        {ticket?.trackerUrl ? (
+          <a className="shrink-0 font-mono text-accent hover:underline" href={ticket.trackerUrl} target="_blank" rel="noopener noreferrer">
+            {label} ↗
+          </a>
+        ) : (
+          <span className="shrink-0 font-mono">{label}</span>
+        )}
+        {/* The title gets its own full line below the facts: `order-last` keeps it right after
+            the id in the DOM (screen readers read the id, then the title) while it renders last. */}
+        <h2 className="order-last basis-full line-clamp-2 break-words text-title font-semibold" title={ticket?.title ?? undefined}>
+          {ticket ? (
+            ticketTitle(ticket, lang).unknown ? (
+              <>
+                {label} <span className="text-muted">{ticketTitle(ticket, lang).text}</span>
+              </>
             ) : (
-              <span className="text-muted">—</span>
-            )}
-          </h2>
-          {ticket && <StatusBadge status={ticket.status} />}
-          <span className="font-mono text-label text-muted">{profile}</span>
-          {ticket?.prUrl && pr && (
-            <a className="text-label text-accent hover:underline" href={ticket.prUrl} target="_blank" rel="noopener noreferrer">
-              PR #{pr}
-            </a>
+              ticketTitle(ticket, lang).text
+            )
+          ) : (
+            <span className="text-muted">—</span>
           )}
-          {/* The run's figures live here, not on the Overview row: model and context follow the
-              selected run below, never another run's. */}
-          {headerModel && (
-            <span data-drawer-model className="font-mono text-label text-muted" title={formatModel(headerModel).title}>
-              {formatModel(headerModel).text}
-            </span>
-          )}
-          {ctx && (
-            <span data-drawer-ctx className="font-mono text-label text-muted" title={`${t("drawer.contextTitle")}: ${ctx.title}`}>
-              {ctx.text}
-            </span>
-          )}
-          {ticket && (
-            <span className="text-label text-muted" title={t("drawer.costTitle")}>
-              {t("drawer.totalCost", { cost: formatTicketSpend(ticket) })}
-            </span>
-          )}
-          <IconButton label={t("drawer.close")} onClick={props.onClose} className="absolute top-3 right-3">
-            ×
-          </IconButton>
-        </header>
-        {/* Why it needs you, in full: the Needs-you row only has room for one truncated line. */}
-        {ticket && (ticket.status === "failed" ? ticket.failReason : ticket.status === "held" ? ticket.heldReason : null) && (
-          <div data-drawer-reason className={`border-b border-border-subtle px-4 py-3 text-body ${ticket.status === "failed" ? "bg-status-failed-bg" : "bg-status-held-bg"}`}>
-            <p className={`font-semibold ${ticket.status === "failed" ? "text-status-failed" : "text-status-held"}`}>{ticket.status === "failed" ? t("drawer.whyFailed") : t("drawer.agentAsks")}</p>
-            {ticket.plain && (
-              <p data-drawer-plain className="mb-1 text-body text-fg">
-                {ticket.plain}<SpeakButton text={ticket.plain} label={t("drawer.readReason")} className="ml-1 align-middle" />
-              </p>
-            )}
-            <p className="max-h-40 overflow-y-auto font-mono text-label break-words whitespace-pre-wrap text-fg">
-              {ticket.reasonHarness && <span data-reason-harness>{t("drawer.onHarness", { harness: ticket.reasonHarness })}</span>}
-              {ticket.status === "failed" ? ticket.failReason : ticket.heldReason}
+        </h2>
+        {ticket && <StatusBadge status={ticket.status} />}
+        <span className="font-mono text-label text-muted">{profile}</span>
+        {ticket?.prUrl && pr && (
+          <a className="text-label text-accent hover:underline" href={ticket.prUrl} target="_blank" rel="noopener noreferrer">
+            PR #{pr}
+          </a>
+        )}
+        {/* The run's figures live here, not on the Overview row: model and context follow the
+            selected run below, never another run's. */}
+        {headerModel && (
+          <span data-drawer-model className="font-mono text-label text-muted" title={formatModel(headerModel).title}>
+            {formatModel(headerModel).text}
+          </span>
+        )}
+        {ctx && (
+          <span data-drawer-ctx className="font-mono text-label text-muted" title={`${t("drawer.contextTitle")}: ${ctx.title}`}>
+            {ctx.text}
+          </span>
+        )}
+        {ticket && (
+          <span className="text-label text-muted" title={t("drawer.costTitle")}>
+            {t("drawer.totalCost", { cost: formatTicketSpend(ticket) })}
+          </span>
+        )}
+        <IconButton label={t("drawer.close")} onClick={props.onClose} className="absolute top-3 right-3">
+          ×
+        </IconButton>
+      </header>
+      {/* Why it needs you, in full: the Needs-you row only has room for one truncated line. */}
+      {ticket && (ticket.status === "failed" ? ticket.failReason : ticket.status === "held" ? ticket.heldReason : null) && (
+        <div data-drawer-reason className={`border-b border-border-subtle px-4 py-3 text-body ${ticket.status === "failed" ? "bg-status-failed-bg" : "bg-status-held-bg"}`}>
+          <p className={`font-semibold ${ticket.status === "failed" ? "text-status-failed" : "text-status-held"}`}>{ticket.status === "failed" ? t("drawer.whyFailed") : t("drawer.agentAsks")}</p>
+          {ticket.plain && (
+            <p data-drawer-plain className="mb-1 text-body text-fg">
+              {ticket.plain}<SpeakButton text={ticket.plain} label={t("drawer.readReason")} className="ml-1 align-middle" />
             </p>
-            {ticket.status === "held" && ticket.options && ticket.options.length > 0 && onRelease && (
-              <div data-drawer-answer className="mt-2">
-                <AnswerOptions options={ticket.options} busy={answerBusy} onSend={sendAnswer} />
-                {answerError && (
-                  <p role="alert" className="mt-1 text-label text-status-failed">
-                    {answerError}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-        {ticket?.summary && summary && (
-          <p data-drawer-summary className="border-b border-border-subtle px-4 py-3 text-body text-muted">
-            {summary}<SpeakButton text={summary} label={t("drawer.readSummary")} className="ml-1 align-middle" />
-          </p>
-        )}
-        <div data-drawer-runs className="flex min-h-0 flex-1 flex-col p-4">
-          {runs.kind === "loading" && <p className="text-label text-muted">{t("drawer.loadingRuns")}</p>}
-          {runs.kind === "error" && <p className="text-label text-status-failed">{t("drawer.runsError", { status: runs.status })}</p>}
-          {runs.kind === "ok" && list.length === 0 && <p className="text-label text-muted">{t("drawer.noRuns")}</p>}
-          {list.length > 0 && (
-            <section aria-label={t("drawer.runsByStep")} className="mb-3 shrink-0 rounded-md border border-border bg-bg px-3 pt-2 pb-1.5">
-              <div className="relative">
-                {order.map((s) => (
-                  <div key={s} className="grid grid-cols-[72px_minmax(0,1fr)] items-center border-b border-border-subtle last:border-b-0">
-                    <span className="truncate text-label text-muted">{s}</span>
-                    <div className="relative h-[30px]">
-                      {seq
-                        .filter((r) => r.step === s)
-                        .map((r) => {
-                          const on = r.run === selected?.run;
-                          const a = Date.parse(r.startedAt);
-                          return (
-                            <button
-                              key={r.run}
-                              type="button"
-                              aria-pressed={on}
-                              aria-label={`${r.step} ${formatOutcome(r, lang)}, ${formatRelative(r.startedAt, now, lang)}, ${formatDuration(runDurationMs(r, now))}`}
-                              title={`${r.step}${r.harness ? ` · ${r.harness}` : ""}${r.model ? ` · ${formatModel(r.model).text}` : ""} · ${formatOutcome(r, lang)} · ${formatDuration(runDurationMs(r, now))} · ${formatRunCost(r, lang)}`}
-                              onClick={() => setPicked(r.run)}
-                              className={`absolute top-1/2 h-3.5 min-w-2 -translate-y-1/2 rounded-sm ${RUN_BG[outcomeTone(r)]} ${r.running ? "animate-status-pulse" : ""} ${on ? "z-10 ring-2 ring-fg ring-offset-2 ring-offset-bg" : "opacity-60 hover:opacity-100"}`}
-                              style={{ left: `${span.x(a)}%`, width: `${span.x(runEndMs(r, now)) - span.x(a)}%` }}
-                            />
-                          );
-                        })}
-                    </div>
-                  </div>
-                ))}
-                <svg aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 left-[72px] h-full w-[calc(100%-72px)]" viewBox={`0 0 100 ${order.length}`} preserveAspectRatio="none">
-                  {seq.slice(0, -1).map((r, i) => {
-                    const n = seq[i + 1];
-                    const x1 = span.x(runEndMs(r, now));
-                    const x2 = span.x(Date.parse(n.startedAt));
-                    const y1 = order.indexOf(r.step) + 0.5;
-                    const y2 = order.indexOf(n.step) + 0.5;
-                    const xm = (x1 + x2) / 2;
-                    return (
-                      <path
-                        key={r.run}
-                        d={`M${x1} ${y1} C${xm + 1.5} ${y1} ${xm - 1.5} ${y2} ${x2} ${y2}`}
-                        fill="none"
-                        vectorEffect="non-scaling-stroke"
-                        strokeWidth={isBounce(r) ? 1.5 : 1}
-                        strokeDasharray={isBounce(r) ? "4 3" : undefined}
-                        className={isBounce(r) ? "stroke-status-held" : "stroke-border-strong"}
-                      />
-                    );
-                  })}
-                </svg>
-                <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 left-[72px]">
-                  {span.breaks.map((b) => (
-                    <span key={b.x} className="absolute inset-y-0 border-l border-dashed border-border-strong" style={{ left: `${b.x}%` }} />
-                  ))}
-                </div>
-              </div>
-              <div className="relative mt-1 ml-[72px] h-3.5 font-mono text-meta text-muted">
-                {!span.breaks.some((b) => b.x < 16) && <span className="absolute left-0">{clock(span.t0)}</span>}
-                {span.breaks.map((b) => (
-                  <span key={b.x} title={t("drawer.idleBreak")} className="absolute -translate-x-1/2 bg-bg px-1 whitespace-nowrap" style={{ left: `${b.x}%` }}>
-                    +{formatDuration(b.ms)}
-                  </span>
-                ))}
-                {!span.breaks.some((b) => b.x > 84) && <span className="absolute right-0">{clock(span.t1)}</span>}
-              </div>
-            </section>
           )}
-          {selected && (
-            <div data-run-caption className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-label">
-              <span className="font-medium text-fg">{selected.step}</span>
-              <Pill tone={outcomeTone(selected)}>{formatOutcome(selected, lang)}</Pill>
-              {selected.harness && <span data-run-harness className="text-muted">{selected.harness}</span>}
-              {selected.model && (
-                <span data-run-model className="font-mono text-muted" title={formatModel(selected.model).title}>
-                  {formatModel(selected.model).text}
-                </span>
-              )}
-              {verdictSourceLabel(selected, lang) && (
-                <span className="text-muted" title={t("drawer.verdictSourceTitle")}>
-                  {verdictSourceLabel(selected, lang)}
-                </span>
-              )}
-              {selected.running && !selected.endedAt ? (
-                <Elapsed iso={selected.startedAt} seed={now} className="text-muted" />
-              ) : (
-                <span className="font-mono text-muted">{formatDuration(runDurationMs(selected, now))}</span>
-              )}
-              <span className="font-mono text-muted">{formatRunCost(selected, lang)}</span>
-              <span className="text-muted" title={selected.startedAt}>
-                {selected.running && !selected.endedAt ? t("drawer.startedAt", { time: clock(Date.parse(selected.startedAt)) }) : t("drawer.started", { when: startedAgo })}
-              </span>
-              {seq.some(isBounce) && (
-                <span className="ml-auto inline-flex items-center gap-1.5 text-meta text-muted">
-                  <svg aria-hidden="true" width="18" height="6" className="stroke-status-held">
-                    <line x1="0" y1="3" x2="18" y2="3" strokeWidth="1.5" strokeDasharray="4 3" />
-                  </svg>
-                  {t("drawer.sentBack")}
-                </span>
+          <p className="max-h-40 overflow-y-auto font-mono text-label break-words whitespace-pre-wrap text-fg">
+            {ticket.reasonHarness && <span data-reason-harness>{t("drawer.onHarness", { harness: ticket.reasonHarness })}</span>}
+            {ticket.status === "failed" ? ticket.failReason : ticket.heldReason}
+          </p>
+          {ticket.status === "held" && ticket.options && ticket.options.length > 0 && onRelease && (
+            <div data-drawer-answer className="mt-2">
+              <AnswerOptions options={ticket.options} busy={answerBusy} onSend={sendAnswer} />
+              {answerError && (
+                <p role="alert" className="mt-1 text-label text-status-failed">
+                  {answerError}
+                </p>
               )}
             </div>
           )}
-          {selected?.plain && (
-            <p data-run-plain className="mb-1 text-body text-fg">
-              {selected.plain}<SpeakButton text={selected.plain} label={t("drawer.readRunSummary")} className="ml-1 align-middle" />
-            </p>
-          )}
-          {selected && <LogView key={selected.run} profile={profile} run={selected.run} running={selected.running} />}
         </div>
-      </aside>
-    </div>
+      )}
+      {ticket?.summary && summary && (
+        <p data-drawer-summary className="border-b border-border-subtle px-4 py-3 text-body text-muted">
+          {summary}<SpeakButton text={summary} label={t("drawer.readSummary")} className="ml-1 align-middle" />
+        </p>
+      )}
+      <div data-drawer-runs className="flex min-h-0 flex-1 flex-col p-4">
+        {runs.kind === "loading" && <p className="text-label text-muted">{t("drawer.loadingRuns")}</p>}
+        {runs.kind === "error" && <p className="text-label text-status-failed">{t("drawer.runsError", { status: runs.status })}</p>}
+        {runs.kind === "ok" && list.length === 0 && <p className="text-label text-muted">{t("drawer.noRuns")}</p>}
+        {list.length > 0 && (
+          <section aria-label={t("drawer.runsByStep")} className="mb-3 shrink-0 rounded-md border border-border bg-bg px-3 pt-2 pb-1.5">
+            <div className="relative">
+              {order.map((s) => (
+                <div key={s} className="grid grid-cols-[72px_minmax(0,1fr)] items-center border-b border-border-subtle last:border-b-0">
+                  <span className="truncate text-label text-muted">{s}</span>
+                  <div className="relative h-[30px]">
+                    {seq
+                      .filter((r) => r.step === s)
+                      .map((r) => {
+                        const on = r.run === selected?.run;
+                        const a = Date.parse(r.startedAt);
+                        return (
+                          <button
+                            key={r.run}
+                            type="button"
+                            aria-pressed={on}
+                            aria-label={`${r.step} ${formatOutcome(r, lang)}, ${formatRelative(r.startedAt, now, lang)}, ${formatDuration(runDurationMs(r, now))}`}
+                            title={`${r.step}${r.harness ? ` · ${r.harness}` : ""}${r.model ? ` · ${formatModel(r.model).text}` : ""} · ${formatOutcome(r, lang)} · ${formatDuration(runDurationMs(r, now))} · ${formatRunCost(r, lang)}`}
+                            onClick={() => setPicked(r.run)}
+                            className={`absolute top-1/2 h-3.5 min-w-2 -translate-y-1/2 rounded-sm ${RUN_BG[outcomeTone(r)]} ${r.running ? "animate-status-pulse" : ""} ${on ? "z-10 ring-2 ring-fg ring-offset-2 ring-offset-bg" : "opacity-60 hover:opacity-100"}`}
+                            style={{ left: `${span.x(a)}%`, width: `${span.x(runEndMs(r, now)) - span.x(a)}%` }}
+                          />
+                        );
+                      })}
+                  </div>
+                </div>
+              ))}
+              <svg aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 left-[72px] h-full w-[calc(100%-72px)]" viewBox={`0 0 100 ${order.length}`} preserveAspectRatio="none">
+                {seq.slice(0, -1).map((r, i) => {
+                  const n = seq[i + 1];
+                  const x1 = span.x(runEndMs(r, now));
+                  const x2 = span.x(Date.parse(n.startedAt));
+                  const y1 = order.indexOf(r.step) + 0.5;
+                  const y2 = order.indexOf(n.step) + 0.5;
+                  const xm = (x1 + x2) / 2;
+                  return (
+                    <path
+                      key={r.run}
+                      d={`M${x1} ${y1} C${xm + 1.5} ${y1} ${xm - 1.5} ${y2} ${x2} ${y2}`}
+                      fill="none"
+                      vectorEffect="non-scaling-stroke"
+                      strokeWidth={isBounce(r) ? 1.5 : 1}
+                      strokeDasharray={isBounce(r) ? "4 3" : undefined}
+                      className={isBounce(r) ? "stroke-status-held" : "stroke-border-strong"}
+                    />
+                  );
+                })}
+              </svg>
+              <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 left-[72px]">
+                {span.breaks.map((b) => (
+                  <span key={b.x} className="absolute inset-y-0 border-l border-dashed border-border-strong" style={{ left: `${b.x}%` }} />
+                ))}
+              </div>
+            </div>
+            <div className="relative mt-1 ml-[72px] h-3.5 font-mono text-meta text-muted">
+              {!span.breaks.some((b) => b.x < 16) && <span className="absolute left-0">{clock(span.t0)}</span>}
+              {span.breaks.map((b) => (
+                <span key={b.x} title={t("drawer.idleBreak")} className="absolute -translate-x-1/2 bg-bg px-1 whitespace-nowrap" style={{ left: `${b.x}%` }}>
+                  +{formatDuration(b.ms)}
+                </span>
+              ))}
+              {!span.breaks.some((b) => b.x > 84) && <span className="absolute right-0">{clock(span.t1)}</span>}
+            </div>
+          </section>
+        )}
+        {selected && (
+          <div data-run-caption className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-label">
+            <span className="font-medium text-fg">{selected.step}</span>
+            <Pill tone={outcomeTone(selected)}>{formatOutcome(selected, lang)}</Pill>
+            {selected.harness && <span data-run-harness className="text-muted">{selected.harness}</span>}
+            {selected.model && (
+              <span data-run-model className="font-mono text-muted" title={formatModel(selected.model).title}>
+                {formatModel(selected.model).text}
+              </span>
+            )}
+            {verdictSourceLabel(selected, lang) && (
+              <span className="text-muted" title={t("drawer.verdictSourceTitle")}>
+                {verdictSourceLabel(selected, lang)}
+              </span>
+            )}
+            {selected.running && !selected.endedAt ? (
+              <Elapsed iso={selected.startedAt} seed={now} className="text-muted" />
+            ) : (
+              <span className="font-mono text-muted">{formatDuration(runDurationMs(selected, now))}</span>
+            )}
+            <span className="font-mono text-muted">{formatRunCost(selected, lang)}</span>
+            <span className="text-muted" title={selected.startedAt}>
+              {selected.running && !selected.endedAt ? t("drawer.startedAt", { time: clock(Date.parse(selected.startedAt)) }) : t("drawer.started", { when: startedAgo })}
+            </span>
+            {seq.some(isBounce) && (
+              <span className="ml-auto inline-flex items-center gap-1.5 text-meta text-muted">
+                <svg aria-hidden="true" width="18" height="6" className="stroke-status-held">
+                  <line x1="0" y1="3" x2="18" y2="3" strokeWidth="1.5" strokeDasharray="4 3" />
+                </svg>
+                {t("drawer.sentBack")}
+              </span>
+            )}
+          </div>
+        )}
+        {selected?.plain && (
+          <p data-run-plain className="mb-1 text-body text-fg">
+            {selected.plain}<SpeakButton text={selected.plain} label={t("drawer.readRunSummary")} className="ml-1 align-middle" />
+          </p>
+        )}
+        {selected && <LogView key={selected.run} profile={profile} run={selected.run} running={selected.running} />}
+      </div>
+    </>
   );
 }
 

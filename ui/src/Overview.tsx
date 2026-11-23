@@ -17,7 +17,7 @@ import { CopyCommand, Menu, ProfileMark, ReceiverStatus, ShortcutSheet, Shortcut
 import type { MenuItem } from "./components";
 import type { ReleaseOutcome } from "./config";
 import { dismissKey } from "./deferredDismiss";
-import { OVERVIEW_SHORTCUTS, overviewAction, shortcutsEnabled } from "./shortcuts";
+import { OVERVIEW_SHORTCUTS, dialogBlocksKeys, overviewAction, shortcutsEnabled } from "./shortcuts";
 import { newEntries, speak, speechSupported, speechText } from "./speech";
 import { useReading } from "./useReading";
 import { useT } from "./i18n/react";
@@ -43,6 +43,8 @@ export type OverviewProps = {
   showAll: boolean;
   setShowAll: (v: boolean) => void;
   open: Ref | null;
+  /** A ticket drawer is docked beside the page (not overlaying it): it takes the rail's place (#708). */
+  drawerDocked?: boolean;
   onOpen: (t: Ref) => void;
   /** A local-board ticket was just created through the receiver: open its drawer (it fills in when its row arrives). */
   onCreated?: (t: Ref) => void;
@@ -202,8 +204,16 @@ export function Overview(props: OverviewProps) {
       </p>
 
       {/* Wide: the board and its drill-downs on the left, a rail of reading on the right. Narrower,
-          the rail's zones sit side by side under the board, as many as fit. */}
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 2xl:grid-cols-[minmax(0,1fr)_clamp(22rem,20vw,30rem)] 2xl:grid-rows-[auto_1fr]">
+          the rail's zones sit side by side under the board, as many as fit. Docked, the drawer takes
+          the rail's place: the grid drops its second column and the rail hides (stays mounted, so
+          closing the drawer brings it back as it was). */}
+      <div
+        className={
+          props.drawerDocked
+            ? "grid grid-cols-[minmax(0,1fr)] gap-6"
+            : "grid grid-cols-[minmax(0,1fr)] gap-6 2xl:grid-cols-[minmax(0,1fr)_clamp(22rem,20vw,30rem)] 2xl:grid-rows-[auto_1fr]"
+        }
+      >
         <div data-overview-board className="flex min-w-0 flex-col gap-2">
           <NeedsYouZone
             items={needs}
@@ -226,7 +236,12 @@ export function Overview(props: OverviewProps) {
           {pipeline.kind === "error" && <p className="text-meta leading-4 text-muted" data-pipeline-unavailable>{t("board.unavailable")}</p>}
         </div>
 
-        <aside data-overview-rail aria-label={t("overview.railLabel")} className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,22rem),1fr))] content-start items-start gap-6 2xl:col-start-2 2xl:row-span-2 2xl:row-start-1 2xl:grid-cols-1">
+        <aside
+          data-overview-rail
+          hidden={props.drawerDocked || undefined}
+          aria-label={t("overview.railLabel")}
+          className={`${props.drawerDocked ? "hidden" : "grid"} min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,22rem),1fr))] content-start items-start gap-6 2xl:col-start-2 2xl:row-span-2 2xl:row-start-1 2xl:grid-cols-1`}
+        >
           <DigestPanel profile={profile.name} up={profile.up} feed={feed} now={now} />
           <ActivityPanel feed={feed} displayIdFor={props.displayIdFor} onOpen={onOpen} />
         </aside>
@@ -505,7 +520,7 @@ function hhmm(iso: string): string {
 function useNeedsYouKeys(setHelp: (open: boolean) => void, newTicketBtn?: RefObject<HTMLButtonElement | null>) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const action = shortcutsEnabled() ? overviewAction(e, !!document.querySelector('[role="dialog"]')) : null;
+      const action = shortcutsEnabled() ? overviewAction(e, dialogBlocksKeys()) : null;
       if (!action) return;
       if (action === "help") {
         e.preventDefault();

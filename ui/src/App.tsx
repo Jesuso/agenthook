@@ -27,6 +27,7 @@ import { useLeaveGuard } from "./leaveGuard";
 import type { Route, View } from "./route";
 import { connectionState } from "./connection";
 import type { ConnectionState } from "./connection";
+import { useDocked } from "./layout";
 import { LiveContext, useLive } from "./components";
 import type { MenuItem } from "./components";
 import { I18nProvider, rich, useT } from "./i18n/react";
@@ -79,6 +80,9 @@ function Dashboard() {
   const open = route.kind === "profile" && route.ticket !== undefined ? { profile: route.profile, ref: route.ticket } : null;
   const openRef = useRef(open);
   openRef.current = open;
+  // Whether the open drawer docks beside the page (≥ DOCK_MIN_PX) instead of overlaying it (#708).
+  const docked = useDocked();
+  const docking = open !== null && docked;
   const instructionsDirty = useRef(false);
   const instructionsSink = useRef<((ev: InstructionsEvent) => void) | null>(null);
   const configDirty = useRef(false);
@@ -477,6 +481,7 @@ function Dashboard() {
           showAll={showAll}
           setShowAll={setShowAll}
           open={open}
+          drawerDocked={docking}
           onOpen={openTicket}
           onCreated={openTicket}
           displayIdFor={displayIdFor}
@@ -493,20 +498,38 @@ function Dashboard() {
     }
   }
 
+  // Wide: the docked drawer takes a column beside the page — the page narrows, nothing is covered
+  // and the page stays live (#708). Otherwise exactly today's layout.
+  const drawer = open && (
+    <TicketDrawer
+      docked={docked}
+      profile={open.profile}
+      ticketRef={open.ref}
+      ticket={snapshot.tickets.find((x) => x.profile === open.profile && x.ref === open.ref)}
+      runsNonce={runsNonce}
+      onClose={closeTicket}
+      onRelease={release}
+    />
+  );
+
   return (
     <Shell connection={connection} nav={nav}>
-      {page}
-      {open && (
-        <TicketDrawer
-          key={`${open.profile}\u0000${open.ref}`}
-          profile={open.profile}
-          ticketRef={open.ref}
-          ticket={snapshot.tickets.find((x) => x.profile === open.profile && x.ref === open.ref)}
-          runsNonce={runsNonce}
-          onClose={closeTicket}
-          onRelease={release}
-        />
-      )}
+      {/* Same wrappers in every mode — only the classes switch — so opening or closing the drawer
+          never remounts the page (focus, the expanded ticket list and the rail's state survive);
+          `display: contents` keeps the non-docked layout exactly today's. */}
+      <div className={docking ? "flex min-w-0 items-start gap-6" : "contents"}>
+        <div className={docking ? "min-w-0 flex-1" : "contents"}>{page}</div>
+        {drawer && (
+          /* Below the sticky app bar (44px at ≥ lg; docking starts at DOCK_MIN_PX, well above
+              lg), its own height and its own scroll. */
+          <div
+            data-drawer-dock={docking ? "" : undefined}
+            className={docking ? "sticky top-11 h-[calc(100vh-3.25rem)] w-[clamp(720px,calc(25vw+240px),880px)] shrink-0" : "contents"}
+          >
+            {drawer}
+          </div>
+        )}
+      </div>
       {removing && (
         <RemoveProfile
           profile={removing}

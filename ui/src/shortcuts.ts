@@ -26,6 +26,16 @@ export function overviewAction(e: KeyLike, dialogOpen: boolean): OverviewAction 
   return KEYS[e.key] ?? null;
 }
 
+/**
+ * What keeps the page shortcuts idle: any open dialog — a real modal (the overlay drawer, Modal,
+ * a confirm) or the non-modal reading panel, which holds off the keys by its `role="dialog"` — or
+ * focus inside the ticket drawer, which when docked is a region, not a dialog (#708): its keys
+ * must not walk the page's rows while the operator is in it.
+ */
+export const dialogBlocksKeys = (): boolean =>
+  !!document.querySelector('[role="dialog"], [aria-modal="true"]') ||
+  (document.activeElement instanceof Element && !!document.activeElement.closest("[data-drawer]"));
+
 const editable = (target: EventTarget | null) => {
   const t = target as { tagName?: string; isContentEditable?: boolean } | null;
   return !!t && (!!t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName ?? ""));
