@@ -115,6 +115,20 @@ describe("Overview keyboard shortcuts", () => {
     expect(document.querySelector<HTMLElement>("[data-overview-rail]")!.hasAttribute("hidden")).toBe(false);
   });
 
+  it("an open non-modal dialog (the reading panel) keeps j/k idle", async () => {
+    await render();
+    const panel = document.createElement("aside");
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-label", "Reading"); // role=dialog without aria-modal, as ReadingPanel
+    document.body.appendChild(panel);
+    try {
+      await press("j");
+      expect(focusedRow()).toBeUndefined(); // the dialog holds the page keys off
+    } finally {
+      panel.remove();
+    }
+  });
+
   it("j/k are idle while focus is inside the ticket drawer (docked), live in the page", async () => {
     await render(undefined, undefined, { drawerDocked: true });
     const drawer = document.createElement("aside");

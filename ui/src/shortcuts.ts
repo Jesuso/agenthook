@@ -27,12 +27,13 @@ export function overviewAction(e: KeyLike, dialogOpen: boolean): OverviewAction 
 }
 
 /**
- * What keeps the page shortcuts idle: a real modal (an `aria-modal` dialog — the overlay drawer,
- * Modal, a confirm) or focus inside the ticket drawer, which when docked is a region, not a modal
- * (#708): its keys must not walk the page's rows while the operator is in it.
+ * What keeps the page shortcuts idle: any open dialog — a real modal (the overlay drawer, Modal,
+ * a confirm) or the non-modal reading panel, which holds off the keys by its `role="dialog"` — or
+ * focus inside the ticket drawer, which when docked is a region, not a dialog (#708): its keys
+ * must not walk the page's rows while the operator is in it.
  */
 export const dialogBlocksKeys = (): boolean =>
-  !!document.querySelector('[aria-modal="true"]') ||
+  !!document.querySelector('[role="dialog"], [aria-modal="true"]') ||
   (document.activeElement instanceof Element && !!document.activeElement.closest("[data-drawer]"));
 
 const editable = (target: EventTarget | null) => {
