@@ -1,0 +1,6 @@
+<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+<style>.n{fill:#b4bcc8}.b{fill:#2f6fdb}.a{fill:#d4930d}
+@media (prefers-color-scheme:dark){.n{fill:#3d4651}.b{fill:#5b9bff}.a{fill:#e3b341}}</style>
+<rect class="n" x="3" y="4" width="7.5" height="9" rx="1.8"/><rect class="n" x="3" y="15" width="7.5" height="9" rx="1.8"/>
+<rect class="b" x="12.250" y="4" width="7.5" height="9" rx="1.8"/><rect class="a" x="12.250" y="15" width="7.5" height="13" rx="1.8"/>
+<rect class="n" x="21.500" y="4" width="7.5" height="9" rx="1.8"/></svg>
