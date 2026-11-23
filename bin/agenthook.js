@@ -43,6 +43,7 @@ import { stop } from "../src/commands/stop.js";
 import { rename } from "../src/commands/rename.js";
 import { restart } from "../src/commands/restart.js";
 import { pause, unpause, concurrency } from "../src/commands/pause.js";
+import { cancel, release, dismiss, retry, pull, harnessReset } from "../src/commands/control-ops.js";
 import { reload } from "../src/commands/reload.js";
 import { remove } from "../src/commands/remove.js";
 import { ls } from "../src/commands/ls.js";
@@ -108,7 +109,7 @@ export function wantsHelp(rest) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, serve: start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, recheck, ticket, doctor, alias, usage, stats, events, ui, rename, restart, remove, mcp, tick, top, epics, digest, watch, guide, skill, service, followup, pause, unpause, concurrency, reload };
+const COMMANDS = { init, start, serve: start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, recheck, ticket, doctor, alias, usage, stats, events, ui, rename, restart, remove, mcp, tick, top, epics, digest, watch, guide, skill, service, followup, pause, unpause, concurrency, "set-concurrency": concurrency, cancel, release, dismiss, retry, pull, "harness-reset": harnessReset, reload };
 
 /**
  * Levenshtein edit distance between two strings.
@@ -166,9 +167,16 @@ usage: agenthook <command> [args] [--config <path>]
   rename <newName> [--move] relabel this profile (state key kept; inserts stateId);
                             --move also moves ~/.agenthook/<key>/ to <newName> (at idle if running)
   restart                   restart the running receiver once idle
-  pause [--harness <name>]  pause the whole profile (persists across restarts); --harness drains one harness
-  unpause [--harness <name>]  clear the pause / a harness's drain (the MCP \`resume\` op)
-  concurrency <n|reset> [--harness <name>]  set (or reset) the global agent cap / a harness's slots
+  pause [--harness <name>] [--json]  pause the whole profile (persists across restarts); --harness drains one harness
+  unpause [--harness <name>] [--json]  clear the pause / a harness's drain (the MCP \`resume\` op)
+  concurrency <n|reset> [--reset] [--harness <name>] [--json]  set (or reset) the global agent cap / a harness's slots
+                            (alias: set-concurrency)
+  cancel <ref>             abandon a running, queued or held task (the MCP \`cancel\` op)
+  release <ref> [comment…] answer a held task and re-run its step; the remaining words are the comment
+  dismiss <ref>            mark a failed/cancelled task or PR row dismissed (no board change)
+  retry <ref>              re-run a failed task's failed step
+  pull                     pull the backlog (queue stage) into free slots
+  harness-reset <name>     reset a harness's health breaker (the MCP \`harness_reset\` op)
   reload                   re-read + validate the config and apply its reloadable keys (harnesses,
                             step spawn knobs, egress, caps, quota) to runs that start after — no restart
   remove <name|key> [--purge] [--yes] [--keep-hooks]  retire a profile: archive ~/.agenthook/<key>/ to ~/.agenthook-archive/ (running: decommission at idle; --purge = delete permanently, stopped only)
