@@ -147,7 +147,7 @@ test("detailAll: prefixes the profile name and keeps the running harness/model p
   const a = tick("a", { held: [held("h1", 1)] });
   const b = tick("b", { running: [run("r1", { harness: "claude", model: "opus" })] });
   const lay = allLayout([a, b], {});
-  assert.equal(visible(detailAll(lay, 0, { width: 80 })).join(""), "  a · AH-2 · review");
+  assert.equal(visible(detailAll(lay, 0, { width: 80 })).join(""), "  a · held at review"); // needs-you rows: kind in words, not the id/step repeat
   assert.equal(visible(detailAll(lay, 1, { width: 80 })).join(""), "  b · r1 · code · harness claude · model opus");
   assert.equal(detailAll(lay, 2, { width: 80 }), "");
 });
@@ -262,7 +262,7 @@ test("top-loop multi full: shrinking the terminal re-clamps the selection to a v
   await pump();
   const f1 = frameLines(s.out.frames().at(-1));
   assert.equal(f1.filter((l) => l.startsWith("> ")).length, 1, "the selection is re-clamped to a visible row, not lost");
-  assert.ok(f1.some((l) => l.startsWith("  pa · AH-1")), "the detail line follows the re-clamped selection");
+  assert.ok(f1.some((l) => l.startsWith("  pa · held at review")), "the detail line follows the re-clamped selection");
   assert.ok(f1.length <= 4, "the frame fits the shrunken screen");
   s.input.key(0x71);
   await s.p;

@@ -77,11 +77,18 @@ test("renderTop: elapsed — Nm under the hour, NhMMm under the day, Nd after, '
   t.failed[0].at = iso(NOW - 65 * 60e3); // 1h05m
   t.prWaiting[0].at = iso(NOW - 2 * 24 * 3600e3); // 2d
   t.held.push({ ref: "h2", step: "code" }); // no since → '-'
+  t.prWaiting.push({ ref: "p2", step: "review" }); // no at → no age token on a PR row (not "-")
+  t.prWaiting.push({ ref: "p3", step: "review", at: "not-a-date", title: "Bad ts" }); // an unparseable at is the same
   const lines = renderTop(t, { width: 200, now: NOW });
   assert.match(lines[1], /^  HELD AH-12 review 5m /);
   assert.match(lines[2], /^  HELD h2 code -$/);
   assert.match(lines[3], /^  FAIL f1 code 1h05m$/);
   assert.match(lines[4], /^  PR p1 review 2d$/);
+  assert.equal(lines[5], "  PR p2 review", "a PR row with no at leaves the age token out");
+  assert.match(lines[6], /^  PR p3 review Bad ts$/);
+  assert.ok(!lines[5].includes(" - ") && !lines[6].includes(" - "), "no dash age token on the PR rows");
+  // a held row with no since still prints "-" (the PR-row exception is PR rows only)
+  assert.match(lines[2], / -/);
 });
 
 test("renderTop: a PR row whose step is missing shows PR as the step", () => {
@@ -202,5 +209,36 @@ test("readStatus: prWaiting lists the PR rows on a forge profile, omitted otherw
   });
   assert.deepEqual(readStatus(merged).prWaiting, [
     { ref: "55", title: "Shipped, board open", step: "code", pr: "https://github.com/acme/web/pull/9", kind: "mergedOpen", at: "2025-06-02T09:00:00Z" },
+  ]);
+});
+
+test("readStatus: a prWaiting row without a finishedAt (and no merge) falls back to the ref's newest event ts", () => {
+  const r = reg();
+  // An awaitingMerge row: the board is known open (a re-run), the PR is open — no board_done and
+  // no merged event, so finishedAt and the merge ts are both absent. Its at is the tail's newest ts.
+  const awaiting = profileDir(r, "awaiting", {
+    hb: { forge: true, repository: "acme/web" },
+    refmeta: { 61: { title: "Open PR, board still open", pr: 11 } },
+    events: [
+      { event: "run_start", ref: "61", step: "code", ts: "2025-05-30T10:00:00Z" },
+      { event: "run_end", ref: "61", step: "code", outcome: "advance", ts: "2025-05-30T11:00:00Z" },
+      { event: "run_start", ref: "61", step: "code", ts: "2025-05-31T09:00:00Z" }, // the re-run: the board is known open
+    ],
+  });
+  assert.deepEqual(readStatus(awaiting).prWaiting, [
+    { ref: "61", title: "Open PR, board still open", step: "code", pr: "https://github.com/acme/web/pull/11", kind: "awaitingMerge", at: "2025-05-31T09:00:00Z" },
+  ]);
+  // No event carries a ts → at stays null (the renderer drops the age token).
+  const noTs = profileDir(r, "nots", {
+    hb: { forge: true, repository: "acme/web" },
+    refmeta: { 62: { title: "No timestamps", pr: 12 } },
+    events: [
+      { event: "run_start", ref: "62", step: "code" },
+      { event: "run_end", ref: "62", step: "code", outcome: "advance" },
+      { event: "run_start", ref: "62", step: "code" },
+    ],
+  });
+  assert.deepEqual(readStatus(noTs).prWaiting, [
+    { ref: "62", title: "No timestamps", step: "code", pr: "https://github.com/acme/web/pull/12", kind: "awaitingMerge", at: null },
   ]);
 });
