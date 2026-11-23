@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- UI: the ticket drawer docks beside the page on wide screens (≥ `DOCK_MIN_PX`, 1536px — one
+  constant in `ui/src/layout.ts`, `useDocked()`) instead of overlaying it (#708): no scrim, nothing
+  dimmed, the page stays live and narrows. It takes the Overview rail's place (the rail hides but
+  stays mounted, returning on close); its width is `clamp(720px, 25vw+240px, 880px)`. A docked
+  drawer is a `region`, not a `dialog` (no `aria-modal`): `?t=`, ×/Esc and focus behaviour are
+  unchanged, a ticket swap re-renders the body in place (same node, the slide-in plays once per
+  open), and page shortcuts are idle only while focus is inside it. Below the breakpoint the
+  overlay is unchanged (scrim, 720px, `dialog` + `aria-modal`).
 - Docs: a user guide for `agenthook top` in operating.md — the four ways to run it (full
   screen, `--lines N` strip, `--all`/multi-name, `--once` and non-TTY), what a row shows, and
   the full-screen key table (the strip only takes `q`/Ctrl-C); one pointer sentence in the

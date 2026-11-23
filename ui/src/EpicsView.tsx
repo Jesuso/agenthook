@@ -11,7 +11,7 @@ import { CopyCommand, EmptyState, Pill, ProfileMark, ShortcutSheet, ShortcutsBut
 import { profileLabel } from "./format";
 import { usePageTitle } from "./usePageTitle";
 import { hashFor } from "./route";
-import { EPICS_SHORTCUTS, epicsAction, shortcutsEnabled } from "./shortcuts";
+import { EPICS_SHORTCUTS, dialogBlocksKeys, epicsAction, shortcutsEnabled } from "./shortcuts";
 import { rich, useT } from "./i18n/react";
 
 type Ref = { profile: string; ref: string };
@@ -157,7 +157,7 @@ export default function EpicsView({ profile, epic, rows, ticketsNonce, onOpen, o
 function useEpicsKeys(setHelp: (open: boolean) => void, upHref: string | null) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const action = shortcutsEnabled() ? epicsAction(e, !!document.querySelector('[role="dialog"]')) : null;
+      const action = shortcutsEnabled() ? epicsAction(e, dialogBlocksKeys()) : null;
       if (!action) return;
       if (action === "help") {
         e.preventDefault();

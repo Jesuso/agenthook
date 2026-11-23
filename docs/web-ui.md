@@ -526,13 +526,25 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
   `/instructions` and `/config` sub-views. Replaces the plain tab state and `tabProfile`.
 - The open ticket drawer is the URL's `?t=<ref>` query on any profile view (`#/p/<key>?t=<ref>`),
   so a ticket is bookmarkable and survives a reload. Opening it pushes a history entry; closing it
-  (×, Esc, scrim) pushes the hash without `t` — browser Back reopens the drawer, which is expected,
+  (×, Esc, scrim while it overlays) pushes the hash without `t` — browser Back reopens the drawer, which is expected,
   and Back while it is open drops only the `t`. Ticket-only changes never trip the unsaved-buffer
   prompt and keep the Overview's filters; changing the view or profile drops the `t`. On a cold
   load only: a `t` that names no ticket in the snapshot is stripped via `history.replaceState`
   (no drawer, no new history entry); a `t` opened in the app (e.g. just created, row not arrived
   yet) keeps the drawer's plain undefined-ticket behaviour. An empty or malformed `t` parses as
   if it were absent, never to Home; other query keys are ignored.
+- At `DOCK_MIN_PX` (1536px — the one constant in `ui/src/layout.ts`, `useDocked()`) and wider, the
+  drawer **docks**: a live column beside the page instead of a modal overlay — no scrim, nothing
+  dimmed, the page stays clickable, and the page narrows. It takes the Overview rail's place (the
+  rail hides but stays mounted, and comes back on close); on the other views it simply takes the
+  right-hand room. Its width grows with the viewport, `clamp(720px, 25vw+240px, 880px)`, and it
+  sticks just under the app bar with its own scroll. A docked drawer is a **region, not a modal
+  dialog** (`role="region"`, no `aria-modal`): `?t=` still drives it, × and Esc still close it
+  (a modal opened over it owns that Esc), focus moves in on open and on each ticket swap and back
+  to the row that opened the current ticket on close; a swap re-renders the body in place — same
+  node, so the slide-in plays once per open, never per ticket. Page shortcuts (j/k/…) work beside
+  it but not while focus is inside it. Below the breakpoint the overlay is exactly as before:
+  fixed 720px panel, scrim, `role="dialog"` + `aria-modal`.
 - App bar: on Home brand + connection dot; in a profile `‹ Home`, profile emoji/name, a profile
   switcher dropdown, and tabs Overview · Instructions · Config.
 - Last-opened profile remembered in `localStorage` (try/catch, page works without it).

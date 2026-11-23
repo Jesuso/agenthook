@@ -182,3 +182,46 @@ describe("the open drawer lives in the URL", () => {
     expect(document.body.textContent).toContain("● modified"); // the buffer survived the close
   });
 });
+
+describe("docked at ≥ DOCK_MIN_PX (#708)", () => {
+  const wide = () =>
+    vi.stubGlobal("matchMedia", (q: string) => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
+
+  it("docks beside the page: no scrim, a region, the rail hidden — and a swap keeps the same node", async () => {
+    wide();
+    snapshot.tickets = [ticket, { ...ticket, ref: "T-2", displayId: "T-2", title: "Second ticket" }];
+    await mountApp("#/p/dev?t=T-1");
+    await until(() => drawer());
+    const first = drawer()!;
+    expect(first.getAttribute("role")).toBe("region");
+    expect(first.hasAttribute("aria-modal")).toBe(false);
+    expect(document.querySelector(".drawer-scrim")).toBeNull();
+    expect(document.querySelector("[data-drawer-dock]")).not.toBeNull();
+    // The docked column grows with the viewport inside the clamp, beside the page.
+    expect(document.querySelector("[data-drawer-dock]")!.className).toContain("clamp(720px,calc(25vw+240px),880px)");
+    expect(document.querySelector<HTMLElement>("[data-overview-rail]")!.hasAttribute("hidden")).toBe(true);
+    // Swap to the second ticket: same DOM node, new content, no scrim ever.
+    await click(document.querySelector("[data-tickets-toggle]")!);
+    await click(document.querySelector("[data-ticket-row='T-2'] [data-ticket-open]")!);
+    expect(window.location.hash).toBe("#/p/dev?t=T-2");
+    await until(() => drawer()!.textContent!.includes("T-2"));
+    expect(drawer()).toBe(first); // the frame did not remount
+    expect(document.querySelector(".drawer-scrim")).toBeNull();
+    // Closing restores the rail and leaves no drawer.
+    await navigate("#/p/dev");
+    await until(() => drawer() === null);
+    expect(document.querySelector("[data-drawer-dock]")).toBeNull();
+    expect(document.querySelector<HTMLElement>("[data-overview-rail]")!.hasAttribute("hidden")).toBe(false);
+  });
+
+  it("below the breakpoint the same deep link keeps today's overlay", async () => {
+    snapshot.tickets = [ticket];
+    await mountApp("#/p/dev?t=T-1");
+    await until(() => drawer());
+    expect(drawer()!.getAttribute("role")).toBe("dialog");
+    expect(drawer()!.hasAttribute("aria-modal")).toBe(true);
+    expect(document.querySelector(".drawer-scrim")).not.toBeNull();
+    expect(document.querySelector("[data-drawer-dock]")).toBeNull();
+    expect(document.querySelector<HTMLElement>("[data-overview-rail]")!.hasAttribute("hidden")).toBe(false);
+  });
+});
