@@ -9,9 +9,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileEnvKeys, loadConfig, loadEnv, respawnEnv } from "../src/config.js";
-import { createRestartRequester } from "../src/engine.js";
+import { fileEnvKeys, loadConfig, loadEnv, registryDir, respawnEnv } from "../src/config.js";
+import { createEngine, createRestartRequester } from "../src/engine.js";
 import { createQueue } from "../src/queue.js";
+
+const made = new Set();
+test.after(() => {
+  for (const k of made) fs.rmSync(path.join(registryDir, k), { recursive: true, force: true });
+});
 
 const job = (ref) => ({ kind: "pipeline", ref, stepId: "s", dedupKey: `${ref}:s` });
 const info = (j) => ({ kind: j.kind, ref: j.ref, name: j.ref, url: "", code: 0 });
@@ -82,6 +87,42 @@ test("the same refusal arrives through the restart requester: refused, not pendi
   } finally {
     delete process.env.AH_RE_GONE2;
     fileEnvKeys.delete("AH_RE_GONE2");
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the engine's own restart preflight (createEngine wiring) refuses a removed .env var", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-cfg-re-"));
+  const file = makeConfig(dir, "${AH_RE_ENGINE}");
+  fs.writeFileSync(path.join(dir, ".env"), "AH_RE_ENGINE=stale\n");
+  // The live receiver's boot: loadConfig loads .env into process.env and records the key.
+  const cfg = loadConfig({ configPath: file });
+  made.add(cfg.stateKey);
+  try {
+    assert.equal(process.env.AH_RE_ENGINE, "stale");
+    assert.equal(fileEnvKeys.get("AH_RE_ENGINE"), "stale");
+
+    // The operator removes the var from .env while the config still references it.
+    fs.writeFileSync(path.join(dir, ".env"), "");
+
+    const engine = createEngine(cfg);
+    const hb = () => JSON.parse(fs.readFileSync(cfg.heartbeatFile, "utf8"));
+
+    await assert.rejects(
+      engine.requestRestart({ when: "idle" }),
+      /unset environment variable\(s\) referenced by[\s\S]*AH_RE_ENGINE/,
+    );
+    assert.equal(hb().restartPending, undefined, "nothing went pending and nothing paused");
+
+    // A second request fails the config check again, not "already pending": the refusal left no state.
+    await assert.rejects(
+      engine.requestRestart({ when: "idle" }),
+      /unset environment variable/,
+    );
+    assert.equal(hb().restartPending, undefined);
+  } finally {
+    delete process.env.AH_RE_ENGINE;
+    fileEnvKeys.delete("AH_RE_ENGINE");
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
