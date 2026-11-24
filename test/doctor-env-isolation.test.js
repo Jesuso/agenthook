@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { runChecks, agentEnvLints, ghAuthLints, isolationReport, parseForceSshRewrites } from "../src/commands/doctor.js";
+import { runChecks, agentEnvLints, ghAuthLints, isolationReport, parseForceSshRewrites, runTokenLints } from "../src/commands/doctor.js";
 import { cleanProfile, io, problem, recorder } from "./_doctor-helpers.js";
 
 // --- agent env lints (#470): names only, never values ---
@@ -86,6 +86,35 @@ test("agentEnvLints: a ${GH_PAT} tracker token while the prompt names an unset $
 test("agentEnvLints: git settings the agent loses", () => {
   const ls = agentEnvLints(envCfg(), { env: { ...base, GIT_SSH_COMMAND: "ssh -i k", GIT_CONFIG_COUNT: "1" }, platform: "linux" });
   assert.match(byLabel(ls)["agent env: git in the agent loses its settings"].note, /GIT_CONFIG_COUNT, GIT_SSH_COMMAND/);
+});
+
+test("agentEnvLints: under run tokens the receiver's GitHub tokens move to 'not passed', with the reason", () => {
+  const env = { ...base, GITHUB_TOKEN: "t", NGROK_AUTHTOKEN: "s" };
+  // App auth on the forge
+  const f = byLabel(agentEnvLints(envCfg({ forge: { type: "github", ...APP } }), { env, platform: "linux" }));
+  assert.equal(f["agent env: not passed to agents"].note, "GITHUB_TOKEN (replaced by the per-run GitHub App token), NGROK_AUTHTOKEN");
+  assert.equal("agent env: credentials agents still get" in f, false, "run-stripped tokens are no longer listed as passed");
+  // App auth on the tracker only
+  const t = byLabel(agentEnvLints(envCfg({ provider: "github", providerConfig: APP }), { env, platform: "linux" }));
+  assert.equal(t["agent env: not passed to agents"].note, "GITHUB_TOKEN (replaced by the per-run GitHub App token), NGROK_AUTHTOKEN");
+  assert.equal("agent env: credentials agents still get" in t, false);
+});
+
+test("agentEnvLints: token auth (and githubRunToken:false) still list the GitHub tokens as passed", () => {
+  const env = { ...base, GITHUB_TOKEN: "t" };
+  const token = byLabel(agentEnvLints(envCfg({ provider: "github", providerConfig: { auth: { type: "token", token: "x" } }, forge: { type: "github" } }), { env, platform: "linux" }));
+  assert.equal(token["agent env: credentials agents still get"].note, "GITHUB_TOKEN (tracker prompt, forge (gh))");
+  assert.equal("agent env: not passed to agents" in token, false);
+  const off = byLabel(agentEnvLints(envCfg({ provider: "github", providerConfig: APP, githubRunToken: false }), { env, platform: "linux" }));
+  assert.match(off["agent env: credentials agents still get"].note, /^GITHUB_TOKEN \(tracker prompt\)/);
+  assert.equal("agent env: not passed to agents" in off, false);
+});
+
+test("agentEnvLints: a step env GH_TOKEN under App auth stays a runTokenLints warning, not a lint change", () => {
+  const cfg = { provider: "github", providerConfig: APP, pipeline: [{ id: "code", env: { GH_TOKEN: "g" } }, { id: "done", manual: true }] };
+  assert.deepEqual(runTokenLints(cfg, { originRepo: () => "o/r" }), [{ level: "warn", label: `step "code" env GH_TOKEN overrides the per-run App token` }]);
+  const f = byLabel(agentEnvLints(envCfg({ provider: "github", providerConfig: APP }), { env: { ...base, GH_TOKEN: "g" }, platform: "linux" }));
+  assert.equal(f["agent env: not passed to agents"].note, "GH_TOKEN", "the allowlist already strips it, so it keeps its bare form");
 });
 
 test("ghAuthLints: runs gh auth status with the filtered agent env; a failure warns", () => {

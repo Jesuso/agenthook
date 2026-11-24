@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- Fixed: `doctor`'s agent env report no longer lists `GH_TOKEN`/`GITHUB_TOKEN` as credentials
+  agents still get when per-run GitHub App tokens are in use — they move to "not passed to
+  agents" with the reason, matching what dispatch actually strips (#822).
 - Fixed: `restart`'s config preflight now validates against the env the respawn will see
   (`withoutFileEnv(process.env)` plus a fresh read of the `.env` files, without touching the
   running process's own environment) instead of the live process's stale in-memory values,

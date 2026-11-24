@@ -26,7 +26,7 @@ import { DEFAULT_AGENT } from "../agents/names.js";
 import { hermesSourceHome, hermesProviderInfo } from "../agents/hermes-home.js";
 import { uiBundleState } from "../ui-bundle.js";
 import { isAppAuth, normalizePem, createGithubAuth, mintInstallationToken } from "../github-auth.js";
-import { runTokenPermissions, revokeRunToken, originUrl } from "../github-run-token.js";
+import { runTokenPermissions, revokeRunToken, originUrl, RUN_TOKEN_STRIP } from "../github-run-token.js";
 import { parseGithubRemote } from "../forges/github.js";
 import { isSandboxed } from "../sandbox/names.js";
 import { DEFAULT_IMAGE, AGENT_DOCKERFILE, buildImageArgs } from "../sandbox/image.js";
@@ -584,7 +584,7 @@ function agentEnvSources(cfg) {
  * variables a run likely needs but loses: Bedrock/Vertex for claude, provider keys for opencode
  * or a non-isolated hermes, a tracker token the prompt names under a different variable, git's
  * own settings. Pure given `env` (and the config file `tokenVar` reads).
- * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'|'provider'|'forge'|'agentEnvPassthrough'|'configPath'>} cfg
+ * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'|'provider'|'forge'|'providerConfig'|'agentEnvPassthrough'|'configPath'|'githubRunToken'>} cfg
  * @param {{env?: Record<string, string|undefined>, platform?: string}} [io]
  * @returns {{ level: 'info'|'warn', label: string, note?: string, fix?: Fix }[]} */
 export function agentEnvLints(cfg, { env = process.env, platform = process.platform } = {}) {
@@ -601,8 +601,12 @@ export function agentEnvLints(cfg, { env = process.env, platform = process.platf
     const secrets = set.filter(looksSecret).sort();
     out.push({ level: "warn", label: `agent env: agentEnvPassthrough is "*"`, note: `agents inherit the receiver's whole environment${secrets.length ? `, including ${secrets.join(", ")}` : ""}`, fix: { manual: `list only the names agents need in agentEnvPassthrough` } });
   } else {
+    // Run tokens replace the receiver's GitHub credentials: RUN_TOKEN_STRIP names that the
+    // allowlist keeps are still never passed, for the same reason buildAgentEnv drops them.
+    const runStrip = usesRunTokens(cfg) ? RUN_TOKEN_STRIP : [];
+    const replaced = set.filter((k) => looksSecret(k) && !stripped.has(k) && envNameMatches(k, runStrip, platform)).sort();
     const gone = [...stripped].filter(looksSecret).sort();
-    if (gone.length) out.push({ level: "info", label: "agent env: not passed to agents", note: gone.join(", ") });
+    if (gone.length || replaced.length) out.push({ level: "info", label: "agent env: not passed to agents", note: [...gone, ...replaced.map((k) => `${k} (replaced by the per-run GitHub App token)`)].sort().join(", ") });
     /** @type {[string, readonly string[]][]} */
     const sources = [
       ["tracker prompt", tracker],
@@ -611,7 +615,7 @@ export function agentEnvLints(cfg, { env = process.env, platform = process.platf
       ["agentEnvPassthrough", operator],
     ];
     const kept = set
-      .filter((k) => looksSecret(k) && !stripped.has(k))
+      .filter((k) => looksSecret(k) && !stripped.has(k) && !envNameMatches(k, runStrip, platform))
       .sort()
       .map((k) => `${k} (${sources.filter(([, p]) => envNameMatches(k, p, platform)).map(([src]) => src).join(", ") || "allowlist"})`);
     if (kept.length) out.push({ level: "info", label: "agent env: credentials agents still get", note: kept.join(", ") });

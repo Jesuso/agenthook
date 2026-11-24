@@ -252,4 +252,6 @@ Their comment tokens stay allowlisted.
 - `tracker.assigneeLogin` is set.
 
 The forge gets all but the last. `doctor` also warns when `githubRunToken` is false under App auth,
-when a step `env` overrides the run token, and when a repo's `origin` isn't on github.com.
+when a step `env` overrides the run token, and when a repo's `origin` isn't on github.com. In the
+agent env report it lists `GH_TOKEN`/`GITHUB_TOKEN` as not passed to agents (replaced by the
+per-run App token) instead of credentials agents still get.
