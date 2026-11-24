@@ -85,7 +85,7 @@ See [`agenthook.config.example.json`](../agenthook.config.example.json) for a fu
 template and [`.env.example`](../.env.example) for the env vars each tracker/ingress needs.
 
 **Environment precedence.** A `${VAR}` in the config resolves shell-exported first, then
-`<configDir>/.env`, then `<cwd>/.env`. `restart` re-reads `.env`: an edited value takes effect on
+`<configDir>/.env`, then `<cwd>/.env`. A `${VAR}` inside a `//` comment key is neither expanded nor required. `restart` re-reads `.env`: an edited value takes effect on
 the next restart, no `stop` + `start` needed (the receiver tracks which vars came from a `.env`
 file and strips only those from a restart's env, so a genuinely shell-exported var is never
 touched). A receiver installed as a systemd unit (`agenthook service install`) already restarts

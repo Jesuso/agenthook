@@ -109,6 +109,7 @@ export function withoutFileEnv(env, fileKeys = fileEnvKeys) {
 }
 
 /** Recursively interpolate ${VAR} refs in every string of a JSON value.
+ * `//` comment keys are copied through verbatim — not expanded, not required — at any depth.
  * Throws listing every unresolved var so misconfig fails loud, not silent.
  * @param {any} node @param {string[]} missing @param {string} pathLabel @returns {any} */
 function interpolate(node, missing, pathLabel = "") {
@@ -126,7 +127,10 @@ function interpolate(node, missing, pathLabel = "") {
   if (node && typeof node === "object") {
     /** @type {Record<string, any>} */
     const out = {};
-    for (const [k, v] of Object.entries(node)) out[k] = interpolate(v, missing, pathLabel ? `${pathLabel}.${k}` : k);
+    for (const [k, v] of Object.entries(node)) {
+      if (k.startsWith("//")) { out[k] = v; continue; } // comment key: verbatim, not walked
+      out[k] = interpolate(v, missing, pathLabel ? `${pathLabel}.${k}` : k);
+    }
     return out;
   }
   return node;

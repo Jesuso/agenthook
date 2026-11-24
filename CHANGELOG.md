@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- Fixed: a `${VAR}` inside a `//` comment key is no longer treated as a required env reference —
+  comment keys are copied through verbatim at any depth, so a comment mentioning a removed variable
+  no longer prevents boot (#819).
+
 - UI: the ticket drawer docks beside the page on wide screens (≥ `DOCK_MIN_PX`, 1880px — one
   constant in `ui/src/layout.ts`, `useDocked()`) instead of overlaying it (#708): no scrim, nothing
   dimmed, the page stays live and narrows. It takes the Overview rail's place (the rail hides but

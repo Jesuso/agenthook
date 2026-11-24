@@ -311,3 +311,40 @@ test("rawAgentBins: claudeBin + literal step bins + the default bin of every nam
   );
   assert.deepEqual(rawAgentBins({ harnesses: { q: { bin: "claude-qwen" }, d: { agent: "opencode" }, v: { bin: "${BIN}" } } }), ["claude", "claude-qwen", "opencode"], "harness bins and agents too");
 });
+
+test("a ${VAR} inside a //comment key is neither expanded nor required (#819)", () => {
+  delete process.env.AH_TEST_NOT_SET;
+  delete process.env.AH_TEST_NOT_SET2;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-cfg-cmt-"));
+  const file = path.join(dir, "agenthook.config.json");
+  fs.writeFileSync(file, JSON.stringify({
+    name: "ah-cmt-test",
+    repoPath: dir,
+    "//note": "was ${AH_TEST_NOT_SET}",
+    "//blob": { x: "${AH_TEST_NOT_SET}", list: ["${AH_TEST_NOT_SET}"] },
+    tracker: { type: "asana", pipeline: [{ id: "code" }], "//auth": "uses ${AH_TEST_NOT_SET}" },
+  }));
+  const cfg = loadConfig({ configPath: file });
+  assert.equal(cfg["//note"], "was ${AH_TEST_NOT_SET}", "top-level comment stays verbatim, not expanded");
+  assert.deepEqual(cfg["//blob"], { x: "${AH_TEST_NOT_SET}", list: ["${AH_TEST_NOT_SET}"] }, "object/array comment values are not walked");
+  assert.equal(cfg.tracker["//auth"], "uses ${AH_TEST_NOT_SET}", "nested comment stays verbatim");
+});
+
+test("an unset ${VAR} under a real key still throws, naming only the real key (#819)", () => {
+  delete process.env.AH_TEST_NOT_SET;
+  delete process.env.AH_TEST_NOT_SET2;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-cfg-cmt-"));
+  const file = path.join(dir, "agenthook.config.json");
+  fs.writeFileSync(file, JSON.stringify({
+    name: "ah-cmt-test",
+    repoPath: dir,
+    "//note": "was ${AH_TEST_NOT_SET2}",
+    tracker: { type: "asana", token: "${AH_TEST_NOT_SET}", pipeline: [{ id: "code" }] },
+  }));
+  assert.throws(
+    () => loadConfig({ configPath: file }),
+    (e) => /unset environment variable\(s\)/.test(e.message)
+      && e.message.includes("tracker.token")
+      && !e.message.includes("AH_TEST_NOT_SET2"),
+  );
+});
