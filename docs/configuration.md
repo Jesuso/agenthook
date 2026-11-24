@@ -88,7 +88,11 @@ template and [`.env.example`](../.env.example) for the env vars each tracker/ing
 `<configDir>/.env`, then `<cwd>/.env`. A `${VAR}` inside a `//` comment key is neither expanded nor required. `restart` re-reads `.env`: an edited value takes effect on
 the next restart, no `stop` + `start` needed (the receiver tracks which vars came from a `.env`
 file and strips only those from a restart's env, so a genuinely shell-exported var is never
-touched). A receiver installed as a systemd unit (`agenthook service install`) already restarts
+touched). Before a `restart` is accepted, the config is re-validated against the env the
+respawn will actually see — the stripped env plus a fresh read of the `.env` files, without
+touching the running process's own environment. A var that was removed from `.env` but is
+still referenced by the config therefore refuses the restart (nothing is paused), instead of
+letting the fresh process fail to boot. A receiver installed as a systemd unit (`agenthook service install`) already restarts
 into a fresh process on every `restart`, so this needs no extra step there.
 
 The `ah ui` config editor (below) has a form for every key above, including `repos`. Edit Raw

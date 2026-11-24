@@ -15,6 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import util from "node:util";
 import { controlSockPath } from "./paths.js";
 import { identityErrors } from "./identity.js";
 import { digestErrors, summariesErrors } from "./digest-config.js";
@@ -108,14 +109,28 @@ export function withoutFileEnv(env, fileKeys = fileEnvKeys) {
   return out;
 }
 
+/**
+ * The env a detached respawn will see, before the fresh process re-reads `.env` itself:
+ * `env` minus every unchanged file-sourced key (src/respawn.js applies its own
+ * AGENTHOOK_SERVICE removal on top). Use as `loadConfig({ ..., env: respawnEnv() })` when a
+ * check must validate against the respawn, not this process's stale in-memory values.
+ * Pure.
+ * @param {NodeJS.ProcessEnv} [env] @returns {NodeJS.ProcessEnv}
+ */
+export function respawnEnv(env = process.env) {
+  return withoutFileEnv(env);
+}
+
 /** Recursively interpolate ${VAR} refs in every string of a JSON value.
  * `//` comment keys are copied through verbatim — not expanded, not required — at any depth.
- * Throws listing every unresolved var so misconfig fails loud, not silent.
- * @param {any} node @param {string[]} missing @param {string} pathLabel @returns {any} */
-function interpolate(node, missing, pathLabel = "") {
+ * Reads from `env` (default process.env) so a caller can validate against a different env —
+ * e.g. the env a detached respawn will see — without touching process.env. Throws listing
+ * every unresolved var (via the `missing` out-param) so misconfig fails loud, not silent.
+ * @param {any} node @param {string[]} missing @param {string} pathLabel @param {NodeJS.ProcessEnv} [env] @returns {any} */
+function interpolate(node, missing, pathLabel = "", env = process.env) {
   if (typeof node === "string") {
     return node.replace(/\$\{([A-Z0-9_]+)\}/g, (_, name) => {
-      const v = process.env[name];
+      const v = env[name];
       if (v == null || v === "") {
         missing.push(`${name} (at ${pathLabel || "<root>"})`);
         return "";
@@ -123,17 +138,33 @@ function interpolate(node, missing, pathLabel = "") {
       return v;
     });
   }
-  if (Array.isArray(node)) return node.map((v, i) => interpolate(v, missing, `${pathLabel}[${i}]`));
+  if (Array.isArray(node)) return node.map((v, i) => interpolate(v, missing, `${pathLabel}[${i}]`, env));
   if (node && typeof node === "object") {
     /** @type {Record<string, any>} */
     const out = {};
     for (const [k, v] of Object.entries(node)) {
       if (k.startsWith("//")) { out[k] = v; continue; } // comment key: verbatim, not walked
-      out[k] = interpolate(v, missing, pathLabel ? `${pathLabel}.${k}` : k);
+      out[k] = interpolate(v, missing, pathLabel ? `${pathLabel}.${k}` : k, env);
     }
     return out;
   }
   return node;
+}
+
+/** Overlay a .env file onto a local env object without overwriting keys it already has and
+ * without touching process.env — the file half of loadConfig's precedence for the `opts.env`
+ * path. A missing file is skipped; a malformed one is non-fatal, like loadEnv.
+ * @param {NodeJS.ProcessEnv} target @param {string} file */
+function overlayDotEnv(target, file) {
+  let parsed;
+  try {
+    parsed = util.parseEnv(fs.readFileSync(file, "utf8"));
+  } catch {
+    return; /* missing or malformed .env: non-fatal, like loadEnv */
+  }
+  for (const [k, v] of Object.entries(parsed)) {
+    if (target[k] == null) target[k] = v;
+  }
 }
 
 /**
@@ -279,7 +310,11 @@ export function rawAgentBins(raw) {
 }
 
 /**
- * @param {{ configPath?: string }} [opts]
+ * @param {{ configPath?: string, env?: NodeJS.ProcessEnv }} [opts]
+ * `opts.env` (optional): validate against THIS env instead of process.env — `loadEnv` is
+ * skipped and the `.env` files are re-read into a local copy (same precedence), so neither
+ * process.env nor fileEnvKeys is touched. The restart preflight passes `respawnEnv()` so the
+ * check reflects the fresh process the respawn will become.
  * @returns {import('./types.js').Config}
  */
 export function loadConfig(opts = {}) {
@@ -287,13 +322,26 @@ export function loadConfig(opts = {}) {
 
   // Env precedence: shell-exported wins, then .env beside the config, then cwd .env.
   // (Read the file again AFTER the .env load so a ${VAR} satisfied by that .env resolves.)
-  loadEnv(path.join(configDir, ".env"));
-  if (path.resolve(process.cwd()) !== configDir) loadEnv(path.join(process.cwd(), ".env"));
+  /** @type {NodeJS.ProcessEnv | undefined} */
+  let env;
+  if (opts.env != null) {
+    // `opts.env` = the env a detached respawn will see (typically `respawnEnv()`), already
+    // minus file-sourced keys: rebuild the same precedence from the .env files WITHOUT
+    // touching process.env or fileEnvKeys — the check must reflect the fresh boot, not the
+    // stale file values this process still holds in memory (a key removed from .env can
+    // only be seen as removed by re-reading the file).
+    env = { ...opts.env };
+    overlayDotEnv(env, path.join(configDir, ".env"));
+    if (path.resolve(process.cwd()) !== configDir) overlayDotEnv(env, path.join(process.cwd(), ".env"));
+  } else {
+    loadEnv(path.join(configDir, ".env"));
+    if (path.resolve(process.cwd()) !== configDir) loadEnv(path.join(process.cwd(), ".env"));
+  }
   const { raw } = readRawConfig(configPath);
 
   /** @type {string[]} */
   const missing = [];
-  const cfg = interpolate(raw, missing);
+  const cfg = interpolate(raw, missing, "", env);
   if (missing.length) {
     throw new Error(`unset environment variable(s) referenced by ${configPath}:\n  - ` + missing.join("\n  - "));
   }

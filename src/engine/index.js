@@ -55,7 +55,7 @@ import { createOps } from "../ops.js";
 import { readQuota, writeQuota } from "../quota-file.js";
 import { createEmitter } from "../events.js";
 import { createSinks } from "../sinks.js";
-import { loadConfig } from "../config.js";
+import { loadConfig, respawnEnv } from "../config.js";
 import { harnessImages } from "../sandbox/container.js";
 import { needsEgressProxy } from "../sandbox/egress.js";
 import { DEFAULT_IMAGE } from "../sandbox/image.js";
@@ -323,7 +323,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   const restarter = createRestartRequester({
     queue,
     isDraining: () => state.draining,
-    validateConfig: () => void loadConfig({ configPath: cfg.configPath }),
+    validateConfig: () => void loadConfig({ configPath: cfg.configPath, env: respawnEnv() }),
     validateMove: (moveTo) => checkMove({ configPath: cfg.configPath, from: cfg.stateKey, to: moveTo }),
     isDecommissionPending: () => decommissioner.isPending(),
     harnessesDown: () => {
