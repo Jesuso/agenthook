@@ -12,6 +12,7 @@ import { harnessesOf, healthTrip } from "./harness.js";
 import { DEFAULT_MAX_ATTEMPTS } from "../pipeline.js";
 import { followUpDecision } from "../followup.js";
 import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMergeOnBounce, holdAutoMergeSlot } from "../auto-merge.js";
+import { publishOutbox, readOutboxForRun } from "./publish.js";
 
 /**
  * runStep's locals the post-exit phase reads, handed over as one object.
@@ -49,6 +50,9 @@ import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMer
  * @property {{turns: number, repaired: boolean, results: any[], turnStats: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}[]}} [repair]  the receiver-driven verdict-repair turns (#677) this run took, when any did: `turns` = how many ran, `repaired` = the last one wrote a valid verdict, `results`/`turnStats` = each repair spawnAgent() result / its turnStats, oldest first — absent when no repair was attempted
  * @property {{commits: number}} [deduced]  a verdict deduced from commits (#680, src/dispatch/step.js `deduceVerdict`) instead of a repair turn — `commits` = how many the branch gained since the run started; absent when none was deduced
  * @property {{result: "pass"|"fail", capExhausted?: boolean, reason?: string, results: any[], turnStats: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}[]}} [gate]  the step's `gate` (#710), when it ran at least once: `result` = its last outcome; `capExhausted` = every attempt spent with it still failing — `reason` then forces a hold (gate failed (…): the output tail); any other `result: "fail"` already resolved through the normal spawned-fields path (a crashed/timed-out repair turn, or one that wrote something other than "advance"); `results`/`turnStats` = each gate-repair spawnAgent() turn, oldest first — absent when no gate ran
+ * @property {boolean} [remote]  ran over ssh on a remote harness (#825) — its outbox is published by the hub (src/dispatch/publish.js) before the summary/drain/advance
+ * @property {string} [hubWorktree]  the hub-side worktree path (only with hasWorktree) — the branch's commits live here after the worker's sync-back
+ * @property {string} [branch]  the step's branch (only with hasWorktree) — what publish pushes and the outbox PR references
  */
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./usage.js').Usage & import('./verdict.js').VerdictOps} ctx */
@@ -58,7 +62,7 @@ export function createFinish(ctx) {
 
   /** @param {import('../types.js').Job} job @param {StepRun} run */
   async function finishStep(job, run) {
-    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, errorLine, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, lastText, repair, deduced, gate } = run;
+    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, errorLine, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, lastText, repair, deduced, gate, remote, hubWorktree, branch } = run;
     store?.clearRunning(job.ref);
     pids.delete(job.ref);
     clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
@@ -212,6 +216,10 @@ export function createFinish(ctx) {
       : timedOut
       ? { outcome: "fail", reason: timeoutReason(timedOut, timedOut === "max" ? maxMinutes : (step.idleMinutes ?? 0)) }
       : readVerdict(code, verdictFile, step, agent);
+    // Remote run's outbox (#825): parse it BEFORE the rmSync below wipes the per-run dir. Remote
+    // only — a host run's verdict file has no outbox sibling, and a sandboxed host run is not
+    // trusted to publish anyway (it has no credentials).
+    const outbox = remote ? readOutboxForRun(path.dirname(verdictFile), cfg.trigger) : undefined;
     try {
       fs.rmSync(sandboxed ? path.dirname(verdictFile) : verdictFile, { recursive: true, force: true });
     } catch {
@@ -382,6 +390,14 @@ export function createFinish(ctx) {
     const pendingChecks = store?.getRefMeta(job.ref)?.followUp;
     if (pendingChecks && !followUp && (verdict.outcome === "changes" || verdict.outcome === "fail" || (verdict.outcome === "advance" && pendingChecks.step === step.id))) {
       store?.setRefMeta(job.ref, { followUp: null });
+    }
+
+    // Remote run's outbox (#825, #681 phase 5a): publish with the hub's own credentials now that
+    // every outcome rewrite above has settled — a hold (a workflow file in the run's commits) or a
+    // fail (a push rejection) coming out here IS the applied outcome; a PR or comment failure is
+    // one line in the run log and never fails the step.
+    if (remote) {
+      await publishOutbox({ forge, adapter, ref: job.ref, stepId: step.id, remote, hasWorktree, worktree: hubWorktree, branch, outbox, verdict, store, reasonHarness });
     }
 
     // The step's supervisor summary, with the outcome actually applied. A run without one

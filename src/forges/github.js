@@ -34,10 +34,14 @@
 //     GitHub App (`auth: {type: "app", …}`, src/github-auth.js; see docs/github-app.md).
 import crypto from "node:crypto";
 import fs from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { verifyHubSignature } from "../hmac.js";
 import { createGithubAuth, githubFetch } from "../github-auth.js";
 import { githubRunCredentials, originUrl } from "../github-run-token.js";
-import { DEFAULT_BRANCH_PREFIX } from "../worktree.js";
+import { DEFAULT_BRANCH_PREFIX, gitArgv } from "../worktree.js";
+
+const pexecFile = promisify(execFile);
 
 export const FORGE_PATH = "/forge";
 const SECRET_KEY = "forge:github:webhookSecret";
@@ -316,9 +320,121 @@ export function createGithubForge(cfg, store) {
   const trackerRepo = cfg.provider === "github" || cfg.provider === "github-projects" ? (cfg.tracker?.repository ?? null) : null;
   const runCredentials = githubRunCredentials(fc, cfg, { codeRepo: (p) => parseGithubRemote(originUrl(p)) ?? forgeRepo, issueRepo: trackerRepo });
 
+  // --- Outbox publishing (#825) — hub-side, under the forge's own credentials: a remote
+  // run's agent never holds them, so the hub pushes the branch and opens the draft PR.
+
+  /** git env for `publishBranch`: the token ONLY in the environment (a GIT_CONFIG env var →
+   * `http.extraheader`), never in argv; inherited github.com credential helpers reset; SSH
+   * github remotes rewritten to HTTPS so the push authenticates with the token, not the
+   * operator's SSH key; no prompts. Same pattern as runGitEnv (src/github-run-token.js).
+   * @param {string} token @returns {Record<string, string>} */
+  const publishGitEnv = (token) => {
+    const pairs = [
+      ["credential.https://github.com.helper", ""],
+      ["http.https://github.com/.extraheader", `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`],
+      ["url.https://github.com/.insteadOf", "git@github.com:"],
+      ["url.https://github.com/.insteadOf", "ssh://git@github.com/"],
+    ];
+    /** @type {Record<string, string>} */
+    const env = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_COUNT: String(pairs.length) };
+    pairs.forEach(([k, v], i) => {
+      env[`GIT_CONFIG_KEY_${i}`] = k;
+      env[`GIT_CONFIG_VALUE_${i}`] = v;
+    });
+    return env;
+  };
+  // The repo's default branch, memoised per forge instance (publishBranch + openPr both want it).
+  /** @type {Promise<string>|null} */
+  let defaultBranchPromise = null;
+  /** @returns {Promise<string>} */
+  const defaultBranch = () =>
+    (defaultBranchPromise ??=
+    api(repoPath()).then(async (res) => {
+      if (!res.ok) throw new Error(`GitHub repo ${res.status}`);
+      const r = await json(res);
+      return String(r?.default_branch || "main");
+    }));
+
+  // Push a remote run's branch (hub-side outbox, #825). The range is
+  // `origin/<branch>..HEAD` when the branch already exists on the remote (a rework run), else
+  // `origin/<base>..HEAD` (`base` defaults to the repo's default branch). Any commit in the
+  // range touching `.github/workflows/` → the push is REFUSED and `{workflow: <first touched
+  // path>}` comes back instead (the caller holds the ticket for human review); an empty range
+  // (nothing new) → `{pushed: []}`. A push refusal throws with the first line of git's stderr.
+  /** @param {{worktree: string, branch: string, base?: string}} o */
+  async function publishBranch({ worktree, branch, base }) {
+    const env = publishGitEnv(await auth.token());
+    /** Run a git call; non-zero exit resolves as {ok:false} with the trimmed stderr (a fetch
+     * of a not-yet-pushed branch failing is expected, not an error). */
+    const run = async (/** @type {string[]} */ args) => {
+      try {
+        const out = await pexecFile("git", gitArgv(cfg, worktree, args), { env, maxBuffer: 32 * 1024 * 1024 });
+        return { ok: true, out: String(out.stdout ?? "").trim() };
+      } catch (e) {
+        return { ok: false, out: String(e.stderr ?? e.message ?? "").trim() };
+      }
+    };
+    // FETCH_HEAD is this process's transient ref: fetch whichever side of the range we don't
+    // know yet and measure against it. A push never rewrites local refs.
+    const remoteBranch = await run(["ls-remote", "--heads", "origin", branch]);
+    if (remoteBranch.ok && remoteBranch.out.length > 0) {
+      const f = await run(["fetch", "origin", branch]);
+      if (!f.ok) throw new Error(`fetch ${branch}: ${f.out.split("\n")[0] || "git fetch failed"}`);
+    } else {
+      const b = base ?? (await defaultBranch());
+      const f = await run(["fetch", "origin", b]);
+      if (!f.ok) throw new Error(`fetch ${b}: ${f.out.split("\n")[0] || "git fetch failed"}`);
+    }
+    // The workflow guard: any commit in the range touching .github/workflows/ refuses the push
+    // — a remote agent can propose CI changes, but only a human pushes them.
+    const logRes = await run(["log", "--name-only", "--format=", "FETCH_HEAD..HEAD", "--", ".github/workflows/"]);
+    if (!logRes.ok) throw new Error(`git log FETCH_HEAD..HEAD: ${logRes.out.split("\n")[0] || "git log failed"}`);
+    /** @type {string[]} */
+    const touched = [];
+    for (const line of logRes.out.split("\n")) {
+      const p = line.trim();
+      if (p && !touched.includes(p)) touched.push(p);
+    }
+    if (touched.length) return { workflow: touched[0] };
+    const count = await run(["rev-list", "--count", "FETCH_HEAD..HEAD"]);
+    if (!count.ok) throw new Error(`git rev-list: ${count.out.split("\n")[0] || "git rev-list failed"}`);
+    if (count.out === "0") return { pushed: [] };
+    const push = await run(["push", "--no-force", "origin", `HEAD:${branch}`]);
+    if (!push.ok) {
+      const first = push.out.split("\n").find((l) => l.trim().length > 0) || "git push failed";
+      throw new Error(`push ${branch}: ${first}`);
+    }
+    return { pushed: [`origin/${branch}`] };
+  }
+
+  // Open the DRAFT PR for a published branch (hub-side outbox, #825). An already-open PR on
+  // the same head is reused — `{created:false}` (a rework run reuses the original PR, never a
+  // second). `title`/`body` are outbox text: caps + shape already enforced at read time
+  // (src/dispatch/outbox.js), posted verbatim against the repo's default branch.
+  /** @param {{branch: string, title: string, body: string}} o @returns {Promise<{number: number, created: boolean}>} */
+  async function openPr({ branch, title, body }) {
+    const head = `${owner}:${branch}`;
+    const listRes = await api(`${repoPath()}/pulls?state=open&head=${encodeURIComponent(head)}`);
+    if (!listRes.ok) throw new Error(`list PRs ${listRes.status}`);
+    const list = (await json(listRes)) || [];
+    /** @type {Array<{ state?: string, head?: { ref?: string }, number?: number }>} */
+    const pulls = Array.isArray(list) ? list : [];
+    const hit = pulls.find((p) => p?.state === "open" && p?.head?.ref === branch);
+    if (hit) return { number: /** @type {number} */ (hit.number), created: false };
+    const res = await api(`${repoPath()}/pulls`, {
+      method: "POST",
+      body: JSON.stringify({ title, body, head, base: await defaultBranch(), draft: true }),
+    });
+    const pr = await json(res);
+    if (!res.ok) throw new Error(`open PR ${res.status}${typeof pr?.message === "string" ? `: ${pr.message}` : ""}`);
+    return { number: /** @type {number} */ (pr.number), created: true };
+  }
+
   return {
     describe: () => ({ name: "github", agentEnv: GITHUB_FORGE_AGENT_ENV, egressHosts: githubForgeEgressHosts() }),
     runCredentials,
+    publishBranch,
+    openPr,
 
     // No handshake and no opt-out: a missing/bad signature is always a reject.
     authenticate({ rawBody, headers }) {

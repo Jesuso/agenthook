@@ -718,6 +718,19 @@ export function createGithubAdapter(cfg, store) {
       }
     },
 
+    // Post a comment on the ticket (#825): the hub-side half of a remote run's outbox
+    // (src/dispatch/publish.js). `body` was size-capped and trigger-stripped at read time
+    // (src/dispatch/outbox.js). Only reachable from dispatch — the job is already
+    // fail-closed scoped to our identity at intake, same as every other dispatch write.
+    async postComment(ref, body) {
+      const res = await api(`${repoPath()}/issues/${ref}/comments`, { method: "POST", body: JSON.stringify({ body }) });
+      if (!res.ok) {
+        const errBody = await json(res).catch(() => ({}));
+        throw new Error(`post comment ${res.status}${typeof errBody?.message === "string" ? `: ${errBody.message}` : ""}`);
+      }
+      console.log(`[comment] posted on #${ref}`);
+    },
+
     // Inject work into a step (`agenthook run`): assign the issue to us (unless
     // opts.assign===false) and add the step's SOURCE label. That label add is itself the
     // `labeled` webhook event that fires the step — no special dispatch path. (Boot's
