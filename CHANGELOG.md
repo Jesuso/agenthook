@@ -9,6 +9,12 @@ All notable changes to this project are documented here. The format is based on
 - Fixed: `doctor`'s agent env report no longer lists `GH_TOKEN`/`GITHUB_TOKEN` as credentials
   agents still get when per-run GitHub App tokens are in use — they move to "not passed to
   agents" with the reason, matching what dispatch actually strips (#822).
+- Fixed: `restart`'s config preflight now validates against the env the respawn will see
+  (`withoutFileEnv(process.env)` plus a fresh read of the `.env` files, without touching the
+  running process's own environment) instead of the live process's stale in-memory values,
+  which `process.loadEnvFile` can never un-set. A var removed from `.env` but still referenced
+  by the config now refuses the restart (nothing paused) instead of crashing the fresh process
+  on boot (#821).
 - Fixed: a `${VAR}` inside a `//` comment key is no longer treated as a required env reference —
   comment keys are copied through verbatim at any depth, so a comment mentioning a removed variable
   no longer prevents boot (#819).
