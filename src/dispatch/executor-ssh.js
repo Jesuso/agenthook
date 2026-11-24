@@ -27,6 +27,12 @@ const HUB_GIT_READ_TIMEOUT_MS = 10_000;
  * SIGTERM and SIGKILL. Short on purpose — these are receiver-managed runs, not interactive ones. */
 const SSH_KILL_GRACE_S = 2;
 
+/** Cap on how long one ssh connect may wait before giving up (#828): comfortably above a
+ * slow-but-alive dial, comfortably below the run's idle window. Every remote call — launcher,
+ * pre-run sync, kill, done, reap, doctor's probe — rides it, via `sshOptionArgs` (and so
+ * `GIT_SSH_COMMAND`, which mirrors it). */
+export const SSH_CONNECT_TIMEOUT_S = 10;
+
 /** POSIX single-quote a string for a remote shell: wraps it in `'…'`, escaping embedded `'` as
  * `'\''`. Safe for any bytes — no interpolation, no special-casing `$`/backtick/newline/empty.
  * Pure. @param {string} s @returns {string} */
@@ -73,7 +79,7 @@ const remoteConfigDir = (remote, stateKey, ref, stepId) => `${remoteRunsDir(remo
  * @param {import('../types.js').RemoteHarness} remote @returns {string[]} */
 function sshOptionArgs(remote) {
   /** @type {string[]} */
-  const args = ["-o", "BatchMode=yes"];
+  const args = ["-o", "BatchMode=yes", "-o", `ConnectTimeout=${SSH_CONNECT_TIMEOUT_S}`];
   if (remote.port) args.push("-p", String(remote.port));
   if (remote.identityFile) args.push("-i", remote.identityFile);
   if (remote.user) args.push("-l", remote.user);
@@ -98,7 +104,7 @@ export function remoteProbeArgv(remote, script) {
  * `ssh://` URL) and no `-T` (git's own ssh transport allocates no tty). Never `-A`.
  * @param {import('../types.js').RemoteHarness} remote @returns {string} */
 function gitSshCommand(remote) {
-  const parts = ["ssh", "-o", shQuote("BatchMode=yes")];
+  const parts = ["ssh", "-o", shQuote("BatchMode=yes"), "-o", shQuote(`ConnectTimeout=${SSH_CONNECT_TIMEOUT_S}`)];
   if (remote.port) parts.push("-p", String(remote.port));
   if (remote.identityFile) parts.push("-i", shQuote(remote.identityFile));
   if (remote.user) parts.push("-l", shQuote(remote.user));
@@ -108,6 +114,49 @@ function gitSshCommand(remote) {
 /** The `ssh://` URL for a path on this harness's worker (#690): host only — port/identity/user
  * ride on `GIT_SSH_COMMAND` instead. @param {import('../types.js').RemoteHarness} remote @param {string} remotePath */
 const gitSshUrl = (remote, remotePath) => `ssh://${remote.host}${remotePath}`;
+
+/** The ssh client's stderr signatures, by class (#828). `unreachable` = the worker (or its
+ * network) is down — a harness health signal that trips the breaker; `config` = the worker
+ * answers but the connection is misconfigured (auth, host key) — a refusal that fails the run
+ * and is never retried. Matched line by line against the ssh client's own stderr, not our
+ * wrapper text. */
+/** @type {{kind: "unreachable"|"config", detail: string, re: RegExp}[]} */
+const SSH_FAILURE_PATTERNS = [
+  { kind: "unreachable", detail: "connection refused", re: /Connection refused/i },
+  { kind: "unreachable", detail: "connection timed out", re: /Connection timed out/i },
+  { kind: "unreachable", detail: "no route to host", re: /No route to host/i },
+  { kind: "unreachable", detail: "network unreachable", re: /Network is unreachable/i },
+  { kind: "unreachable", detail: "could not resolve hostname", re: /Could not resolve hostname/i },
+  { kind: "unreachable", detail: "connection closed by remote host", re: /Connection closed by \S+ port \d+|kex_exchange_identification/i },
+  { kind: "unreachable", detail: "connection lost", re: /Connection to \S+ lost|Connection reset by|client_loop: send2: Broken pipe/i },
+  { kind: "config", detail: "auth", re: /Permission denied/i },
+  { kind: "config", detail: "host key", re: /Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED/i },
+];
+
+/**
+ * Classify an ssh client's stderr by the worker-side failure it signals (#828). Scans line by
+ * line; the first matching signature wins. Pure — no I/O. @param {string} stderr
+ * @returns {{kind: "unreachable"|"config", detail: string, line: string}|undefined} `line` is the
+ *   matched stderr line (trimmed, capped) — it rides the refusal reason. `undefined` when
+ *   nothing matches: the caller keeps its existing generic handling.
+ */
+export function classifySshFailure(stderr) {
+  if (!stderr) return undefined;
+  for (const raw of String(stderr).split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    for (const p of SSH_FAILURE_PATTERNS) {
+      if (p.re.test(line)) return { kind: p.kind, detail: p.detail, line: line.slice(0, 300) };
+    }
+  }
+  return undefined;
+}
+
+/** The refusal reason for a classified auth/host-key ssh failure (#828): names the failure
+ * class and the worker host, with the matched ssh stderr line. @param {string} host @param {{detail: string, line: string}} cls */
+export function sshConfigFailureReason(host, cls) {
+  return `ssh ${cls.detail} failed on ${host}: ${cls.line}`;
+}
 
 /** The env for a hub git-transport call against this harness's worker (#690): the receiver's own
  * env plus `GIT_SSH_COMMAND`, with interactive auth prompts disabled. @param {import('../types.js').RemoteHarness} remote */
@@ -254,13 +303,30 @@ function archiveToWorker(cfg, remote, repoPath, dir) {
     ssh.stderr.on("data", (d) => (sshErr += d));
     git.stdout.pipe(ssh.stdin);
     let settled = false;
+    let pipeBroken = false;
     /** @param {Error} e */
     const fail = (e) => {
       if (settled) return;
       settled = true;
       resolve = () => {}; // past this point only `fail` may settle
+      git.kill("SIGKILL");
+      ssh.kill("SIGKILL");
       reject(e);
     };
+    // The worker link can die before the tar finishes (a refused/timed-out ssh exits without
+    // draining stdin): the pipe then EPIPEs on git.stdout. Never let that EPIPE escape — flag it
+    // and let `settle` report ssh's own exit/stderr (by the time ssh's `close` fires its stderr
+    // is fully read, so the classified reason wins over the generic EPIPE).
+    /** @param {Error} e */
+    const onPipeError = (e) => {
+      if (pipeBroken || settled) return;
+      pipeBroken = true;
+      git.stdout.destroy();
+      ssh.stdin.destroy();
+      settle();
+    };
+    git.stdout.on("error", onPipeError);
+    ssh.stdin.on("error", onPipeError);
     git.on("error", (e) => fail(new Error(`git archive failed: ${e.message}`)));
     ssh.on("error", (e) => fail(new Error(`export to worker failed: ${e.message}`)));
     /** @type {number|null} */ let gitCode = null;
@@ -269,6 +335,7 @@ function archiveToWorker(cfg, remote, repoPath, dir) {
       if (settled || gitCode === null || sshCode === null) return;
       if (gitCode !== 0) fail(new Error(`git archive failed: ${gitErr.trim() || `exit ${gitCode}`}`));
       else if (sshCode !== 0) fail(new Error(`export to worker failed: ${sshErr.trim() || `exit ${sshCode}`}`));
+      else if (pipeBroken) fail(new Error(`export to worker failed: the worker closed the transfer early${sshErr.trim() ? ` — ${sshErr.trim()}` : ""}`));
       else {
         settled = true;
         resolve();
@@ -516,6 +583,7 @@ function launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdictDir, co
 export function createSshExecutor({ stateKey, remote, spawnPaths, cfg = {} }) {
   return {
     name: "ssh",
+    host: remote.host,
     paths: ({ stepId, ref, hasWorktree }) => {
       const cwd = hasWorktree ? remoteWorktreePath(remote, stateKey, ref) : remoteExportPath(remote, stateKey, ref, stepId);
       return {
@@ -567,7 +635,30 @@ export function createSshExecutor({ stateKey, remote, spawnPaths, cfg = {} }) {
       // low-level tests) skips the sync entirely and just cds into whatever `cwd` it was given.
       const workDir = cwd || remote.workDir;
       const gitPath = hub ? remoteRepoGitPath(remote, stateKey, hub.repoId) : undefined;
-      const beforeSha = hub ? await syncBefore(cfg, remote, stateKey, hub, workDir) : undefined;
+      /** @type {string|undefined} */
+      let beforeSha;
+      if (hub) {
+        try {
+          beforeSha = await syncBefore(cfg, remote, stateKey, hub, workDir);
+        } catch (e) {
+          // A worker the pre-run sync cannot reach is the harness being down, not the run's
+          // fault (#828): the `unreachable` marker lets spawn.js hand the reason to the breaker
+          // (a trip requeues the job; it never fails the ticket). A classified auth/host-key
+          // failure stays a refusal — the worker answers but is misconfigured — with a reason
+          // that names the class and the ssh line instead of raw stderr.
+          // Strip the sync's own wrapper so the matched line (and thus the reason) is the ssh
+          // stderr line itself, not "export to worker failed: <line>".
+          const cls = classifySshFailure(e.message.replace(/^(export to worker failed|git archive failed): /, ""));
+          if (cls?.kind === "unreachable") {
+            throw Object.assign(new Error(e.message), { unreachable: `worker unreachable: ${remote.host} (${cls.detail})` });
+          }
+          if (cls?.kind === "config") {
+            const reason = sshConfigFailureReason(remote.host, cls);
+            throw Object.assign(new Error(reason), { sshConfigFailure: reason });
+          }
+          throw e;
+        }
+      }
       const script = launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdictDir, configDir, hasFiles, execArgv });
       return {
         bin: "ssh",

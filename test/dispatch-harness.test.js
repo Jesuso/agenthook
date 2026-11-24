@@ -374,7 +374,7 @@ test("ENOENT: a missing agent bin fails the run (spawn failed) instead of crashi
   assert.match(fs.readFileSync(path.join(dir, String(logFile)), "utf8"), /\[agenthook\] spawn failed: .*ENOENT/);
 });
 
-test("breaker: a harnessed run whose bin is missing is requeued (run_end requeued, no move) under the attempt cap", async () => {
+test("breaker: a harnessed run whose bin is missing is requeued (run_end requeued, no move) and never consumes an attempt (#828)", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-trip-"));
   const harnesses = { local: { bin: path.join(dir, "no-such-bin") }, cloud: {} };
   const { info, events, advanced, store } = await dispatchOnce(dir, { harnesses, pipeline: [{ id: "code", harness: ["local", "cloud"] }] }, { harness: "local" });
@@ -388,21 +388,27 @@ test("breaker: a harnessed run whose bin is missing is requeued (run_end requeue
   assert.equal(end.reason, info.health.reason);
   assert.equal(events.some((e) => e.event === "failed"), false);
   assert.deepEqual(store.listRunning(), {}, "the running record is cleared");
-  assert.equal(store.getAttempt("42", "code"), 1, "the attempt still counts");
+  assert.equal(store.getAttempt("42", "code"), 0, "a trip never counts as an attempt — the pre-run bump is undone");
 });
 
-test("breaker: at the attempt cap a tripping run fails as before, and still reports health (requeue false)", async () => {
+test("breaker: at the attempt cap a tripping run still requeues (a trip never counts, #828), and still reports health", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-trip-cap-"));
   const store = createStore(dir);
-  store.bumpAttempt("42", "code"); // this run is the 2nd: the cap is 2
+  store.bumpAttempt("42", "code"); // this run is the 2nd: the cap is 2 — exactly at it
   const harnesses = { local: { bin: path.join(dir, "no-such-bin") } };
-  const { info, events, advanced } = await dispatchOnce(dir, { harnesses, pipeline: [{ id: "code", harness: "local", maxAttempts: 2 }] }, { harness: "local" });
-  assert.equal(advanced.length, 1);
-  assert.equal(advanced[0][2], "fail");
-  assert.match(advanced[0][3], /^spawn failed: .*ENOENT/);
-  assert.equal(info.health.requeue, false);
+  const { info, events, advanced, store: s2 } = await dispatchOnce(dir, { harnesses, pipeline: [{ id: "code", harness: "local", maxAttempts: 2 }] }, { harness: "local" });
+  assert.deepEqual(advanced, [], "at the cap a trip still requeues instead of failing the ticket");
   assert.equal(info.health.harness, "local");
-  assert.equal(events.find((e) => e.event === "run_end")?.outcome, "fail");
+  assert.equal(info.health.requeue, true);
+  assert.match(info.health.reason, /^spawn failed: .*ENOENT/);
+  const end = events.find((e) => e.event === "run_end");
+  assert.equal(end.outcome, "requeued");
+  assert.equal(s2.getAttempt("42", "code"), 1, "the pre-run bump is undone — still at its pre-run value");
+  // and past the cap, same behaviour: still requeued, counter restored
+  const { info: info2, advanced: advanced2, store: s3 } = await dispatchOnce(dir, { harnesses, pipeline: [{ id: "code", harness: "local", maxAttempts: 2 }] }, { harness: "local" });
+  assert.deepEqual(advanced2, []);
+  assert.equal(info2.health.requeue, true);
+  assert.equal(s3.getAttempt("42", "code"), 1, "still at its pre-run value past the cap");
 });
 
 test("dispatch: the usage record's durationMs is kept when the adapter reports it, else derived from startedAt/endedAt (#652)", async () => {

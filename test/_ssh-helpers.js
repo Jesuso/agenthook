@@ -64,6 +64,43 @@ export function withFakeSsh() {
   };
 }
 
+/** A fake `ssh` that never connects: records its full raw argv (one line per invocation) and
+ * exits 255 with `stderrLine` on stderr — how real ssh reports a refused/timed-out/misconfigured
+ * connection (#828). A plain shell script (one process, one fd) so an EPIPE on the client's stdin
+ * behaves exactly as it does against real ssh. @param {string} stderrLine */
+export function withFailingSsh(stderrLine) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-bin-"));
+  const bin = path.join(dir, "ssh");
+  const argvLog = path.join(dir, "argv.txt");
+  fs.writeFileSync(bin, `#!/bin/sh\necho "$@" >> ${JSON.stringify(argvLog)}\necho ${JSON.stringify(stderrLine)} >&2\nexit 255\n`, { mode: 0o755 });
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${dir}${path.delimiter}${savedPath}`;
+  return {
+    /** The raw argv of every ssh invocation (one string per call, args space-joined). */
+    argvs: () => (fs.existsSync(argvLog) ? fs.readFileSync(argvLog, "utf8").trim().split("\n").filter(Boolean) : []),
+    restore: () => {
+      process.env.PATH = savedPath;
+      fs.rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+/** A fake `ssh` that lets the run start, prints `outputLine` to stdout, then drops the
+ * connection mid-run: stderr `lostLine`, exit 255 (#828's mid-run-disconnect shape). */
+export function withDroppingSsh(outputLine, lostLine) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-bin-"));
+  const bin = path.join(dir, "ssh");
+  fs.writeFileSync(bin, `#!/bin/sh\necho ${JSON.stringify(outputLine)}\necho ${JSON.stringify(lostLine)} >&2\nexit 255\n`, { mode: 0o755 });
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${dir}${path.delimiter}${savedPath}`;
+  return {
+    restore: () => {
+      process.env.PATH = savedPath;
+      fs.rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
 /** A minimal spawnAgent ctx (see src/dispatch/spawn.js createSpawn's destructure). */
 export function spawnCtx(extra = {}) {
   return createSpawn(/** @type {any} */ ({

@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- New: a remote worker that is unreachable (connection refused/timed out, no route, unresolvable
+  host) now trips its harness's health breaker with `worker unreachable: <host> (<detail>)` and
+  the job goes back to the front of the queue — it no longer refuses or fails the ticket (#828).
+  Every executor ssh call now carries `ConnectTimeout=10`, and ssh exit 255 is classified: an
+  auth or host-key failure is a clean refusal (`ssh auth failed on <host>: …` / `ssh host key
+  failed on <host>: …`) that never trips, and a mid-run link loss (output already delivered) is
+  neither. A mid-sync stream break (ssh dying before the export tar finishes) no longer escapes as
+  an unhandled EPIPE.
+- Fixed: a breaker trip never counts as an attempt for any harness (#828): the tripping run is
+  requeued even at the step's `maxAttempts` cap, and its pre-run attempt bump is undone (new
+  `store.unbumpAttempt`), so a down worker that stays down past the cap keeps its jobs queued
+  instead of failing them.
 - Fixed: `doctor`'s agent env report no longer lists `GH_TOKEN`/`GITHUB_TOKEN` as credentials
   agents still get when per-run GitHub App tokens are in use — they move to "not passed to
   agents" with the reason, matching what dispatch actually strips (#822).

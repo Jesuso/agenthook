@@ -659,6 +659,19 @@ test("breaker: a health settle marks the harness down; first-free routes around 
   assert.equal(b.q.harnessState().local.state, "down", "a healthy settle elsewhere leaves it down");
 });
 
+test("breaker: a worker-unreachable trip (#828) marks the harness down with its own reason and first-free spills to the second harness", async () => {
+  const b = breaker(4, PAIR);
+  b.q.enqueue(job("A", "code"));
+  await b.done("A", { harness: "local", reason: "worker unreachable: worker-x (connection refused)", requeue: true });
+  const until = new Date(b.now() + 10 * MIN).toISOString();
+  assert.deepEqual(b.log, [["down", "local", until, "worker unreachable: worker-x (connection refused)"]]);
+  assert.equal(b.q.harnessState().local.reason, "worker unreachable: worker-x (connection refused)");
+  assert.deepEqual(b.started, ["A:local", "A:cloud"], "the requeued job goes first, on the next listed harness");
+  assert.deepEqual(b.added.at(-1), ["A", true], "persisted back at the front");
+  await b.done("A");
+  assert.equal(b.q.harnessState().local.state, "down", "a healthy settle elsewhere leaves it down");
+});
+
 test("breaker: round-robin skips a down harness", async () => {
   const rr = { steps: { r: { harnesses: ["a", "b", "c"], routing: "round-robin" } }, caps: { a: 5, b: 5, c: 5 } };
   const b = breaker(10, rr);

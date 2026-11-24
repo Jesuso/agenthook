@@ -561,6 +561,7 @@
  * (src/dispatch/executor.js).
  * @typedef {object} Executor
  * @property {'host'|'sandbox'|'ssh'|string} name
+ * @property {string} [host]  the worker host (ssh executor only) — the breaker's unreachable reason and the ssh config-failure refusal name it (#828)
  * @property {(o: {stepId: string, ref: string, worktree: string, hasWorktree: boolean, repoPath: string}) => {cwd: string, worktree: string|undefined, verdictFile: string, hubVerdictFile?: string, configDir?: string}} paths
  *   the run's paths AS THE AGENT SEES THEM. For host and sandbox these equal the hub's own
  *   `worktree`/`repoPath` (host: `verdictPathFor`; sandbox: `sandboxVerdictPathFor`), and
@@ -875,6 +876,7 @@
  * @property {() => Job[]} listQueued
  * @property {(ref: string, stepId: string) => number} getAttempt   how many times stepId has run for ref (0 if never)
  * @property {(ref: string, stepId: string) => number} bumpAttempt  increment and return the new count
+ * @property {(ref: string, stepId: string) => void} unbumpAttempt  decrement, clamped at 0 (#828): a harness-breaker trip never counts as an attempt
  * @property {(ref: string) => void} clearAttempts                  drop all attempt counters for ref (it left the loop)
  * @property {(ref: string) => 'easy'|'medium'|'hard'|undefined} getDifficulty  stored difficulty for ref (undefined = unknown)
  * @property {(ref: string, difficulty: 'easy'|'medium'|'hard') => void} setDifficulty  persist difficulty from triage verdict
