@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- Fixed: `doctor`'s agent env report no longer lists `GH_TOKEN`/`GITHUB_TOKEN` as credentials
+  agents still get when per-run GitHub App tokens are in use — they move to "not passed to
+  agents" with the reason, matching what dispatch actually strips (#822).
 - Fixed: a `${VAR}` inside a `//` comment key is no longer treated as a required env reference —
   comment keys are copied through verbatim at any depth, so a comment mentioning a removed variable
   no longer prevents boot (#819).
