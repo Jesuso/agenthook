@@ -19,6 +19,7 @@ const REFRESH_MS = 5 * 60 * 1000;
  * @typedef {object} GithubAuth
  * @property {boolean} app                     true under GitHub App auth
  * @property {() => Promise<string>} header    the `Authorization` header value
+ * @property {() => Promise<string>} token     the raw token value (no `Bearer ` prefix) — for credential-in-env git (src/forges/github.js publishBranch, #825), which must never carry the token in argv
  * @property {(stale?: string) => void} invalidate  drop the cached installation token (only if it is still `stale`, when given)
  */
 
@@ -80,7 +81,7 @@ export function createGithubAuth(block, { fetch: f = (...a) => globalThis.fetch(
   const auth = block?.auth;
   if (auth?.type !== "app") {
     const value = `Bearer ${block?.token}`;
-    return { app: false, header: async () => value, invalidate: () => {} };
+    return { app: false, header: async () => value, token: async () => String(block?.token ?? ""), invalidate: () => {} };
   }
   const key = `${auth.appId}:${auth.installationId}`;
   let c = caches.get(key);
@@ -95,17 +96,21 @@ export function createGithubAuth(block, { fetch: f = (...a) => globalThis.fetch(
     return token;
   }
 
+  /** @returns {Promise<string>} */
+  async function current() {
+    if (cache.token && cache.expiresAt - REFRESH_MS > now()) return cache.token;
+    if (!cache.inflight) {
+      cache.inflight = mint().finally(() => {
+        cache.inflight = null;
+      });
+    }
+    return await cache.inflight;
+  }
+
   return {
     app: true,
-    header: async () => {
-      if (cache.token && cache.expiresAt - REFRESH_MS > now()) return `Bearer ${cache.token}`;
-      if (!cache.inflight) {
-        cache.inflight = mint().finally(() => {
-          cache.inflight = null;
-        });
-      }
-      return `Bearer ${await cache.inflight}`;
-    },
+    header: async () => `Bearer ${await current()}`,
+    token: current,
     invalidate: (stale) => {
       if (stale && stale !== `Bearer ${cache.token}`) return; // another caller already refreshed it
       cache.token = null;

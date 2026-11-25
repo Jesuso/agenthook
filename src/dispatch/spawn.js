@@ -193,7 +193,7 @@ export function createSpawn(ctx) {
         if (promptFile) fs.rmSync(promptFile, { force: true });
       };
       try {
-        box = await executor.launch({ runId: path.basename(logPath, ".log"), ref, stepId: sandboxed.stepId, bin: agentBin, defaultBin: agent.defaults.bin, args, env: containerEnv(runEnv), cwd, mounts: sandboxed.mounts, step: sandboxed.step, prompt, ...(sandboxed.egress ? { egress: sandboxed.egress } : {}), ...(sandboxed.image ? { image: sandboxed.image } : {}), ...(sandboxed.files ? { files: sandboxed.files } : {}), ...(sandboxed.hub ? { hub: sandboxed.hub } : {}), ...(sandboxed.env ? { remoteEnv: sandboxed.env } : {}) });
+        box = await executor.launch({ runId: path.basename(logPath, ".log"), ref, stepId: sandboxed.stepId, bin: agentBin, defaultBin: agent.defaults.bin, args, env: containerEnv(runEnv), cwd, mounts: sandboxed.mounts, step: sandboxed.step, prompt, ...(sandboxed.egress ? { egress: sandboxed.egress } : {}), ...(sandboxed.image ? { image: sandboxed.image } : {}), ...(sandboxed.files ? { files: sandboxed.files } : {}), ...(sandboxed.hub ? { hub: sandboxed.hub } : {}), ...(sandboxed.env ? { remoteEnv: sandboxed.env } : {}), ...(resumeSessionId ? { resume: true } : {}) });
       } catch (e) {
         // A classified ssh sync failure (#828) already carries its user-facing reason: a
         // misconfigured worker is a refusal with that exact text (no "executor could not start"

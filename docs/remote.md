@@ -46,6 +46,13 @@ rewritten git history. What limits that:
 
 - the verdict file copied back from the worker goes through the same symlink-guard every
   sandboxed run's verdict does (`guardSandboxVerdict`) before it's trusted;
+- the run's **outbox** — the only other thing a worker can send back (a draft-PR title/body and
+  a ticket comment; see [Publishing the outbox](#publishing-the-outbox)) — is name-fixed, size-capped
+  untrusted text: only `pr.json` and `comment.md` are ever opened, anything else is logged without
+  being read, and nothing in it is executed or shell-interpolated. Publishing it — pushing the
+  branch, opening the draft PR, posting the comment — happens on the **hub**, with the hub's own
+  credentials; the worker holds none of them. A run whose commits touch `.github/workflows/` is
+  never pushed: the ticket is held for a human instead;
 - the sync-back fast-forwards (`git merge --ff-only`) the hub worktree onto the worker's branch —
   it never force-overwrites. If the worker's history no longer descends from what the hub pushed
   (rewritten or diverged), the run fails instead of touching the hub worktree;
@@ -138,6 +145,56 @@ died:
 The pre-run sync (push + `worktree add`, or the no-worktree export) failing unreachable is the
 same signal as the launcher failing — one reason, one trip, whether the worker went off before
 or during the run.
+## Publishing the outbox
+
+The agent never holds the tracker's or the forge's credentials (they never cross, above), so it
+cannot push its branch, open a PR, or comment on the ticket itself. Instead it may leave up to
+two files in an `outbox/` directory **next to its verdict file** (the per-run dir, outside the
+synced worktree, so nothing of it ever lands in the hub repo):
+
+- `pr.json` — `{"title": "…", "body": "…"}` for the run's DRAFT pull request; and
+- `comment.md` — a comment to post on the ticket.
+
+Both are optional; most runs leave no outbox, and nothing changes when there is none.
+
+**Copy-back.** On every run exit the hub's ssh `done()` copies back **only those two names**, each
+capped at 128 KiB by the copy command itself (`head -c`; an over-cap file is dropped), refusing
+symlinks and non-regular files the same way the verdict copy-back does. A **resume** turn keeps
+the directory (a multi-turn run builds up its PR) and clears only `verdict.json`; a fresh launch
+wipes the whole per-run dir, outbox included.
+
+**Validation, on the hub, before the per-run dir is deleted.** Only `pr.json` and `comment.md` are
+opened; every other filename in the dir gets exactly one line in the run log — the file itself is
+never read (that is where a planted payload shows up without ever being touched). Then, per file:
+`pr.json` must be a JSON object with a single-line string `title` (≤ 200 chars, after trim) and a
+string `body` (≤ 60 KB); `comment.md` must be non-empty (≤ 60 KB) and may **not** start with the
+configured resume trigger — the hub posts it under its OWN identity, so a comment starting with
+`@agent` would self-trigger the resume gate. Every dropped or ignored file is one line in the
+**run log** (and the server log), naming the file and the reason.
+
+**Publishing, with the hub's own credentials, in the order push → PR → comment.**
+
+1. **Push** (only when the run has a branch): the forge's `publishBranch` pushes the branch
+   `--no-force`, the auth token passed only via git's environment (never argv). The GitHub forge
+   first refuses — `{workflow: <path>}` — when any commit in the run touches
+   `.github/workflows/`: the step is held for a human, nothing is pushed, and no PR or comment
+   is posted. An empty range (nothing new since the last publish — a rework run that changed
+   nothing) publishes nothing. A push **rejection fails the step** (nothing else may publish
+   against a branch that never landed).
+2. **PR** (when `pr.json` survived): the forge's `openPr` opens a **draft** PR against the repo's
+   default branch — or **reuses the already-open PR** on the same head (`{created:false}`) when
+   this is a rework run, so a rework never opens a second PR or edits the first one's
+   title/body. A failure is one line in the run log and never fails the step: the PR's own
+   title/body is the reviewable artifact.
+3. **Comment** (when `comment.md` survived): posted on the ticket by the tracker adapter. Best
+   effort — a failure is one line in the run log and never fails the step.
+
+Publishing runs in `finish.js` **after every outcome rewrite has settled** (CI bounce, changes
+review, auto-merge, follow-up) and before the step summary, drain and `adapter.advance` — so the
+hold or the fail coming out of publishing IS the applied outcome.
+
+See [docs/internals/dispatch.md](internals/dispatch.md) for the module-level detail (`outbox.js`,
+`publish.js`, the ssh executor's copy-back).
 
 ## Checking it: `agenthook doctor`
 
