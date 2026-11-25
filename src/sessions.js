@@ -145,9 +145,13 @@ export function recentRuns(cfg, limit = 10) {
  * An agent with no transcripts but a top-level `resumeCommand` (opencode) contributes one
  * session per usage.jsonl record of the ref that names a session id — its step is the
  * record's, no correlation needed. A profile where no agent keeps transcripts lists only those.
+ * A REMOTE-harness record is listed regardless of whether its agent keeps transcripts (#830):
+ * its transcript lives on the worker, so nothing local exists to dedupe against. Such sessions
+ * carry `remote: { harness, host, cwd }` — `cwd` (the worker launch cwd, `remoteCwd`) is
+ * absent on older records that predate the field.
  * @param {import('./types.js').Config} cfg @param {string} ref
  * @param {{ getRepo: (ref: string) => string|undefined, readUsage?: () => import('./types.js').UsageRecord[] }} [store]
- * @returns {{ id: string, step: string, at: number, msgs: number, prompt: string, agent: string }[]} */
+ * @returns {{ id: string, step: string, at: number, msgs: number, prompt: string, agent: string, remote?: { harness: string, host: string, cwd?: string } }[]} */
 export function listSessions(cfg, ref, store) {
   /** @type {{name: string, sessions: import('./types.js').AgentSessions, dir: string}[]} */
   let dirs;
@@ -158,7 +162,7 @@ export function listSessions(cfg, ref, store) {
   }
   const files = dirs.flatMap(({ name, sessions, dir }) => sessions.files(dir).map((f) => ({ ...f, agent: name })));
   const runs = runLogs(cfg, ref); // [{step, at}]
-  /** @type {{ id: string, step: string, at: number, msgs: number, prompt: string, agent: string }[]} */
+  /** @type {{ id: string, step: string, at: number, msgs: number, prompt: string, agent: string, remote?: {harness: string, host: string, cwd?: string} }[]} */
   const out = [];
   for (const f of files) {
     let firstTs = NaN;
@@ -200,6 +204,15 @@ export function listSessions(cfg, ref, store) {
     if (rec.ref !== ref || !rec.sessionId || seenIds.has(rec.sessionId)) continue;
     // A record names the agent that ran (a harness may have switched it); older ones don't.
     const agent = rec.agent && Object.hasOwn(AGENTS, rec.agent) ? getAgent(rec.agent) : agentFor(cfg, (cfg.pipeline ?? []).find((s) => s.id === rec.stepId));
+    // A remote-harness record (#830): listed even when the agent keeps transcripts (its
+    // transcript is on the worker, not the hub), tagged so resume knows where to reach it.
+    const h = rec.harness;
+    const remote = h ? cfg.harnesses?.[h]?.remote : undefined;
+    if (remote && h) {
+      seenIds.add(rec.sessionId);
+      out.push({ id: rec.sessionId, step: rec.stepId, at: Date.parse(rec.startedAt), msgs: 0, prompt: "", agent: agent.describe().name, remote: { harness: h, host: remote.host, cwd: rec.remoteCwd } });
+      continue;
+    }
     if (agent.sessions || !agent.resumeCommand) continue;
     seenIds.add(rec.sessionId);
     out.push({ id: rec.sessionId, step: rec.stepId, at: Date.parse(rec.startedAt), msgs: 0, prompt: "", agent: agent.describe().name });
