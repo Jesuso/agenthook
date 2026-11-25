@@ -188,11 +188,12 @@ test("a forge without openPr and a tracker without postComment each log one skip
   const r = rig({ push: () => ({ pushed: [] }) }); // no openPr on the fake forge
   quiet(r);
   const res = await r.run({ outbox: { pr: { title: "t", body: "b" }, comment: "c" } }); // no postComment on the fake adapter
-  assert.equal(res.pushed, true);
+  assert.equal(res.pushed, false, "an empty range (nothing new) is not a push");
   assert.equal(res.pr, undefined);
   assert.equal(res.comment, undefined);
   assert.equal(r.verdict.outcome, "advance");
   assert.equal(r.lines.length, 3, JSON.stringify(r.lines));
+  assert.match(r.lines[0], /nothing to push/);
   assert.match(r.lines[1], /no openPr/);
   assert.match(r.lines[1], /skipping pr\.json/);
   assert.match(r.lines[2], /no postComment/);

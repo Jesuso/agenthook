@@ -358,8 +358,9 @@ export function createGithubForge(cfg, store) {
   // Push a remote run's branch (hub-side outbox, #825). The range is
   // `origin/<branch>..HEAD` when the branch already exists on the remote (a rework run), else
   // `origin/<base>..HEAD` (`base` defaults to the repo's default branch). Any commit in the
-  // range touching `.github/workflows/` → the push is REFUSED and `{workflow: <first touched
-  // path>}` comes back instead (the caller holds the ticket for human review); an empty range
+  // range touching `.github/workflows/` — including a merge whose resolution adds one, which
+  // only `-m`/the net diff see — → the push is REFUSED and `{workflow: <first touched path>}`
+  // comes back instead (the caller holds the ticket for human review); an empty range
   // (nothing new) → `{pushed: []}`. A push refusal throws with the first line of git's stderr.
   /** @param {{worktree: string, branch: string, base?: string}} o */
   async function publishBranch({ worktree, branch, base }) {
@@ -386,16 +387,24 @@ export function createGithubForge(cfg, store) {
       if (!f.ok) throw new Error(`fetch ${b}: ${f.out.split("\n")[0] || "git fetch failed"}`);
     }
     // The workflow guard: any commit in the range touching .github/workflows/ refuses the push
-    // — a remote agent can propose CI changes, but only a human pushes them.
-    const logRes = await run(["log", "--name-only", "--format=", "FETCH_HEAD..HEAD", "--", ".github/workflows/"]);
+    // — a remote agent can propose CI changes, but only a human pushes them. `-m` diffs each
+    // merge commit against its parents (a plain `git log` prints NOTHING for a merge, so an
+    // untrusted worker could otherwise smuggle a workflow file in through a merge resolution);
+    // the net FETCH_HEAD...HEAD diff is the second net (a commit that added and later removed
+    // the file shows in `-m`, not in the net).
+    const logRes = await run(["log", "-m", "--name-only", "--format=", "FETCH_HEAD..HEAD", "--", ".github/workflows/"]);
     if (!logRes.ok) throw new Error(`git log FETCH_HEAD..HEAD: ${logRes.out.split("\n")[0] || "git log failed"}`);
+    const diffRes = await run(["diff", "--name-only", "FETCH_HEAD...HEAD", "--", ".github/workflows/"]);
+    if (!diffRes.ok) throw new Error(`git diff FETCH_HEAD...HEAD: ${diffRes.out.split("\n")[0] || "git diff failed"}`);
     /** @type {string[]} */
     const touched = [];
-    for (const line of logRes.out.split("\n")) {
-      const p = line.trim();
-      if (p && !touched.includes(p)) touched.push(p);
+    for (const out of [logRes.out, diffRes.out]) {
+      for (const line of out.split("\n")) {
+        const p = line.trim();
+        if (p && !touched.includes(p)) touched.push(p);
+      }
     }
-        if (touched.length) return { workflow: touched[0] };
+    if (touched.length) return { workflow: touched[0] };
     const count = await run(["rev-list", "--count", "FETCH_HEAD..HEAD"]);
     if (!count.ok) throw new Error(`git rev-list: ${count.out.split("\n")[0] || "git rev-list failed"}`);
     if (count.out === "0") return { pushed: [] };

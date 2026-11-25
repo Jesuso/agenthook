@@ -228,3 +228,92 @@ test("publishBranch: a rework run (the branch already exists on the remote) meas
     git.restore();
   }
 });
+
+// --- the workflow guard against REAL git — the fake above answers canned strings, so it can
+// neither exercise the range nor the merge case (a plain `git log` prints no files for a merge
+// commit, and only `-m`/the net diff see a workflow file added in a merge resolution) ---
+
+/** A real bare `origin` with one commit on `main`, plus a clone with git identity configured
+ * and a working `agent/42` branch. */
+function realGit() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-real-git-"));
+  const origin = path.join(dir, "origin.git");
+  const seed = path.join(dir, "seed");
+  const wt = path.join(dir, "clone");
+  const g = (cwd, args) => execFileSync("git", args, { cwd, stdio: "ignore" });
+  g(dir, ["init", "--quiet", "--bare", "-b", "main", origin]);
+  g(dir, ["clone", "--quiet", origin, seed]);
+  g(seed, ["config", "user.email", "a@example.test"]);
+  g(seed, ["config", "user.name", "a"]);
+  fs.writeFileSync(path.join(seed, "README.md"), "base\n");
+  g(seed, ["add", "README.md"]);
+  g(seed, ["commit", "--quiet", "-m", "base"]);
+  g(seed, ["push", "--quiet", "origin", "main"]);
+  g(dir, ["clone", "--quiet", origin, wt]);
+  g(wt, ["config", "user.email", "a@example.test"]);
+  g(wt, ["config", "user.name", "a"]);
+  g(wt, ["checkout", "--quiet", "-b", "agent/42"]);
+  return {
+    dir,
+    wt,
+    g,
+    /** The sha of origin/main as the clone sees it (what the guard may NOT contain after). */
+    remoteAgent42: () => execFileSync("git", ["ls-remote", "--heads", "origin", "agent/42"], { cwd: wt }).toString().trim(),
+    cleanup: () => fs.rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+test("publishBranch (real git): a plain commit touching .github/workflows/ refuses the push — {workflow}, nothing on the remote", async () => {
+  const rg = realGit();
+  try {
+    fs.mkdirSync(path.join(rg.wt, ".github", "workflows"), { recursive: true });
+    fs.writeFileSync(path.join(rg.wt, ".github", "workflows", "x.yml"), "on: [push]\n");
+    rg.g(rg.wt, ["add", ".github"]);
+    rg.g(rg.wt, ["commit", "--quiet", "-m", "a ci change"]);
+    const stub = stubFetch({ "GET /repos/o/r": { json: { default_branch: "main" } } });
+    try {
+      const r = await forge().publishBranch({ worktree: rg.wt, branch: "agent/42" });
+      assert.deepEqual(r, { workflow: ".github/workflows/x.yml" });
+      assert.equal(rg.remoteAgent42(), "", "the guard runs BEFORE any push");
+    } finally {
+      stub.restore();
+    }
+  } finally {
+    rg.cleanup();
+  }
+});
+
+test("publishBranch (real git): a merge whose resolution ADDS a workflow file also refuses — {workflow}, nothing on the remote", async () => {
+  const rg = realGit();
+  try {
+    // Two divergent edits to README (a conflict), then a merge whose resolution ALSO adds a
+    // workflow file — so no plain commit in the range touches .github/workflows/ and only a
+    // merge-aware diff (-m / the net FETCH_HEAD...HEAD diff) can see it.
+    rg.g(rg.wt, ["checkout", "--quiet", "-b", "side"]);
+    fs.writeFileSync(path.join(rg.wt, "README.md"), "base\nside\n");
+    rg.g(rg.wt, ["commit", "--quiet", "-am", "side edit"]);
+    rg.g(rg.wt, ["checkout", "--quiet", "agent/42"]);
+    fs.writeFileSync(path.join(rg.wt, "README.md"), "base\nmain\n");
+    rg.g(rg.wt, ["commit", "--quiet", "-am", "main edit"]);
+    try {
+      rg.g(rg.wt, ["merge", "--no-ff", "--no-commit", "side"]); // the README conflict
+    } catch {
+      /* expected: the conflict is resolved below */
+    }
+    fs.writeFileSync(path.join(rg.wt, "README.md"), "base\nmain\nside\n");
+    fs.mkdirSync(path.join(rg.wt, ".github", "workflows"), { recursive: true });
+    fs.writeFileSync(path.join(rg.wt, ".github", "workflows", "x.yml"), "on: [push]\n");
+    rg.g(rg.wt, ["add", "-A"]);
+    rg.g(rg.wt, ["commit", "--quiet", "-m", "merge: resolution adds a workflow file"]);
+    const stub = stubFetch({ "GET /repos/o/r": { json: { default_branch: "main" } } });
+    try {
+      const r = await forge().publishBranch({ worktree: rg.wt, branch: "agent/42" });
+      assert.deepEqual(r, { workflow: ".github/workflows/x.yml" });
+      assert.equal(rg.remoteAgent42(), "", "the guard runs BEFORE any push");
+    } finally {
+      stub.restore();
+    }
+  } finally {
+    rg.cleanup();
+  }
+});

@@ -58,8 +58,8 @@ export async function publishOutbox({ forge, adapter, ref, stepId, remote, hasWo
           store?.setHeld(ref, { stepId, reason: verdict.reason, ...(reasonHarness ? { harness: reasonHarness } : {}), heldAt: new Date().toISOString() });
           return { held: true, workflow: r.workflow };
         }
-        res.pushed = true;
-        say(`[publish] pushed ${branch} for ${ref}`);
+        res.pushed = Array.isArray(r?.pushed) ? r.pushed.length > 0 : false;
+        say(res.pushed ? `[publish] pushed ${branch} for ${ref}` : `[publish] no new commits on ${branch} for ${ref} — nothing to push`);
       } catch (e) {
         verdict.outcome = "fail";
         verdict.reason = `publish: ${e.message}`;

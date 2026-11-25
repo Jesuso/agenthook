@@ -9,8 +9,9 @@ All notable changes to this project are documented here. The format is based on
 - New: remote (ssh) harness runs can leave an **outbox** — `pr.json` (draft-PR title + body) and
   `comment.md` (a ticket comment) — next to their verdict, published by the hub with its own
   credentials after every outcome rewrite has settled: the branch is pushed `--no-force` (a commit
-  touching `.github/workflows/` refuses the push and holds the ticket for a human; a push
-  rejection fails the step), the forge's new `openPr` opens a DRAFT PR or reuses the already-open
+  touching `.github/workflows/` — including a merge whose resolution adds one — refuses the push
+  and holds the ticket for a human; a push rejection fails the step), the forge's new `openPr`
+  opens a DRAFT PR or reuses the already-open
   one on a rework run, and the tracker's `postComment` posts the comment (PR/comment failures are
   one run-log line and never fail the step). Only the two fixed names are copied back over ssh
   (128 KiB cap, symlinks/FIFOs refused); anything else in the dir is logged without being read
