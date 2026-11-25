@@ -729,6 +729,7 @@ export function createGithubAdapter(cfg, store) {
         throw new Error(`post comment ${res.status}${typeof errBody?.message === "string" ? `: ${errBody.message}` : ""}`);
       }
       console.log(`[comment] posted on #${ref}`);
+      return (await json(res))?.id ?? null;
     },
 
     // Inject work into a step (`agenthook run`): assign the issue to us (unless

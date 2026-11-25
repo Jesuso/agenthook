@@ -395,7 +395,7 @@ export function createGithubForge(cfg, store) {
       const p = line.trim();
       if (p && !touched.includes(p)) touched.push(p);
     }
-    if (touched.length) return { workflow: touched[0] };
+        if (touched.length) return { workflow: touched[0] };
     const count = await run(["rev-list", "--count", "FETCH_HEAD..HEAD"]);
     if (!count.ok) throw new Error(`git rev-list: ${count.out.split("\n")[0] || "git rev-list failed"}`);
     if (count.out === "0") return { pushed: [] };

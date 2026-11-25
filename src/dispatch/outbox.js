@@ -58,6 +58,18 @@ export function readOutbox(dir, log, trigger) {
     say(`[outbox] ignoring ${boxDir}: not a directory${dirStat.isSymbolicLink() ? " (symlink)" : ""}`);
     return out;
   }
+  let names;
+  try {
+    names = fs.readdirSync(boxDir);
+  } catch {
+    return out; // the dir vanished between the lstat and the readdir — treat as no outbox
+  }
+  for (const name of names) {
+    if (OUTBOX_FILE_NAMES.includes(name)) continue;
+    // Never OPENED — readdir only — one line per unknown name so a planted payload is visible
+    // in the run log without ever being read.
+    say(`[outbox] ignoring outbox/${name}: not an outbox file (only pr.json and comment.md are read)`);
+  }
   for (const name of OUTBOX_FILE_NAMES) {
     const file = path.join(boxDir, name);
     let st;

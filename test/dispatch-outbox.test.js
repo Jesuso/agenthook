@@ -22,14 +22,31 @@ function sandbox(name) {
 }
 const write = (p, data) => fs.writeFileSync(p, data);
 
-test("valid pr.json + comment.md are parsed, nothing else is read", () => {
+test("valid pr.json + comment.md are parsed; unknown names are never read, each with one log line", () => {
   const sb = sandbox("valid");
   try {
     write(path.join(sb.outbox, "pr.json"), JSON.stringify({ title: "  Fix the flaky test  ", body: "what I did and why" }));
     write(path.join(sb.outbox, "comment.md"), "Ran the suite, here is the result.");
     write(path.join(sb.outbox, "evil.sh"), "#!/bin/sh\nrm -rf /"); // an unknown name — never read
+    write(path.join(sb.outbox, "note.txt"), "other unknown");
     const out = readOutbox(sb.dir, (l) => sb.lines.push(l), "@agent");
     assert.deepEqual(out, { pr: { title: "Fix the flaky test", body: "what I did and why" }, comment: "Ran the suite, here is the result." });
+    assert.equal(sb.lines.length, 2, "one log line per unknown name");
+    assert.match(sb.lines[0], /outbox\/evil\.sh/);
+    assert.match(sb.lines[0], /not an outbox file/);
+    assert.match(sb.lines[1], /outbox\/note\.txt/);
+  } finally {
+    sb.done();
+  }
+});
+
+test("a clean outbox (only the two known names) logs nothing", () => {
+  const sb = sandbox("clean");
+  try {
+    write(path.join(sb.outbox, "pr.json"), JSON.stringify({ title: "t", body: "b" }));
+    write(path.join(sb.outbox, "comment.md"), "c");
+    const out = readOutbox(sb.dir, (l) => sb.lines.push(l), "@agent");
+    assert.deepEqual(out, { pr: { title: "t", body: "b" }, comment: "c" });
     assert.deepEqual(sb.lines, [], "a clean outbox logs nothing");
   } finally {
     sb.done();

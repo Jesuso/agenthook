@@ -464,7 +464,7 @@ export function framePayload(env, prompt, files = []) {
  * #825) must survive to the last turn's copy-back. A fresh launch still wipes it whole.
  * @param {{workDir: string, runsDir: string, pgidFile: string, promptPipe: string, verdictDir: string|undefined, configDir: string|undefined, hasFiles: boolean, execArgv: string[], resume?: boolean}} o
  * @returns {string} */
-function launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdictDir, configDir, hasFiles, execArgv, resume }) {
+export function launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdictDir, configDir, hasFiles, execArgv, resume }) {
   const exec = execArgv.map(shQuote).join(" ");
   return [
     `cd ${shQuote(workDir)} || exit 1`,

@@ -34,7 +34,7 @@ function rig(o = {}) {
     clearFindings: (ref) => cleared.push(ref),
   };
   const verdict = { outcome: "advance", reason: "ok" };
-  const base = { ref: "42", stepId: "code", remote: true, hasWorktree: true, worktree: "/wt", branch: "agent/42", outbox: {}, verdict, store, reasonHarness: "worker" };
+  const base = { ref: "42", stepId: "code", remote: true, hasWorktree: true, worktree: "/wt", branch: "agent/42", outbox: {}, verdict, store, log: (/** @type {string} */ l) => lines.push(l), reasonHarness: "worker" };
   return {
     calls,
     held,
@@ -159,7 +159,7 @@ test("a rework run reuses the open PR (created:false) — no second PR, the firs
   console.log = console.log;
 });
 
-test("a PR open failure and a comment failure each leave one log line and never fail the step", async () => {
+test("a PR open failure and a comment failure each leave one run-log line and never fail the step", async () => {
   const r = rig({
     push: () => ({ pushed: ["origin/agent/42"] }),
     pr: () => {
@@ -176,6 +176,11 @@ test("a PR open failure and a comment failure each leave one log line and never 
   assert.equal(res.comment, undefined);
   assert.equal(r.verdict.outcome, "advance", "PR/comment failures never fail the step");
   assert.deepEqual(r.refMeta, [], "no PR number was cached");
+  assert.equal(r.lines.length, 3, `expected push + two failure lines, got ${JSON.stringify(r.lines)}`);
+  assert.match(r.lines[1], /could not open the PR/);
+  assert.match(r.lines[1], /open PR 403/);
+  assert.match(r.lines[2], /could not post the outbox comment/);
+  assert.match(r.lines[2], /post comment 403/);
   console.log = console.log;
 });
 
@@ -187,6 +192,11 @@ test("a forge without openPr and a tracker without postComment each log one skip
   assert.equal(res.pr, undefined);
   assert.equal(res.comment, undefined);
   assert.equal(r.verdict.outcome, "advance");
+  assert.equal(r.lines.length, 3, JSON.stringify(r.lines));
+  assert.match(r.lines[1], /no openPr/);
+  assert.match(r.lines[1], /skipping pr\.json/);
+  assert.match(r.lines[2], /no postComment/);
+  assert.match(r.lines[2], /skipping comment\.md/);
   console.log = console.log;
 });
 

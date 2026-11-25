@@ -12,7 +12,8 @@ import { harnessesOf, healthTrip } from "./harness.js";
 import { DEFAULT_MAX_ATTEMPTS } from "../pipeline.js";
 import { followUpDecision } from "../followup.js";
 import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMergeOnBounce, holdAutoMergeSlot } from "../auto-merge.js";
-import { publishOutbox, readOutboxForRun } from "./publish.js";
+import { readOutbox } from "./outbox.js";
+import { publishOutbox } from "./publish.js";
 
 /**
  * runStep's locals the post-exit phase reads, handed over as one object.
@@ -218,8 +219,17 @@ export function createFinish(ctx) {
       : readVerdict(code, verdictFile, step, agent);
     // Remote run's outbox (#825): parse it BEFORE the rmSync below wipes the per-run dir. Remote
     // only — a host run's verdict file has no outbox sibling, and a sandboxed host run is not
-    // trusted to publish anyway (it has no credentials).
-    const outbox = remote ? readOutboxForRun(path.dirname(verdictFile), cfg.trigger) : undefined;
+    // trusted to publish anyway (it has no credentials). Drops are logged to the RUN LOG, not
+    // just the server log — this is where a worker-planted payload is investigated.
+    const outboxLog = (/** @type {string} */ line) => {
+      console.log(line);
+      try {
+        fs.appendFileSync(logPath, `[agenthook] ${line}\n`);
+      } catch {
+        /* best effort */
+      }
+    };
+    const outbox = remote ? readOutbox(path.dirname(verdictFile), outboxLog, cfg.trigger) : undefined;
     try {
       fs.rmSync(sandboxed ? path.dirname(verdictFile) : verdictFile, { recursive: true, force: true });
     } catch {
@@ -397,7 +407,7 @@ export function createFinish(ctx) {
     // fail (a push rejection) coming out here IS the applied outcome; a PR or comment failure is
     // one line in the run log and never fails the step.
     if (remote) {
-      await publishOutbox({ forge, adapter, ref: job.ref, stepId: step.id, remote, hasWorktree, worktree: hubWorktree, branch, outbox, verdict, store, reasonHarness });
+      await publishOutbox({ forge, adapter, ref: job.ref, stepId: step.id, remote, hasWorktree, worktree: hubWorktree, branch, outbox, verdict, store, log: outboxLog, reasonHarness });
     }
 
     // The step's supervisor summary, with the outcome actually applied. A run without one

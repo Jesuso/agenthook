@@ -738,6 +738,7 @@ export function createGithubProjectsAdapter(cfg, store) {
       if (out?.errors?.length) throw new Error(`addComment: ${JSON.stringify(out.errors)}`);
       const dbId = out?.data?.addComment?.commentEdge?.node?.databaseId;
       console.log(`[comment] posted on #${ref}${typeof dbId === "number" ? ` (comment ${dbId})` : ""}`);
+      return dbId ?? null;
     },
 
     // Resolve a finished step by SETTING the item's Status to the option its verdict

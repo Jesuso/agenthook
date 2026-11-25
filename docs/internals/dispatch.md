@@ -14,7 +14,7 @@
   energy), `routing.js`, `merge.js`, `ci.js`, and `runStep` cut in two: `step.js` (gates, worktree,
   prompt — standing instructions + `stepPrompt` base joined by `=== TICKET ===` — and the spawn with
   `AGENTHOOK_VERDICT_FILE`) → `finish.js` (usage, verdict, run_end, `adapter.advance`, then the opt-in
-  `forge.autoMerge` call in `src/auto-merge.js` when the approving step's move succeeded, or `auto_merge_skipped`; the enable is pinned to the PR head `step.js` recorded when the tier step started. A `changes`/`fail` first turns auto-merge off via `disableAutoMergeOnBounce` — as do a red-CI bounce in `ci.js`, `ops.cancel` and restart recovery — and a failed disable turns a `changes` into a `hold`. A `pr_push` signal job (forge `synchronize` webhook) runs `createPrPushGuard` outside the queue). **Verdict**:
+  `forge.autoMerge` call in `src/auto-merge.js` when the approving step's move succeeded, or `auto_merge_skipped`; the enable is pinned to the PR head `step.js` recorded when the tier step started. A `changes`/`fail` first turns auto-merge off via `disableAutoMergeOnBounce` — as do a red-CI bounce in `ci.js`, `ops.cancel` and restart recovery — and a failed disable turns a `changes` into a `hold`. A `pr_push` signal job (forge `synchronize` webhook) runs `createPrPushGuard` outside the queue). A remote (ssh) run's **outbox** (#825) is the one extra phase in `finish.js`: `outbox.js` `readOutbox` parses `pr.json`/`comment.md` (caps, trigger-prefix refusal, unknown names logged never read) right BEFORE the per-run dir `rmSync` wipes them, and `publish.js` `publishOutbox` publishes them with the hub's own credentials (push → draft PR → comment) after every outcome rewrite has settled, before the step summary/drain/`advance` — the hold (a `.github/workflows/` commit) or the fail (a push rejection) coming out of it IS the applied outcome, and a PR/comment failure is one run-log line, never a failed step; `forge.publishBranch`/`openPr` and `adapter.postComment` are optional adapter methods (`src/forges/github.js`, `src/trackers/github.js` + `github-projects.js`). **Verdict**:
   non-zero exit → `fail`; clean exit + valid file → its outcome; clean exit + no file → `hold` by
   default (`requireVerdict` defaults to `true`; set `false` on the step to advance instead). Before
   that hold fires, `step.js` tries up to `step.verdictRepairs` (default 1, 0 disables) **repair
@@ -177,6 +177,17 @@ an empty `files` array adds nothing, so `claude`'s own frame is byte-for-byte un
 (POSIX single-quote) quotes every element of the trailing ssh argv — ssh joins them with spaces
 before the remote shell parses the line, so each one must already be a shell token on its own. The
 ssh argv itself is always `-T -o BatchMode=yes` (+ `-p`/`-i`/`-l` as configured) — never `-A`.
+
+**Outbox copy-back (#825).** `done()` also copies back the run's outbox — the `outbox/` directory
+the agent may leave next to its verdict (`pr.json` + `comment.md`; user-facing docs in
+[docs/remote.md](../remote.md#publishing-the-outbox)) — before it removes the worker's per-run
+dir. Only the two fixed names are read, each through `head -c <128 KiB + 1>` (over-cap = dropped
+without being read further), behind a `[ ! -L … ] && [ -f … ]` test (symlinks and FIFOs are
+never opened, `lstat`-equivalent in the shell). The files land in `path.dirname(hubVerdictFile)/outbox/`,
+which `finish.js` hands to `outbox.js` `readOutbox` (name-fixed, size-capped, trigger-prefix
+refusal; unknown filenames logged — never read — one run-log line each) BEFORE the per-run dir
+`rmSync`. The launcher keeps `outbox/` across resume turns (clearing only `verdict.json`) so a
+multi-turn run's PR survives to the final turn; a fresh launch wipes the whole per-run dir.
 
 **OpenCode on the worker (#739).** `AgentAdapter.remote({cfg, step, dir, verdictFile, standing})`
 (opencode's hook; claude has none) returns the same shape as the sandbox hook's `files`/`env`/
