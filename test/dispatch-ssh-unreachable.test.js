@@ -1,9 +1,9 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // #828: an unreachable remote-harness worker must trip the breaker (with a clear
 // `worker unreachable: <host> (…) reason`), never refuse or fail the ticket. Covers the ssh
-// failure classifier, the ConnectTimeout wiring (ssh client + git transport), the sync/launch
-// failure paths against a fake `ssh`, and — at dispatcher level — that a worker-unreachable
-// trip requeues with the attempt count restored (a trip never counts, owner decision, option 3).
+// failure classifier, the ConnectTimeout wiring (ssh client + git transport), and the sync/launch
+// failure paths against a fake `ssh`. Queue-integrated spill/wait/attempt-restore coverage
+// lives in test/dispatch-ssh-unreachable-routing.test.js.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -13,8 +13,6 @@ import { execFileSync } from "node:child_process";
 import { classifySshFailure, sshConfigFailureReason, createSshExecutor, SSH_CONNECT_TIMEOUT_S } from "../src/dispatch/executor-ssh.js";
 import { healthTrip } from "../src/dispatch/harness.js";
 import { withFakeSsh, withFailingSsh, withDroppingSsh, spawnCtx, fakeAgent, initGitRepo } from "./_ssh-helpers.js";
-import { createStore } from "../src/store.js";
-import { createDispatcher } from "../src/dispatch.js";
 
 // --- classifySshFailure: the pattern table ---
 
@@ -56,6 +54,7 @@ test("classifySshFailure: unknown or empty stderr is undefined (callers keep gen
   assert.equal(classifySshFailure("\n   \n"), undefined);
   assert.equal(classifySshFailure("git: 'agent' is not a git command"), undefined);
   assert.equal(classifySshFailure("fatal: unable to access 'https://example/': Could not resolve host: example"), undefined, "a git HTTPS failure is not an ssh worker failure");
+  assert.equal(classifySshFailure("mkdir: cannot create directory '/data/x': Permission denied"), undefined, "a worker-side command error is not an ssh auth rejection");
 });
 
 test("sshConfigFailureReason: names the class, the worker host and the matched line", () => {
@@ -76,7 +75,8 @@ test("healthTrip: an unreachable worker trips verbatim; a classified ssh config 
   );
   assert.equal(healthTrip({ ...base, sshConfigFailure: "ssh auth failed on worker-x: Permission denied (publickey)." }), undefined, "a config failure refuses — it never trips, even at the fast-exit shape that would otherwise trip");
   assert.equal(healthTrip({ ...base, unreachable: "worker unreachable: x (timed out)", sshConfigFailure: "ssh auth failed on x: Permission denied (publickey)." }), "worker unreachable: x (timed out)", "unreachable wins when both ride the run");
-  assert.equal(healthTrip({ ...base, cancelled: true, unreachable: "worker unreachable: x (refused)" }), undefined, "a cancelled run never trips");
+  assert.equal(healthTrip({ ...base, cancelled: true, unreachable: "worker unreachable: x (refused)" }), "worker unreachable: x (refused)", "a cancelled run that was also unreachable still reports it (marked down, no requeue) — same as preflight/spawnError");
+  assert.equal(healthTrip({ code: 0, cancelled: true, preflight: "preflight down" }), "preflight down", "a cancelled run with a preflight refusal still reports it (the pre-#828 order is kept)");
 });
 
 // --- ConnectTimeout: rides on the ssh client argv and the git transport command ---
@@ -393,59 +393,6 @@ test("ssh executor: a mid-run connection loss (255 after output) is neither a re
   }
 });
 
-// --- dispatcher level: a worker-unreachable trip requeues and never consumes an attempt ---
-
-test("dispatcher: an unreachable worker trips the breaker — run_end requeued, the ticket is not moved, and the attempt count is restored even past the cap", async () => {
-  const ssh = withFailingSsh("ssh: connect to host worker-x port 22: Connection refused");
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-828-dispatch-"));
-  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-828-dispatch-repo-"));
-  initGitRepo(repoDir);
-  try {
-    const cfg = /** @type {any} */ ({
-      repoPath: repoDir,
-      worktreePrefix: path.join(dir, "wt"),
-      dataDir: dir,
-      logDir: dir,
-      instructionsFile: path.join(dir, "none.md"),
-      harnesses: { "worker-x": { remote: { host: "worker-x", workDir: path.join(dir, "work") } } },
-      pipeline: [{ id: "code", harness: "worker-x", maxAttempts: 2 }],
-    });
-    const store = createStore(dir);
-    store.bumpAttempt("42", "code");
-    store.bumpAttempt("42", "code");
-    store.bumpAttempt("42", "code"); // already 3 — past maxAttempts 2; a trip must still requeue
-    /** @type {any[]} */ const events = [];
-    /** @type {any[]} */ const advanced = [];
-    const adapter = /** @type {any} */ ({
-      describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
-      fetchTask: async (ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
-      advance: async (ref, stepId, v) => advanced.push([ref, stepId, v.outcome, v.reason]),
-    });
-    const emit = (event, _r, _s, extra) => events.push({ event, ...extra });
-    const run = createDispatcher(cfg, adapter, undefined, store, emit);
-    const log = console.log;
-    console.log = () => {};
-    let info;
-    try {
-      info = await run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k:code", harness: "worker-x" });
-    } finally {
-      console.log = log;
-    }
-    info = /** @type {any} */ (info);
-    assert.deepEqual(advanced, [], "the ticket must not be moved by a worker-unreachable trip");
-    assert.equal(info.health.harness, "worker-x");
-    assert.equal(info.health.reason, "worker unreachable: worker-x (connection refused)");
-    assert.equal(info.health.requeue, true, "a trip always requeues — even past the attempt cap");
-    const runEnd = events.find((e) => e.event === "run_end");
-    assert.equal(runEnd.outcome, "requeued");
-    assert.match(runEnd.reason, /^worker unreachable: worker-x \(connection refused\)/);
-    assert.equal(store.getAttempt("42", "code"), 3, "the pre-run bump is undone — the trip never counts as an attempt");
-  } finally {
-    ssh.restore();
-    fs.rmSync(dir, { recursive: true, force: true });
-    fs.rmSync(repoDir, { recursive: true, force: true });
-  }
-});
 
 // --- helpers (kept local: this is the only test file that builds a worktree for the hub) ---
 

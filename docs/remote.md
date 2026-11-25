@@ -130,8 +130,10 @@ died:
   never trips (retried or not, it would fail the same way). Fix the key or host verification on
   the hub; the ticket then reruns as usual.
 - **The link drops mid-run** — the worker had already produced output. The run ends as a
-  non-zero exit with no verdict (its commits, if any, are lost with the worktree) and the
-  breaker does not trip: a worker that ran and then dropped is not proved dead by that alone.
+  non-zero exit with no verdict (its commits come back only if the post-run sync-back can
+  reach the worker — the receiver always attempts it, even after a crash, so a worker that
+  returns before the next run still has them) and the breaker does not trip: a worker that
+  ran and then dropped is not proved dead by that alone.
 
 The pre-run sync (push + `worktree add`, or the no-worktree export) failing unreachable is the
 same signal as the launcher failing — one reason, one trip, whether the worker went off before

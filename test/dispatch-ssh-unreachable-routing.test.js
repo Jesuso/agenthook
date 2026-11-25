@@ -1,10 +1,10 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // #828, queue-integrated: a worker that is unreachable during the pre-run sync (the real
 // executor, the real dispatcher, the real queue) — a `first-free` routing list spills the
-// requeued job to the next harness, and a single-harness step waits in the queue (never fails)
-// until the cooldown lets a probe through and the worker answers. A revert of the
-// sync-unreachable → trip wiring turns the spill job into a plain failure (no requeue, no second
-// start), so these would go red.
+// requeued job to the next harness, a single-harness step waits in the queue (never fails)
+// until the cooldown lets a probe through, and a trip never consumes an attempt even past
+// the cap (owner option 3). A revert of the sync-unreachable → trip wiring turns the spill
+// job into a plain failure (no requeue, no second start), so these would go red.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -168,6 +168,48 @@ test("single-harness wait: an unreachable worker keeps the job queued (no failur
       console.warn = warn;
       q.close();
     }
+  } finally {
+    ssh.restore();
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  }
+});
+
+test("dispatcher: an unreachable worker trips the breaker — run_end requeued, the ticket is not moved, and the attempt count is restored even past the cap (a trip never counts, #828 option 3)", async () => {
+  adapter.advanced = [];
+  const ssh = withFailingSsh("ssh: connect to host worker-x port 22: Connection refused");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-828-route-"));
+  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-828-route-repo-"));
+  initGitRepo(repoDir);
+  try {
+    const cfg = baseCfg(dir, repoDir, {
+      harnesses: { "worker-x": { remote: { host: "worker-x", workDir: path.join(dir, "work") } } },
+      pipeline: [{ id: "code", harness: "worker-x", maxAttempts: 2 }],
+    });
+    const store = createStore(dir);
+    store.bumpAttempt("42", "code");
+    store.bumpAttempt("42", "code");
+    store.bumpAttempt("42", "code"); // already 3 — past maxAttempts 2; a trip must still requeue
+    /** @type {any[]} */ const events = [];
+    const emit = (/** @type {string} */ event, _r, _s, /** @type {any} */ extra) => events.push({ event, ...extra });
+    const dispatch = createDispatcher(cfg, adapter, undefined, store, emit);
+    const log = console.log;
+    console.log = () => {};
+    let info;
+    try {
+      info = await dispatch({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k:code", harness: "worker-x" });
+    } finally {
+      console.log = log;
+    }
+    info = /** @type {any} */ (info);
+    assert.deepEqual(adapter.advanced, [], "a worker-unreachable trip must not move the ticket");
+    assert.equal(info.health.harness, "worker-x");
+    assert.equal(info.health.reason, "worker unreachable: worker-x (connection refused)");
+    assert.equal(info.health.requeue, true, "a trip always requeues — even past the attempt cap");
+    const runEnd = events.find((e) => e.event === "run_end");
+    assert.equal(runEnd.outcome, "requeued");
+    assert.match(runEnd.reason, /^worker unreachable: worker-x \(connection refused\)/);
+    assert.equal(store.getAttempt("42", "code"), 3, "the pre-run bump is undone — the trip never counts as an attempt");
   } finally {
     ssh.restore();
     fs.rmSync(dir, { recursive: true, force: true });

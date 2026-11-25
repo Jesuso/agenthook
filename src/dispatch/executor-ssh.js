@@ -129,7 +129,11 @@ const SSH_FAILURE_PATTERNS = [
   { kind: "unreachable", detail: "could not resolve hostname", re: /Could not resolve hostname/i },
   { kind: "unreachable", detail: "connection closed by remote host", re: /Connection closed by \S+ port \d+|kex_exchange_identification/i },
   { kind: "unreachable", detail: "connection lost", re: /Connection to \S+ lost|Connection reset by|client_loop: send2: Broken pipe/i },
-  { kind: "config", detail: "auth", re: /Permission denied/i },
+  // `Permission denied (` — the ssh client's own auth-rejection line (with the methods list).
+  // The bare phrase is NOT matched: the worker-side command stderr (e.g. `mkdir: cannot create
+  // directory '…': Permission denied`) rides runRemoteChecked's rejection too and is not an ssh
+  // auth failure.
+  { kind: "config", detail: "auth", re: /Permission denied \(/i },
   { kind: "config", detail: "host key", re: /Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED/i },
 ];
 

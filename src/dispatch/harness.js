@@ -176,7 +176,9 @@ function matchingUpstreamFailure(upstreamFailures, baseUrl) {
  * else a scanned `apiDown` line. A classified ssh auth/host-key config failure
  * (`sshConfigFailure`, #828) is the worker being misconfigured, not down: it never trips, even
  * when the exit looks exactly like the fast-exit trip. Any other refusal (policy, sandbox,
- * credentials) and a run that produced output never trip.
+ * credentials) and a run that produced output never trip. A cancelled run never trips the
+ * exit/API branches, but the marker signals (unreachable, preflight, spawnError) still report
+ * it — the caller then marks the harness down without a requeue, as before #828.
  * `errorLine` (#688), when present, is appended to the fast-exit reason — the agent's own last
  * error line (e.g. an auth failure), not just the receiver's own "no output" observation; the
  * other branches already carry a specific reason and ignore it.
@@ -184,7 +186,6 @@ function matchingUpstreamFailure(upstreamFailures, baseUrl) {
  * @returns {string|undefined}
  */
 export function healthTrip(r) {
-  if (r.cancelled) return undefined; // a cancelled run never trips, whatever else rides it
   if (r.unreachable) return r.unreachable;
   if (r.sshConfigFailure) return undefined;
   if (r.preflight) return r.preflight;
