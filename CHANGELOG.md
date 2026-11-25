@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- New: remote (ssh) harness runs can leave an **outbox** — `pr.json` (draft-PR title + body) and
+  `comment.md` (a ticket comment) — next to their verdict, published by the hub with its own
+  credentials after every outcome rewrite has settled: the branch is pushed `--no-force` (a commit
+  touching `.github/workflows/` — including a merge whose resolution adds one — refuses the push
+  and holds the ticket for a human; a push rejection fails the step), the forge's new `openPr`
+  opens a DRAFT PR or reuses the already-open
+  one on a rework run, and the tracker's `postComment` posts the comment (PR/comment failures are
+  one run-log line and never fail the step). Only the two fixed names are copied back over ssh
+  (128 KiB cap, symlinks/FIFOs refused); anything else in the dir is logged without being read
+  (#825, #681 phase 5a).
+
 - `follow` and `resume` now support remote (ssh) harness runs (#830): a remote run's transcript
   and session live on the **worker** (`syncAfter` removes the dir after every run), so `follow`
   streams it read-only over the executor's no-pty ssh (`-T`, never `-A`; an in-flight remote run
@@ -16,7 +27,6 @@ All notable changes to this project are documented here. The format is based on
   `usage.jsonl` record carries `host` + `remoteCwd` (older records don't, and `resume` says so).
   The step's env is never forwarded to the worker — only warned about. Both fail with one line
   naming the worker when it's unreachable, and never fall back to the hub's local run log.
-
 - Fixed: `doctor`'s agent env report no longer lists `GH_TOKEN`/`GITHUB_TOKEN` as credentials
   agents still get when per-run GitHub App tokens are in use — they move to "not passed to
   agents" with the reason, matching what dispatch actually strips (#822).
