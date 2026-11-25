@@ -213,6 +213,8 @@
  * @property {string} [bin]        the step's agent binary, only when it differs from `claudeBin`
  * @property {string} [agent]      the agent adapter that ran — only on a harness run (a harness may switch it; otherwise the step names it)
  * @property {string} [harness]    the named harness that ran it — only on a harness run
+ * @property {string} [host]       the worker host the run lived on — only on a remote-harness run (the ssh executor, #830)
+ * @property {string} [remoteCwd]  the worker launch cwd a remote run lived in (#830) — where its transcript sits and where `resume` reopens it; absent on older records, which can't be located on the worker
  * @property {string} startedAt    ISO timestamp the run was spawned
  * @property {string} endedAt      ISO timestamp the run exited
  * @property {number} [durationMs] `result.duration_ms` if the adapter reports it, else `endedAt - startedAt` (dispatch derives it for agents like opencode/hermes that don't)

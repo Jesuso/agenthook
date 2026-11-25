@@ -196,6 +196,35 @@ A run on a remote harness shows its worker host, not just the harness name:
 - the `tick` MCP tool's `running[]` rows, and the `status` op, carry the same `host` field — see
   [docs/agent-guide.md](agent-guide.md).
 
+## Following and resuming a session
+
+A remote run's transcript and working directory live on the **worker** (`syncAfter` removes the
+worktree/export dir after every run), not on the hub. `follow` and `resume` reach them over the
+executor's ssh instead of looking at the hub's filesystem:
+
+- `agenthook follow [id]` — an in-flight remote-harness run is picked up from `running.json`
+  (the record's `host`) and its worker transcript is streamed **read-only** over the same no-pty
+  probe ssh the executor uses (`-T`, never `-A`): nothing is pulled or copied locally, and it
+  works even when the run started before `follow` supported remote. The id must be a valid
+  transcript file name. A remote run of an agent that keeps **no** transcript on the worker
+  (opencode) has nothing to stream: `follow` tails the **hub-side run log** for it instead — the
+  only readable thing, and it says so first.
+- `agenthook resume <ref> [<sel>]` — a remote-harness usage record is listed (tagged
+  `@<host>`) even though claude keeps its transcripts locally, because the session to resume is
+  the one on the worker. Picking one **probes the worker dir first** (no-pty ssh):
+  - the dir is **gone** (normal after the run — `syncAfter` removes it): `resume` says the dir
+    was removed after the run, offers the two options (re-run the step from the tracker, or
+    `git worktree add` the session's ref on the worker yourself), warns that a recreated worktree
+    is **not** synced back to the hub, and exits 1.
+  - the dir is **present**: it prints (or with `--exec` runs) `ssh -t` into the worker dir
+    (`cd <cwd> && exec <bin> -r <id>`). `-t` here is the one place agenthook asks ssh for a pty —
+    always, deliberately, for an interactive session a human starts. The step's env is **never
+    forwarded**: a step that sets env on the hub gets a warning line instead, and `--exec`
+    inherits nothing from the run's environment.
+- Both fail with one line naming the host, the harness and the first ssh stderr line when the
+  worker is unreachable — they never fall back to the hub's local run log for a remote run
+  (opencode's `follow` is the exception, above: there is nothing else to show).
+
 ## OpenCode on the worker
 
 A remote harness's agent can also be `opencode` (`harnesses.<name>.agent: "opencode"`, or the

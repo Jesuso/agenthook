@@ -24,6 +24,7 @@ import { publishOutbox } from "./publish.js";
  * @property {import('../types.js').Task} task
  * @property {import('../types.js').RepoConfig} repo
  * @property {boolean} hasWorktree
+ * @property {string|undefined} [cwd]  the worker launch cwd, for a remote-harness run (#830) — where the agent's transcript and a future `resume` live
  * @property {string} verdictFile
  * @property {{target: string, fromStep: string, text: string}|undefined} findings
  * @property {string} logPath
@@ -63,7 +64,7 @@ export function createFinish(ctx) {
 
   /** @param {import('../types.js').Job} job @param {StepRun} run */
   async function finishStep(job, run) {
-    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, errorLine, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, lastText, repair, deduced, gate, remote, hubWorktree, branch } = run;
+    const { step, spawnStep, harnessField, task, repo, hasWorktree, cwd: remoteCwd, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, errorLine, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, lastText, repair, deduced, gate, remote, hubWorktree, branch } = run;
     store?.clearRunning(job.ref);
     pids.delete(job.ref);
     clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
@@ -150,6 +151,14 @@ export function createFinish(ctx) {
     if (harnessField.harness) usage.agent = agent.describe().name;
     // ...and the harness itself, so status can sum usage per harness (`harnessUsage`).
     if (typeof harnessField.harness === "string" && harnessField.harness) usage.harness = harnessField.harness;
+    // A remote run (#830) carries where it lived, so follow/resume can reach the session on the
+    // worker: the host + the worker cwd `executor.paths()` returned. Absent on older records —
+    // those sessions can't be located on the worker (`resume` says so).
+    if (remoteCwd) {
+      const h = typeof harnessField.harness === "string" ? harnessField.harness : undefined;
+      if (h) usage.host = cfg.harnesses?.[h]?.remote?.host;
+      usage.remoteCwd = remoteCwd;
+    }
     const unpriced = !!usage.unpriced;
     // Stamp the basis (src/pricing.js): a reported run keeps `costUsd` alone; otherwise an
     // API-equivalent `estUsd` from the rate table, when the model has a rate and tokens.
