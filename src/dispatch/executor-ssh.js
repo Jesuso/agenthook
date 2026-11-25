@@ -12,6 +12,7 @@ import path from "node:path";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { MAX_SANDBOX_VERDICT_BYTES } from "./verdict.js";
+import { OUTBOX_FILE_NAMES, OUTBOX_COPY_CAP_BYTES } from "./outbox.js";
 import { gitArgv, HOST_GIT_TIMEOUT_MS } from "../worktree.js";
 
 const execFileP = promisify(execFile);
@@ -458,14 +459,21 @@ export function framePayload(env, prompt, files = []) {
  * given mode, before the agent is launched — so e.g. an OpenCode `OPENCODE_CONFIG` file exists
  * before `opencode run` starts reading it. `configDir` (its dir, already created by the caller
  * when `hasFiles`) is removed at the end alongside the pgid/pipe files, on every exit path.
- * @param {{workDir: string, runsDir: string, pgidFile: string, promptPipe: string, verdictDir: string|undefined, configDir: string|undefined, hasFiles: boolean, execArgv: string[]}} o
+ * `resume` (a verdict-repair turn, #677/#825): the verdict dir is KEPT — only `verdict.json`
+ * itself is removed so the agent rewrites it — because the turn's outbox (`verdictDir/outbox/`,
+ * #825) must survive to the last turn's copy-back. A fresh launch still wipes it whole.
+ * @param {{workDir: string, runsDir: string, pgidFile: string, promptPipe: string, verdictDir: string|undefined, configDir: string|undefined, hasFiles: boolean, execArgv: string[], resume?: boolean}} o
  * @returns {string} */
-function launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdictDir, configDir, hasFiles, execArgv }) {
+export function launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdictDir, configDir, hasFiles, execArgv, resume }) {
   const exec = execArgv.map(shQuote).join(" ");
   return [
     `cd ${shQuote(workDir)} || exit 1`,
     `mkdir -p ${shQuote(runsDir)}`,
-    ...(verdictDir ? [`rm -rf ${shQuote(verdictDir)}`, `mkdir -p -m 700 ${shQuote(verdictDir)}`] : []),
+    ...(verdictDir
+      ? resume
+        ? [`[ -d ${shQuote(verdictDir)} ] || mkdir -p -m 700 ${shQuote(verdictDir)}`, `rm -f ${shQuote(`${verdictDir}/verdict.json`)}`]
+        : [`rm -rf ${shQuote(verdictDir)}`, `mkdir -p -m 700 ${shQuote(verdictDir)}`]
+      : []),
     ...(configDir ? [`rm -rf ${shQuote(configDir)}`, `mkdir -p -m 700 ${shQuote(configDir)}`] : []),
     `rm -f ${shQuote(promptPipe)}`,
     `mkfifo ${shQuote(promptPipe)}`,
@@ -526,7 +534,7 @@ export function createSshExecutor({ stateKey, remote, spawnPaths, cfg = {} }) {
         configDir: remoteConfigDir(remote, stateKey, ref, stepId),
       };
     },
-    launch: async ({ runId, ref, stepId, bin, defaultBin, args, env, cwd, hub, raw, files, remoteEnv, prompt: expectedPrompt }) => {
+    launch: async ({ runId, ref, stepId, bin, defaultBin, args, env, cwd, hub, raw, files, remoteEnv, prompt: expectedPrompt, resume }) => {
       // `raw` (#710, a step's gate): the given argv runs on the worker verbatim — never the
       // agent-launch assumption that a known argv element is the prompt to pull off onto stdin.
       let prompt = "";
@@ -568,7 +576,7 @@ export function createSshExecutor({ stateKey, remote, spawnPaths, cfg = {} }) {
       const workDir = cwd || remote.workDir;
       const gitPath = hub ? remoteRepoGitPath(remote, stateKey, hub.repoId) : undefined;
       const beforeSha = hub ? await syncBefore(cfg, remote, stateKey, hub, workDir) : undefined;
-      const script = launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdictDir, configDir, hasFiles, execArgv });
+      const script = launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdictDir, configDir, hasFiles, execArgv, resume: !raw && !!resume });
       return {
         bin: "ssh",
         args: [...sshBaseArgs(remote), shQuote("sh"), shQuote("-c"), shQuote(script)],
@@ -598,6 +606,27 @@ export function createSshExecutor({ stateKey, remote, spawnPaths, cfg = {} }) {
               fs.writeFileSync(resolvedHubVerdictFile, buf);
             } catch (e) {
               console.error(`[ssh] verdict copy-back write failed for ${resolvedHubVerdictFile}: ${e.message}`);
+            }
+          }
+          // The outbox (#825): the only two known names, each over the same ssh channel with the
+          // same `head -c cap+1` over-cap=drop rule as the verdict. The remote side refuses a
+          // symlinked outbox dir and a symlink/non-regular entry (`-f` is false for a FIFO, and
+          // the `-L` check is belt-and-suspenders behind it) BEFORE opening anything, so a
+          // planted FIFO can never block the copy-back; `head` never writes past the cap. The
+          // hub's own lstat refusal + field caps happen in readOutbox (src/dispatch/outbox.js).
+          // Absent outbox is the normal case — nothing copied, nothing logged.
+          for (const name of OUTBOX_FILE_NAMES) {
+            const outboxDir = `${verdictDir}/outbox`;
+            const f = `${outboxDir}/${name}`;
+            const obuf = await runRemote(remote, `[ -d ${shQuote(outboxDir)} ] && [ ! -L ${shQuote(outboxDir)} ] && [ ! -L ${shQuote(f)} ] && [ -f ${shQuote(f)} ] && head -c ${OUTBOX_COPY_CAP_BYTES + 1} ${shQuote(f)}`, { maxBuffer: OUTBOX_COPY_CAP_BYTES + 2 });
+            if (obuf && obuf.length > 0 && obuf.length <= OUTBOX_COPY_CAP_BYTES) {
+              try {
+                const dest = path.join(path.dirname(resolvedHubVerdictFile), "outbox", name);
+                fs.mkdirSync(path.dirname(dest), { recursive: true });
+                fs.writeFileSync(dest, obuf);
+              } catch (e) {
+                console.error(`[ssh] outbox copy-back write failed for outbox/${name}: ${e.message}`);
+              }
             }
           }
           // Sync-back always runs (incl. after a timeout/cancel/crash), so commits made before

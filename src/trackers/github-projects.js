@@ -721,6 +721,26 @@ export function createGithubProjectsAdapter(cfg, store) {
       };
     },
 
+    // Post a comment on the ticket (#825): the hub-side half of a remote run's outbox
+    // (src/dispatch/publish.js). `body` was size-capped and trigger-stripped at read time
+    // (src/dispatch/outbox.js). Only reachable from dispatch — the job is already
+    // fail-closed scoped to our identity at intake, same as every other dispatch write.
+    // The GraphQL addComment needs a node id: the board item's content node when the card
+    // is on the board (the usual case), else issueNodeId (a loose issue, needs
+    // tracker.repository).
+    async postComment(ref, body) {
+      const item = await findItem(ref);
+      const subjectId = item?.issue?.id || (await issueNodeId(ref));
+      const out = await gql(
+        `mutation($s:ID!,$b:String!){ addComment(input:{subjectId:$s, body:$b}){ commentEdge{ node{ databaseId } } } }`,
+        { s: subjectId, b: body },
+      );
+      if (out?.errors?.length) throw new Error(`addComment: ${JSON.stringify(out.errors)}`);
+      const dbId = out?.data?.addComment?.commentEdge?.node?.databaseId;
+      console.log(`[comment] posted on #${ref}${typeof dbId === "number" ? ` (comment ${dbId})` : ""}`);
+      return dbId ?? null;
+    },
+
     // Resolve a finished step by SETTING the item's Status to the option its verdict
     // maps to — and that Status change is itself the trigger for whatever step that
     // Status sources:
