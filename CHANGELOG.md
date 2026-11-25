@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- New: a remote worker that is unreachable (connection refused/timed out, no route, unresolvable
+  host) now trips its harness's health breaker with `worker unreachable: <host> (<detail>)` and
+  the job goes back to the front of the queue — it no longer refuses or fails the ticket (#828).
+  Every executor ssh call now carries `ConnectTimeout=10`, and ssh exit 255 is classified: an
+  auth or host-key failure is a clean refusal (`ssh auth failed on <host>: …` / `ssh host key
+  failed on <host>: …`) that never trips, and a mid-run link loss (output already delivered) is
+  neither. A mid-sync stream break (ssh dying before the export tar finishes) no longer escapes as
+  an unhandled EPIPE.
+- Fixed: a breaker trip never counts as an attempt for any harness (#828): the tripping run is
+  requeued even at the step's `maxAttempts` cap, and its pre-run attempt bump is undone (new
+  `store.unbumpAttempt`), so a down worker that stays down past the cap keeps its jobs queued
+  instead of failing them.
 - New: remote (ssh) harness runs can leave an **outbox** — `pr.json` (draft-PR title + body) and
   `comment.md` (a ticket comment) — next to their verdict, published by the hub with its own
   credentials after every outcome rewrite has settled: the branch is pushed `--no-force` (a commit

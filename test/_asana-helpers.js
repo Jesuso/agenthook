@@ -21,6 +21,7 @@ export function makeStore() {
     listRunning: () => ({}),
     getAttempt: () => 0,
     bumpAttempt: () => 0,
+    unbumpAttempt: () => {},
     clearAttempts() {},
   };
 }

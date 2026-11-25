@@ -115,6 +115,37 @@ that file therefore reaches the worker. Write `"apiKey": "{env:NAME}"` instead �
 the worker's own environment, which the hub never fills — or leave provider setup to the worker's
 own OpenCode config and set no `opencodeConfig` at all.
 
+## When the worker is off
+
+Every ssh call the executor makes — the pre-run sync, the launcher, the post-run sync-back and
+cleanup — carries `ConnectTimeout=10`, so an unreachable worker fails each attempt in seconds
+instead of ssh's default ~2 minutes. What happens to the ticket depends on **how** the link
+died:
+
+- **Unreachable** — `Connection refused`, `Connection timed out`, `No route to host`,
+  `Could not resolve hostname`, or a connection that never delivered anything. The harness's
+  health breaker **trips** with the reason `worker unreachable: <host> (<detail>)` (a
+  `harness_down` event) and the job goes back to the **front** of the queue — it is never failed
+  for a worker that is down, and a trip never counts against the step's `maxAttempts`
+  (a down worker that stays down past the cap keeps its jobs queued, not failed). `first-free`
+  routing spills the requeued job onto the next harness with room. The breaker probe (one run at
+  a time after the cooldown) brings the harness back the first time a run settles without
+  tripping; `harness_reset {harness}` does it at once.
+- **Auth or host-key failure** — the worker answered but refused the key or the host key didn't
+  match. That is a misconfiguration, not an outage: the run is **refused** with
+  `ssh auth failed on <host>: <line>` or `ssh host key failed on <host>: <line>` and the breaker
+  never trips (retried or not, it would fail the same way). Fix the key or host verification on
+  the hub; the ticket then reruns as usual.
+- **The link drops mid-run** — the worker had already produced output. The run ends as a
+  non-zero exit with no verdict (its commits come back only if the post-run sync-back can
+  reach the worker — the receiver always attempts it, even after a crash, so a worker that
+  returns before the next run still has them) and the breaker does not trip: a worker that
+  ran and then dropped is not proved dead by that alone.
+
+The pre-run sync (push + `worktree add`, or the no-worktree export) failing unreachable is the
+same signal as the launcher failing — one reason, one trip, whether the worker went off before
+or during the run.
+
 ## Publishing the outbox
 
 The agent never holds the tracker's or the forge's credentials (they never cross, above), so it

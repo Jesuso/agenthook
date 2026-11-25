@@ -186,8 +186,8 @@ const workerRemote = (p) => ({ worker: { remote: { host: "worker.test", workDir:
 
 test("sshInteractiveArgv: the only tty variant — -t (not -T), the same options, shQuoted sh -c tail, never -A", () => {
   const remote = { host: "h.test", port: 2222, user: "w", identityFile: "/k", workDir: "/w" };
-  assert.deepEqual(sshInteractiveArgv(remote, "S"), ["-t", "-o", "BatchMode=yes", "-p", "2222", "-i", "/k", "-l", "w", "h.test", "'sh'", "'-c'", "'S'"]);
-  assert.deepEqual(sshBaseArgs(remote), ["-T", "-o", "BatchMode=yes", "-p", "2222", "-i", "/k", "-l", "w", "h.test"]);
+  assert.deepEqual(sshInteractiveArgv(remote, "S"), ["-t", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-p", "2222", "-i", "/k", "-l", "w", "h.test", "'sh'", "'-c'", "'S'"]);
+  assert.deepEqual(sshBaseArgs(remote), ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-p", "2222", "-i", "/k", "-l", "w", "h.test"]);
   assert.deepEqual(remoteProbeArgv(remote, "S"), [...sshBaseArgs(remote), "'sh'", "'-c'", "'S'"]);
   assert.ok(!sshInteractiveArgv(remote, "S").includes("-A"), "never agent-socket forwarding");
 });
@@ -236,10 +236,10 @@ test("follow (no id): an in-flight remote claude run wins over local search and 
     const last = ssh.record().at(-1);
     const argv = last.all;
     assert.equal(argv[0], "-T", "follow must use the no-pty probe argv");
-    assert.deepEqual(argv.slice(0, 4), ["-T", "-o", "BatchMode=yes", "worker.test"]);
+    assert.deepEqual(argv.slice(0, 6), ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "worker.test"]);
     assert.ok(!argv.includes("-t") && !argv.includes("-A"), "never a pty, never agent-socket forwarding");
-    assert.ok(argv[6].includes(`.claude/projects/${mangle(wt)}`), `script must resolve the worker transcript dir under $HOME (got ${argv[6]})`);
-    assert.ok(argv[6].includes('tail -n 15 -F "$f" &') && argv[6].includes("cat >/dev/null"), `the remote tail must run under the closed-stdin watchdog (got ${argv[6]})`);
+    assert.ok(argv[8].includes(`.claude/projects/${mangle(wt)}`), `script must resolve the worker transcript dir under $HOME (got ${argv[8]})`);
+    assert.ok(argv[8].includes('tail -n 15 -F "$f" &') && argv[8].includes("cat >/dev/null"), `the remote tail must run under the closed-stdin watchdog (got ${argv[8]})`);
     // The ssh client env is the executor's own: no seeded secrets, nothing beyond runtimeEnv.
     assertWorkerEnvClean(last);
   } finally {
@@ -291,7 +291,7 @@ test("follow <id>: streams that exact remote transcript; an invalid id is refuse
 
     const out = await withLogs(() => follow({ config: prof.file, _: ["sess-2"] }));
     assert.ok(out.includes(`following: worker.test:${file}`), out);
-    const last = ssh.record().at(-1).all[6];
+    const last = ssh.record().at(-1).all[8];
     assert.ok(last.includes("sess-2") && last.includes(".jsonl"), JSON.stringify(last));
     assert.ok(!last.includes("ls -t"), "an explicit id must pick its own file, not the newest");
 
@@ -397,7 +397,7 @@ test("resume <ref> <sel> (remote, dir present): prints the ssh -t command, never
     const out = await withLogs(() => resume({ config: prof.file, _: ["7", "rs-1"] }));
     const line = out.split("\n").find((l) => l.startsWith("ssh "));
     assert.ok(line, `no ssh line printed:\n${out}`);
-    assert.ok(line.startsWith("ssh -t -o BatchMode=yes worker.test "), `not the tty argv to the right host:\n${line}`);
+    assert.ok(line.startsWith("ssh -t -o BatchMode=yes -o ConnectTimeout=10 worker.test "), `not the tty argv to the right host:\n${line}`);
     // The remote script is shQuoted (with '\'' escapes), so check its ingredients, not the raw text.
     assert.ok(line.includes(dir) && line.includes("claude") && line.includes("'rs-1'"), line);
     assert.ok(!out.includes("sekrit"), "the step's env VALUES must never be printed");
@@ -463,12 +463,12 @@ test("resume <ref> <sel> --exec (remote, dir present): runs the -t ssh with the 
     }
     const last = ssh.record().at(-1);
     assert.equal(last.all[0], "-t", "the exec launch is the tty variant (the probe before it was -T)");
-    assert.deepEqual(last.all.slice(0, 4), ["-t", "-o", "BatchMode=yes", "worker.test"], "the tty argv keeps BatchMode, host and no -A");
+    assert.deepEqual(last.all.slice(0, 6), ["-t", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "worker.test"], "the tty argv keeps BatchMode, host and no -A");
     assert.equal(last.all.includes("-A"), false, "never agent-socket forwarding");
     // The exact remote script: cd into the worker dir, exec the bin with the agent's resume
     // argv. The argv element is shQuoted once more (as in runRemote), so compare that form.
     const script = `cd ${shQuote(dir)} && exec 'definitely-missing-830' '-r' 'rs-1'`;
-    assert.equal(last.all[6], shQuote(script), "the tty launch must run exactly `cd <cwd> && exec <bin> -r <id>` on the worker");
+    assert.equal(last.all[8], shQuote(script), "the tty launch must run exactly `cd <cwd> && exec <bin> -r <id>` on the worker");
     // The interactive ssh got the tty client env: no seeded secrets, nothing beyond runtimeEnv.
     assertWorkerEnvClean(last);
   } finally {

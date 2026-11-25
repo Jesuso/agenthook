@@ -9,7 +9,6 @@ import { costOf } from "../pricing.js";
 import { energyFields } from "../energy.js";
 import { timeoutReason, NO_VALID_VERDICT, QUESTION_HOLD, ASSUMED_ADVANCE_SUFFIX, endedWithQuestion, guardSandboxVerdict } from "./verdict.js";
 import { harnessesOf, healthTrip } from "./harness.js";
-import { DEFAULT_MAX_ATTEMPTS } from "../pipeline.js";
 import { followUpDecision } from "../followup.js";
 import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMergeOnBounce, holdAutoMergeSlot } from "../auto-merge.js";
 import { readOutbox } from "./outbox.js";
@@ -35,6 +34,8 @@ import { publishOutbox } from "./publish.js";
  * @property {string|undefined} refused
  * @property {string} [preflightDown]  the agent's own preflight refused (`refused` holds the same reason) — a harness health signal
  * @property {string} [spawnError]  the spawn itself errored (e.g. ENOENT: the bin is missing)
+ * @property {string} [unreachable]  the ssh executor reported the worker unreachable (#828): `refused` carries the raw reason, this is what the breaker trips with — the run requeues, it is not failed
+ * @property {string} [sshConfigFailure]  ssh exit-255 classified as an auth/host-key config failure (#828) — `refused` carries it; the breaker must not trip on it
  * @property {boolean} [noOutput]  the parser counted no model output tokens
  * @property {string} [apiDown]  a connection-level model-API failure line found in the run's output (src/dispatch/harness.js modelApiFailure) — a harness health signal at any wall time
  * @property {string} [errorLine]  the agent's own last error line (src/dispatch/spawn.js), redacted — the breaker's fast-exit reason detail (#688)
@@ -64,7 +65,7 @@ export function createFinish(ctx) {
 
   /** @param {import('../types.js').Job} job @param {StepRun} run */
   async function finishStep(job, run) {
-    const { step, spawnStep, harnessField, task, repo, hasWorktree, cwd: remoteCwd, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, errorLine, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, lastText, repair, deduced, gate, remote, hubWorktree, branch } = run;
+    const { step, spawnStep, harnessField, task, repo, hasWorktree, cwd: remoteCwd, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, unreachable, sshConfigFailure, noOutput, apiDown, errorLine, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, lastText, repair, deduced, gate, remote, hubWorktree, branch } = run;
     store?.clearRunning(job.ref);
     pids.delete(job.ref);
     clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
@@ -171,15 +172,18 @@ export function createFinish(ctx) {
     if (store && result) store.recordUsage(usage);
 
     // Harness breaker (src/queue.js): a run whose harness backend looks down (healthTrip) says so
-    // in its settle info, and the queue marks the harness down. Under the attempt cap the job goes
-    // back to the front of the queue instead — no verdict, no move; the worktree and any overlap
-    // lock stay for the re-run, which the queue routes around the down harness.
+    // in its settle info, and the queue marks the harness down. The job goes back to the front of
+    // the queue instead of failing — a trip never counts against the attempt cap (#828) — no
+    // verdict, no move; the worktree and any overlap lock stay for the re-run, which the queue
+    // routes around the down harness.
     const harness = harnessField.harness;
     // Only worth naming on a held/failed reason when the step actually routes through more than
     // one harness — a single-harness step's reason already implies which one ran it.
     const reasonHarness = harnessesOf(step).length >= 2 && harness ? harness : undefined;
     const tripped = harness
       ? healthTrip({
+          unreachable,
+          sshConfigFailure,
           preflight: preflightDown,
           spawnError,
           code,
@@ -197,9 +201,13 @@ export function createFinish(ctx) {
     /** @type {{harness: string, reason: string, requeue: boolean}|undefined} */
     let health;
     if (harness && tripped) {
-      const requeue = !wasCancelled && (store?.getAttempt(job.ref, step.id) ?? 0) < (step.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
+      // A trip never counts as an attempt (#828): a worker that stays down longer than
+      // maxAttempts×probe must keep the job queued, not fail it. Requeue unconditionally (still
+      // not for a cancel) and undo runStep's pre-run bump, so the counter reflects real runs.
+      const requeue = !wasCancelled;
       health = { harness, reason: tripped, requeue };
       if (requeue) {
+        store?.unbumpAttempt(job.ref, step.id);
         try {
           fs.rmSync(sandboxed ? path.dirname(verdictFile) : verdictFile, { recursive: true, force: true });
         } catch {

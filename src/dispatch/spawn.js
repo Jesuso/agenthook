@@ -7,6 +7,7 @@ import { timeoutReason } from "./verdict.js";
 import { containerEnv, runtimeEnv } from "./sandbox.js";
 import { agentEnvAllow, buildAgentEnv, redactSecrets } from "../agent-env.js";
 import { modelApiFailure } from "./harness.js";
+import { classifySshFailure, sshConfigFailureReason } from "./executor-ssh.js";
 
 /** How much of a run's rendered stdout + raw stderr the harness breaker's connection-failure scan
  * (`modelApiFailure`) keeps, tail-bounded — enough for the one line that matters, not the whole run. */
@@ -155,7 +156,7 @@ export function createSpawn(ctx) {
    * `errorLine` (#688) is the breaker's agent-side detail for its fast-exit reason: the last
    * non-blank line of the final result text when there is one, else of a small raw-stderr tail —
    * redacted (src/agent-env.js redactSecrets) and clipped to 200 chars; absent when there is none.
-   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean, apiDown?: string, lastText?: string, errorLine?: string}>}
+   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, unreachable?: string, sshConfigFailure?: string, noOutput?: boolean, apiDown?: string, lastText?: string, errorLine?: string}>}
    */
   async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, allow, deny, bin, agentEnv, creds, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed, executor, resumeSessionId }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
@@ -194,9 +195,15 @@ export function createSpawn(ctx) {
       try {
         box = await executor.launch({ runId: path.basename(logPath, ".log"), ref, stepId: sandboxed.stepId, bin: agentBin, defaultBin: agent.defaults.bin, args, env: containerEnv(runEnv), cwd, mounts: sandboxed.mounts, step: sandboxed.step, prompt, ...(sandboxed.egress ? { egress: sandboxed.egress } : {}), ...(sandboxed.image ? { image: sandboxed.image } : {}), ...(sandboxed.files ? { files: sandboxed.files } : {}), ...(sandboxed.hub ? { hub: sandboxed.hub } : {}), ...(sandboxed.env ? { remoteEnv: sandboxed.env } : {}), ...(resumeSessionId ? { resume: true } : {}) });
       } catch (e) {
-        const reason = executor.name === "sandbox" ? `sandbox (${sandbox?.describe().name}) could not start the run: ${e.message}` : `${executor.name} executor could not start the run: ${e.message}`;
+        // A classified ssh sync failure (#828) already carries its user-facing reason: a
+        // misconfigured worker is a refusal with that exact text (no "executor could not start"
+        // wrapper), and an unreachable worker keeps the raw reason in `refused` while the
+        // `unreachable` marker is what finish.js hands to the breaker (a trip requeues; it never
+        // fails the ticket).
+        const classified = /** @type {{sshConfigFailure?: string}} */ (e).sshConfigFailure;
+        const reason = classified ?? (executor.name === "sandbox" ? `sandbox (${sandbox?.describe().name}) could not start the run: ${e.message}` : `${executor.name} executor could not start the run: ${e.message}`);
         unspawned(reason);
-        return { code: 1, result: null, quota: null, refused: reason };
+        return { code: 1, result: null, quota: null, refused: reason, ...(e.unreachable ? { unreachable: /** @type {{unreachable?: string}} */ (e).unreachable } : {}), ...(classified ? { sshConfigFailure: classified } : {}) };
       }
       executorRuns.set(ref, box);
       // A cancel that landed while launch() was pending: never spawn.
@@ -236,6 +243,20 @@ export function createSpawn(ctx) {
       children?.add(child);
       /** @type {string|undefined} */
       let spawnError;
+      // An ssh exit-255 classified as an auth/host-key config failure (#828): the worker answers
+      // but the connection is misconfigured. Carried out as `refused` (the run fails without a
+      // verdict) AND as `sshConfigFailure`, which finish.js uses to keep the breaker from
+      // tripping on it — a config failure is never retried.
+      /** @type {string|undefined} */
+      let sshConfigFailure;
+      // An ssh exit-255 classified as an UNREACHABLE worker (#828): a harness health signal — the
+      // `unreachable` marker is what finish.js hands to the breaker (a trip requeues; it never
+      // fails the ticket) and `refused` carries the same reason so a run without a harness fails
+      // on it instead of falling through to the verdict file. Carried out the same way as the
+      // sync-path marker (the launch() rejection above), never as `spawnError` — so the trip
+      // reason is `worker unreachable: <host> (…)`, verbatim and identical for sync and launch.
+      /** @type {string|undefined} */
+      let unreachable;
       // Without a listener a spawn error (a missing bin) is an uncaught `error` event that takes
       // the whole receiver down; `close` still follows, so the run resolves there as failed.
       child.on("error", (e) => {
@@ -348,7 +369,19 @@ export function createSpawn(ctx) {
         // failed (auth, host unreachable, the remote script erroring before the agent ran) — a
         // harness-health signal at any wall time, not a 0-attempt non-zero exit from the agent.
         if (!spawnError && executor?.name === "ssh" && c === 255 && !(parser.tally.output > 0)) {
-          spawnError = `ssh failed (exit ${c})`;
+          // Exit 255 is ssh's own failure code: classify it (#828). An unreachable worker is a
+          // harness health signal — the `unreachable` marker trips the breaker with the verbatim
+          // `worker unreachable: <host> (<detail>)` reason (no `spawn failed:` prefix); auth/
+          // host-key is a worker config failure (refuse, never retried) whose reason names the
+          // class and the ssh line; anything else keeps the generic reason.
+          const cls = classifySshFailure(stderrTail);
+          if (cls?.kind === "unreachable") {
+            unreachable = `worker unreachable: ${executor.host ?? "remote"} (${cls.detail})`;
+          } else if (cls?.kind === "config") {
+            sshConfigFailure = sshConfigFailureReason(executor.host ?? "remote", cls);
+          } else {
+            spawnError = `ssh failed (exit ${c})`;
+          }
         }
         const apiDown = modelApiFailure(apiBuf);
         // The run's last output the question-hold detector inspects: the final result text when the
@@ -387,7 +420,7 @@ export function createSpawn(ctx) {
           }
         }
         const turnStats = pickTurnStats(parser.tally);
-        resolve({ code: c ?? 1, result: parser.result, quota: parser.quota ?? null, ...(turnStats ? { turnStats } : {}), ...(timedOut ? { timedOut } : {}), ...(sandboxReport ? { sandboxReport } : {}), ...(spawnError ? { spawnError } : {}), noOutput: !(parser.tally.output > 0), ...(apiDown ? { apiDown } : {}), ...(lastText ? { lastText } : {}), ...(errorLine ? { errorLine } : {}) });
+        resolve({ code: c ?? 1, result: parser.result, quota: parser.quota ?? null, ...(turnStats ? { turnStats } : {}), ...(timedOut ? { timedOut } : {}), ...(sandboxReport ? { sandboxReport } : {}), ...(spawnError ? { spawnError } : {}), ...(unreachable ? { refused: unreachable, unreachable } : {}), ...(sshConfigFailure ? { refused: sshConfigFailure, sshConfigFailure } : {}), noOutput: !(parser.tally.output > 0), ...(apiDown ? { apiDown } : {}), ...(lastText ? { lastText } : {}), ...(errorLine ? { errorLine } : {}) });
       });
     });
   }

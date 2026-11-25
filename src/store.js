@@ -166,6 +166,14 @@ export function createStore(dataDir) {
       fs.writeFileSync(attemptsFile, JSON.stringify(m));
       return m[ref][stepId];
     },
+    unbumpAttempt: (ref, stepId) => {
+      const m = readJson(attemptsFile, {});
+      if (!m[ref]?.[stepId]) return;
+      m[ref][stepId] -= 1;
+      if (m[ref][stepId] <= 0) delete m[ref][stepId];
+      if (Object.keys(m[ref]).length === 0) delete m[ref];
+      fs.writeFileSync(attemptsFile, JSON.stringify(m));
+    },
     clearAttempts: (ref) => {
       const m = readJson(attemptsFile, {});
       if (ref in m) {

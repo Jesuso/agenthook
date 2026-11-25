@@ -187,9 +187,16 @@ eating every run routed to it. A run on a harness **trips** it when:
   the agent doesn't support, a credential or sandbox-setup refusal do *not* trip: those are
   config, not backend health);
 - the agent CLI could not be spawned at all (e.g. `ENOENT`: the `bin` is missing);
+- **the remote worker was unreachable** (a remote harness, #828): ssh could not get a connection
+  at all — `Connection refused`, `Connection timed out` (every ssh call now carries a 10s
+  `ConnectTimeout`), `No route to host`, `Could not resolve hostname`, or the connection dropped
+  with nothing yet delivered. The `harness_down` reason is `worker unreachable: <host> (<detail>)`.
+  An ssh **auth** or **host-key** failure is the worker answering but misconfigured: it refuses the
+  run (`ssh auth failed on <host>: …` / `ssh host key failed on <host>: …`) and never trips;
 - it exited non-zero within `downGraceSeconds` (default 30) with no model output tokens — not a
   timeout, not a cancel. A run that produced output and then failed (red tests, a `fail` verdict)
-  never trips;
+  never trips; a remote run that produced output before the link dropped (a mid-run connection
+  loss) never trips either;
 - it exited non-zero with no model output tokens — not a timeout, not a cancel — and the model API
   was unreachable at the connection level, **at any wall time**: `downGraceSeconds` only governs
   the fast-exit signal above, because an agent CLI that keeps retrying a dead backend can run well
@@ -201,10 +208,12 @@ eating every run routed to it. A run on a harness **trips** it when:
   failure, and never trips — even on a line that also contains one of the tokens above.
 
 A trip marks the harness **down** for `cooldownMinutes` (1–60, default 10) and emits
-`harness_down`. While the run's step is under its `maxAttempts` cap, the run that tripped it is not
-failed: it ends with `run_end` `outcome: "requeued"`, goes back to the **front** of the queue (its
-worktree kept) and starts again on the next harness with room — `first-free` spills to the next
-listed one, `round-robin` skips the down one. At the cap it fails as it would without a breaker.
+`harness_down`. The run that tripped it is not failed: it ends with `run_end`
+`outcome: "requeued"`, goes back to the **front** of the queue (its worktree kept) and starts
+again on the next harness with room — `first-free` spills to the next listed one,
+`round-robin` skips the down one. A trip **never counts as an attempt** (#828): the step's
+`maxAttempts` cap is for real runs, so a worker that stays down past it keeps its jobs queued,
+not failed — each trip requeues and the attempt counter is restored to its pre-run value.
 If every harness of a step is down, its jobs wait (counted in `slots.capped`) and never fail.
 
 Once the cooldown passes the harness is **probing**: exactly one run at a time goes to it. A probe

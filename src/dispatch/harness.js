@@ -168,19 +168,26 @@ function matchingUpstreamFailure(upstreamFailures, baseUrl) {
 
 /**
  * Whether a finished run on a harness says its backend is unhealthy (the breaker's trip signal),
- * and why; undefined when it doesn't. Trips on an `agent.preflight` refusal, a spawn error, a
- * fast non-zero exit (inside `downGraceSeconds`, not a timeout or cancel) with no model output,
- * or — with no output, non-zero, not a timeout or cancel, at ANY wall time — a connection-level
- * model-API failure: a sandbox's `upstreamFailures` entry for the run's `baseUrl` host:port
- * (preferred), else a scanned `apiDown` line. Any other refusal (policy, sandbox, credentials)
- * and a run that produced output never trip.
+ * and why; undefined when it doesn't. Trips on the ssh executor's `unreachable` marker (#828) —
+ * returned verbatim, no prefix —, an `agent.preflight` refusal, a spawn error, a fast non-zero
+ * exit (inside `downGraceSeconds`, not a timeout or cancel) with no model output, or — with no
+ * output, non-zero, not a timeout or cancel, at ANY wall time — a connection-level model-API
+ * failure: a sandbox's `upstreamFailures` entry for the run's `baseUrl` host:port (preferred),
+ * else a scanned `apiDown` line. A classified ssh auth/host-key config failure
+ * (`sshConfigFailure`, #828) is the worker being misconfigured, not down: it never trips, even
+ * when the exit looks exactly like the fast-exit trip. Any other refusal (policy, sandbox,
+ * credentials) and a run that produced output never trip. A cancelled run never trips the
+ * exit/API branches, but the marker signals (unreachable, preflight, spawnError) still report
+ * it — the caller then marks the harness down without a requeue, as before #828.
  * `errorLine` (#688), when present, is appended to the fast-exit reason — the agent's own last
  * error line (e.g. an auth failure), not just the receiver's own "no output" observation; the
  * other branches already carry a specific reason and ignore it.
- * @param {{preflight?: string, spawnError?: string, code: number, timedOut?: string, cancelled: boolean, noOutput?: boolean, wallMs: number, downGraceSeconds?: number, apiDown?: string, upstreamFailures?: {host: string, port: number, error: string}[], baseUrl?: string, errorLine?: string}} r
+ * @param {{unreachable?: string, sshConfigFailure?: string, preflight?: string, spawnError?: string, code: number, timedOut?: string, cancelled: boolean, noOutput?: boolean, wallMs: number, downGraceSeconds?: number, apiDown?: string, upstreamFailures?: {host: string, port: number, error: string}[], baseUrl?: string, errorLine?: string}} r
  * @returns {string|undefined}
  */
 export function healthTrip(r) {
+  if (r.unreachable) return r.unreachable;
+  if (r.sshConfigFailure) return undefined;
   if (r.preflight) return r.preflight;
   if (r.spawnError) return `spawn failed: ${r.spawnError}`;
   const grace = (r.downGraceSeconds ?? DEFAULT_DOWN_GRACE_SECONDS) * 1000;
