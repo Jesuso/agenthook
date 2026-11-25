@@ -203,60 +203,166 @@ test("ssh executor: an auth or host-key failure during the sync is a clean refus
   }
 });
 
-// --- the run itself: ssh exits 255 before/during the run ---
+// The worktree-push sync path (a step whose hub worktree is pushed to the worker's bare repo): the
+// first ssh contact is `ensureWorkerBareRepo` (runRemoteChecked) — unreachable/classified the
+// same way as the archive path above, before any push happens.
 
-test("ssh executor: exit 255 with unreachable stderr becomes a worker-unreachable spawnError that trips healthTrip", async () => {
-  const ssh = withFailingSsh("ssh: connect to host worker-x port 22: Connection timed out");
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-828-work-"));
-  try {
-    const remote = { host: "worker-x", workDir, bin: "irrelevant" };
-    const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(workDir, "hub.json") } });
-    const { spawnAgent } = spawnCtx();
-    const result = await spawnAgent({
-      agent: fakeAgent(),
-      prompt: "hi",
-      cwd: workDir,
-      logPath: path.join(workDir, "run.log"),
-      verdictFile: executor.paths({ stepId: "code", ref: "4" }).verdictFile,
-      sandboxed: { ref: "4", stepId: "code", step: {}, mounts: [] },
-      executor,
-    });
-    assert.equal(result.spawnError, "worker unreachable: worker-x (connection timed out)");
-    assert.ok(result.noOutput);
-    const tripped = healthTrip({ spawnError: result.spawnError, code: result.code, cancelled: false, noOutput: result.noOutput, wallMs: 999999 });
-    assert.equal(tripped, "spawn failed: worker unreachable: worker-x (connection timed out)");
-  } finally {
-    ssh.restore();
-    fs.rmSync(workDir, { recursive: true, force: true });
+test("ssh executor: an unreachable worker during the worktree-push sync rejects with the worker-unreachable marker", async () => {
+  const cases = [
+    ["ssh: connect to host worker-x port 22: No route to host", "no route to host", /No route to host/],
+    ["ssh: connect to host worker-x port 22: Connection refused", "connection refused", /Connection refused/],
+  ];
+  for (const [stderr, detail, reasonRe] of cases) {
+    const ssh = withFailingSsh(stderr);
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-828-wt-work-"));
+    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-828-wt-repo-"));
+    const wtDir = path.join(workDir, "wt");
+    initGitRepo(repoDir);
+    execGit(repoDir, ["worktree", "add", wtDir, "-b", "feature"]);
+    try {
+      const remote = { host: "worker-x", workDir };
+      const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(workDir, "hub.json") } });
+      const { spawnAgent } = spawnCtx();
+      // A real run's worktree cwd is a per-run subdir of the worker's dir: the sync's `rm -rf <cwd>`
+      // must not eat the worker's repos dir, so the fake ssh would have to survive it.
+      const runDir = path.join(workDir, "runs", "7");
+      fs.mkdirSync(runDir, { recursive: true });
+      const result = await spawnAgent({
+        agent: fakeAgent(),
+        prompt: "hi",
+        cwd: runDir,
+        logPath: path.join(workDir, "run.log"),
+        verdictFile: executor.paths({ stepId: "code", ref: "7" }).verdictFile,
+        sandboxed: { ref: "7", stepId: "code", step: {}, mounts: [], hub: { repoId: "r1", repoPath: repoDir, worktree: wtDir, branch: "feature" } },
+        executor,
+      }).then((r) => ({ resolved: true, r }), (e) => ({ resolved: false, e }));
+      assert.equal(result.resolved, true, `the launch must resolve refused (finishStep reports it), not throw: ${stderr}`);
+      assert.equal(result.r.code, 1);
+      assert.equal(result.r.unreachable, `worker unreachable: worker-x (${detail})`, "the marker rides the result so finish() can trip the breaker");
+      assert.match(result.r.refused ?? "", reasonRe, "the raw reason carries the ssh stderr line, not a config-failure rewrite");
+      assert.ok(!result.r.sshConfigFailure, "an unreachable worker is not an auth/host-key config failure");
+    } finally {
+      ssh.restore();
+      fs.rmSync(repoDir, { recursive: true, force: true });
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
   }
 });
 
-test("ssh executor: exit 255 with auth stderr becomes a refusal that never trips healthTrip", async () => {
-  const ssh = withFailingSsh("git@worker-x: Permission denied (publickey).");
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-828-work-"));
-  try {
-    const remote = { host: "worker-x", workDir, bin: "irrelevant" };
-    const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(workDir, "hub.json") } });
-    const { spawnAgent } = spawnCtx();
-    const result = await spawnAgent({
-      agent: fakeAgent(),
-      prompt: "hi",
-      cwd: workDir,
-      logPath: path.join(workDir, "run.log"),
-      verdictFile: executor.paths({ stepId: "code", ref: "5" }).verdictFile,
-      sandboxed: { ref: "5", stepId: "code", step: {}, mounts: [] },
-      executor,
-    });
-    assert.equal(result.code, 255);
-    assert.equal(result.refused, "ssh auth failed on worker-x: git@worker-x: Permission denied (publickey).");
-    assert.equal(result.sshConfigFailure, "ssh auth failed on worker-x: git@worker-x: Permission denied (publickey).");
-    assert.equal(result.spawnError, undefined, "an auth failure is a refusal, not a spawn error");
-    // Without the suppression field this exact shape (fast exit, no output) would trip.
-    assert.notEqual(healthTrip({ code: result.code, cancelled: false, noOutput: result.noOutput, wallMs: result.wallMs ?? 50 }), undefined);
-    assert.equal(healthTrip({ sshConfigFailure: result.sshConfigFailure, code: result.code, cancelled: false, noOutput: result.noOutput, wallMs: 50 }), undefined);
-  } finally {
-    ssh.restore();
-    fs.rmSync(workDir, { recursive: true, force: true });
+test("ssh executor: an auth or host-key failure during the worktree-push sync is a clean refusal (no breaker, no requeue)", async () => {
+  const cases = [
+    ["git@worker-x: Permission denied (publickey).", "ssh auth failed on worker-x: git@worker-x: Permission denied (publickey)."],
+    ["Host key verification failed.", "ssh host key failed on worker-x: Host key verification failed."],
+  ];
+  for (const [stderr, wantReason] of cases) {
+    const ssh = withFailingSsh(stderr);
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-828-wt-work-"));
+    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-828-wt-repo-"));
+    const wtDir = path.join(workDir, "wt");
+    initGitRepo(repoDir);
+    execGit(repoDir, ["worktree", "add", wtDir, "-b", "feature"]);
+    try {
+      const remote = { host: "worker-x", workDir };
+      const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(workDir, "hub.json") } });
+      const { spawnAgent } = spawnCtx();
+      const runDir = path.join(workDir, "runs", "8");
+      fs.mkdirSync(runDir, { recursive: true });
+      const result = await spawnAgent({
+        agent: fakeAgent(),
+        prompt: "hi",
+        cwd: runDir,
+        logPath: path.join(workDir, "run.log"),
+        verdictFile: executor.paths({ stepId: "code", ref: "8" }).verdictFile,
+        sandboxed: { ref: "8", stepId: "code", step: {}, mounts: [], hub: { repoId: "r1", repoPath: repoDir, worktree: wtDir, branch: "feature" } },
+        executor,
+      }).then((r) => ({ resolved: true, r }), (e) => ({ resolved: false, e }));
+      assert.equal(result.resolved, true, `the launch must resolve refused (finishStep reports it), not throw: ${stderr}`);
+      assert.equal(result.r.code, 1);
+      assert.equal(result.r.refused, wantReason, "the refusal must say which auth/host-key failure and on which worker");
+      assert.equal(result.r.sshConfigFailure, wantReason);
+      assert.equal(result.r.unreachable, undefined, "an auth/host-key failure must NOT mark the worker unreachable (no breaker trip)");
+    } finally {
+      ssh.restore();
+      fs.rmSync(repoDir, { recursive: true, force: true });
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
+  }
+});
+
+// --- the run itself: ssh exits 255 before/during the run ---
+
+test("ssh executor: exit 255 with unreachable stderr becomes a verbatim worker-unreachable trip (no spawn-error prefix)", async () => {
+  const cases = [
+    ["ssh: connect to host worker-x port 22: Connection refused", "connection refused"],
+    ["ssh: connect to host worker-x port 22: Connection timed out", "connection timed out"],
+    ["ssh: connect to host worker-x port 22: No route to host", "no route to host"],
+  ];
+  for (const [stderr, detail] of cases) {
+    const ssh = withFailingSsh(stderr);
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-828-work-"));
+    try {
+      const remote = { host: "worker-x", workDir, bin: "irrelevant" };
+      const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(workDir, "hub.json") } });
+      const { spawnAgent } = spawnCtx();
+      const result = await spawnAgent({
+        agent: fakeAgent(),
+        prompt: "hi",
+        cwd: workDir,
+        logPath: path.join(workDir, "run.log"),
+        verdictFile: executor.paths({ stepId: "code", ref: "4" }).verdictFile,
+        sandboxed: { ref: "4", stepId: "code", step: {}, mounts: [] },
+        executor,
+      });
+      assert.ok(result.noOutput);
+      assert.equal(result.unreachable, `worker unreachable: worker-x (${detail})`, "the marker rides the result so finish() can trip the breaker");
+      assert.equal(result.spawnError, undefined, "a launch-time unreachable worker is a health signal, not a spawn error");
+      // `refused` carries the same reason so a run without a harness fails on it (no fall-through to the verdict file).
+      assert.equal(result.refused, `worker unreachable: worker-x (${detail})`);
+      assert.equal(
+        healthTrip({ unreachable: result.unreachable, code: result.code, cancelled: false, noOutput: result.noOutput, wallMs: 999999 }),
+        `worker unreachable: worker-x (${detail})`,
+        "the trip reason is verbatim — no 'spawn failed:' prefix",
+      );
+    } finally {
+      ssh.restore();
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("ssh executor: exit 255 with auth or host-key stderr becomes a refusal that never trips healthTrip", async () => {
+  const cases = [
+    ["git@worker-x: Permission denied (publickey).", "ssh auth failed on worker-x: git@worker-x: Permission denied (publickey)."],
+    ["Host key verification failed.", "ssh host key failed on worker-x: Host key verification failed."],
+  ];
+  for (const [stderr, wantReason] of cases) {
+    const ssh = withFailingSsh(stderr);
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-828-work-"));
+    try {
+      const remote = { host: "worker-x", workDir, bin: "irrelevant" };
+      const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(workDir, "hub.json") } });
+      const { spawnAgent } = spawnCtx();
+      const result = await spawnAgent({
+        agent: fakeAgent(),
+        prompt: "hi",
+        cwd: workDir,
+        logPath: path.join(workDir, "run.log"),
+        verdictFile: executor.paths({ stepId: "5" }).verdictFile,
+        sandboxed: { ref: "5", stepId: "code", step: {}, mounts: [] },
+        executor,
+      });
+      assert.equal(result.code, 255);
+      assert.equal(result.refused, wantReason, "the refusal must say which auth/host-key failure and on which worker");
+      assert.equal(result.sshConfigFailure, wantReason);
+      assert.equal(result.unreachable, undefined, "an auth/host-key failure must NOT mark the worker unreachable (no breaker trip)");
+      assert.equal(result.spawnError, undefined, "an auth failure is a refusal, not a spawn error");
+      // Without the suppression field this exact shape (fast exit, no output) would trip.
+      assert.notEqual(healthTrip({ code: result.code, cancelled: false, noOutput: result.noOutput, wallMs: result.wallMs ?? 50 }), undefined);
+      assert.equal(healthTrip({ sshConfigFailure: result.sshConfigFailure, code: result.code, cancelled: false, noOutput: result.noOutput, wallMs: 50 }), undefined);
+    } finally {
+      ssh.restore();
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
   }
 });
 

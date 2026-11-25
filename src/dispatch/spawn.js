@@ -249,6 +249,14 @@ export function createSpawn(ctx) {
       // tripping on it — a config failure is never retried.
       /** @type {string|undefined} */
       let sshConfigFailure;
+      // An ssh exit-255 classified as an UNREACHABLE worker (#828): a harness health signal — the
+      // `unreachable` marker is what finish.js hands to the breaker (a trip requeues; it never
+      // fails the ticket) and `refused` carries the same reason so a run without a harness fails
+      // on it instead of falling through to the verdict file. Carried out the same way as the
+      // sync-path marker (the launch() rejection above), never as `spawnError` — so the trip
+      // reason is `worker unreachable: <host> (…)`, verbatim and identical for sync and launch.
+      /** @type {string|undefined} */
+      let unreachable;
       // Without a listener a spawn error (a missing bin) is an uncaught `error` event that takes
       // the whole receiver down; `close` still follows, so the run resolves there as failed.
       child.on("error", (e) => {
@@ -362,13 +370,13 @@ export function createSpawn(ctx) {
         // harness-health signal at any wall time, not a 0-attempt non-zero exit from the agent.
         if (!spawnError && executor?.name === "ssh" && c === 255 && !(parser.tally.output > 0)) {
           // Exit 255 is ssh's own failure code: classify it (#828). An unreachable worker is a
-          // harness health signal (spawnError → trip → requeue) with the `worker unreachable:
-          // <host> (<detail>)` reason; auth/host-key is a worker config failure (refuse, never
-          // retried) whose reason names the class and the ssh line; anything else keeps the
-          // generic reason.
+          // harness health signal — the `unreachable` marker trips the breaker with the verbatim
+          // `worker unreachable: <host> (<detail>)` reason (no `spawn failed:` prefix); auth/
+          // host-key is a worker config failure (refuse, never retried) whose reason names the
+          // class and the ssh line; anything else keeps the generic reason.
           const cls = classifySshFailure(stderrTail);
           if (cls?.kind === "unreachable") {
-            spawnError = `worker unreachable: ${executor.host ?? "remote"} (${cls.detail})`;
+            unreachable = `worker unreachable: ${executor.host ?? "remote"} (${cls.detail})`;
           } else if (cls?.kind === "config") {
             sshConfigFailure = sshConfigFailureReason(executor.host ?? "remote", cls);
           } else {
@@ -412,7 +420,7 @@ export function createSpawn(ctx) {
           }
         }
         const turnStats = pickTurnStats(parser.tally);
-        resolve({ code: c ?? 1, result: parser.result, quota: parser.quota ?? null, ...(turnStats ? { turnStats } : {}), ...(timedOut ? { timedOut } : {}), ...(sandboxReport ? { sandboxReport } : {}), ...(spawnError ? { spawnError } : {}), ...(sshConfigFailure ? { refused: sshConfigFailure, sshConfigFailure } : {}), noOutput: !(parser.tally.output > 0), ...(apiDown ? { apiDown } : {}), ...(lastText ? { lastText } : {}), ...(errorLine ? { errorLine } : {}) });
+        resolve({ code: c ?? 1, result: parser.result, quota: parser.quota ?? null, ...(turnStats ? { turnStats } : {}), ...(timedOut ? { timedOut } : {}), ...(sandboxReport ? { sandboxReport } : {}), ...(spawnError ? { spawnError } : {}), ...(unreachable ? { refused: unreachable, unreachable } : {}), ...(sshConfigFailure ? { refused: sshConfigFailure, sshConfigFailure } : {}), noOutput: !(parser.tally.output > 0), ...(apiDown ? { apiDown } : {}), ...(lastText ? { lastText } : {}), ...(errorLine ? { errorLine } : {}) });
       });
     });
   }

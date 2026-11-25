@@ -85,6 +85,26 @@ export function withFailingSsh(stderrLine) {
   };
 }
 
+/** A fake `ssh` that fails with `stderrLine`/exit 255 until `flip()` rewrites the same bin in
+ * place into a WORKING fake (the worker comes back) — one bin path on PATH for both states, so a
+ * test can trip a run on a dead worker, let the cooldown pass, then watch the probe succeed
+ * (#828's single-harness wait criterion). */
+export function withFlippingSsh(stderrLine) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-bin-"));
+  const bin = path.join(dir, "ssh");
+  fs.writeFileSync(bin, `#!/bin/sh\necho ${JSON.stringify(stderrLine)} >&2\nexit 255\n`, { mode: 0o755 });
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${dir}${path.delimiter}${savedPath}`;
+  return {
+    /** The worker comes back: the bin now runs the remote command for real. */
+    flip: () => fs.writeFileSync(bin, FAKE_SSH, { mode: 0o755 }),
+    restore: () => {
+      process.env.PATH = savedPath;
+      fs.rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
 /** A fake `ssh` that lets the run start, prints `outputLine` to stdout, then drops the
  * connection mid-run: stderr `lostLine`, exit 255 (#828's mid-run-disconnect shape). */
 export function withDroppingSsh(outputLine, lostLine) {
