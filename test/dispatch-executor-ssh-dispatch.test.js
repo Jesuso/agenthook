@@ -253,3 +253,60 @@ test("boot: a remote harness's leftover runs are reaped and logged distinctly fr
   assert.ok(lines.some((l2) => l2.includes("[recover] reaped run(s) 12/code left on a remote worker")), lines.join("\n"));
   assert.ok(emitted.some((e) => e.event === "sandbox_reaped" && e.runs?.includes("12/code")));
 });
+
+// --- usage records: a remote run records where it lived (#830) ---
+
+test("a remote run's usage.jsonl record carries `host` + `remoteCwd`; a local run's carries neither", async () => {
+  const ssh = withFakeSsh();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-usage-"));
+  const workDir = path.join(root, "work");
+  const repoPath = path.join(root, "repo");
+  fs.mkdirSync(workDir, { recursive: true });
+  initGitRepo(repoPath);
+  try {
+    const agentScript = path.join(workDir, "usage-agent.mjs");
+    fs.writeFileSync(agentScript, FAKE_REMOTE_CLAUDE, { mode: 0o755 });
+    const base = /** @type {any} */ ({
+      pipeline: [{ id: "code" }],
+      repoPath,
+      stateKey: "p",
+      stateDir: root,
+      dataDir: root,
+      logDir: root,
+      instructionsFile: path.join(root, "none.md"),
+    });
+    const adapter = /** @type {any} */ ({
+      describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+      fetchTask: async (ref) => ({ ref, name: "t", description: "d", url: "https://example.test/1", completed: false, assignedToUs: true }),
+      advance: async () => {},
+    });
+    const l = console.log;
+    console.log = () => {};
+    try {
+      // Remote: the record must name the worker + the worker launch cwd (no-worktree step → exports dir).
+      const store = createStore(root);
+      let run = createDispatcher({ ...base, pipeline: [{ id: "code", harness: "worker" }], harnesses: { worker: { remote: { host: "worker.test", workDir, bin: agentScript } } } }, adapter, undefined, store, () => {}, null, undefined, { killGraceMs: 300 });
+      let result = await run({ kind: "pipeline", ref: "99", stepId: "code", dedupKey: "k:99", harness: "worker" });
+      assert.equal(result.code, 0, JSON.stringify(result));
+      const remote = store.readUsage().at(-1);
+      assert.equal(remote.host, "worker.test", JSON.stringify(remote));
+      assert.equal(remote.remoteCwd, `${workDir}/.agenthook/p/exports/99-code`, JSON.stringify(remote));
+
+      // Local: the same run shape must NOT gain the fields.
+      const localBin = path.join(root, "local-agent.mjs");
+      fs.writeFileSync(localBin, FAKE_REMOTE_CLAUDE, { mode: 0o755 });
+      const store2 = createStore(root);
+      run = createDispatcher({ ...base, claudeBin: localBin }, adapter, undefined, store2, () => {}, null, undefined, { killGraceMs: 300 });
+      result = await run({ kind: "pipeline", ref: "100", stepId: "code", dedupKey: "k:100" });
+      assert.equal(result.code, 0, JSON.stringify(result));
+      const local = store2.readUsage().at(-1);
+      assert.equal(local.host, undefined, JSON.stringify(local));
+      assert.equal(local.remoteCwd, undefined, JSON.stringify(local));
+    } finally {
+      console.log = l;
+    }
+  } finally {
+    ssh.restore();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

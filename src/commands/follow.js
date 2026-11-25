@@ -9,12 +9,24 @@
 // `--repo <id>` names), the repo mangle plus every worktree mangle under the repo's base.
 // The transcript layout comes from each agent adapter the profile runs (`sessions`,
 // src/agents/): the profile's and every step's own `agent`.
+//
+// A REMOTE run (#830) keeps its transcript on the WORKER, not the hub: the in-flight
+// remote runs are running.json entries that carry a `host` still declared in the config,
+// and their stream is a read-only `tail -F` over ssh (the executor's probe argv, `-T` no
+// pty — never an agent spawn). A remote run of an agent that keeps no transcript
+// (opencode) falls back to the hub-side run log, as `top`'s Enter does.
 import fs from "node:fs";
 import path from "node:path";
-import { loadConfig } from "../config.js";
+import { spawn } from "node:child_process";
+import { loadConfig, registryDir } from "../config.js";
 import { worktreeDir } from "../paths.js";
 import { reposOf } from "../repos.js";
 import { sessionAgents } from "../sessions.js";
+import { getAgent } from "../agents/index.js";
+import { createStore } from "../store.js";
+import { remoteProbeArgv, sshClientEnv, shQuote, remoteTranscriptDir } from "../dispatch/executor-ssh.js";
+import { readRuns } from "../agent-api.js";
+import { profileDir, resolveRunLog } from "../ui/logs.js";
 
 /** Transcript dirs that exist for the given repos, per agent the profile runs: each repo's
  * root transcript dir, plus the transcript dir of every cwd under its worktree base
@@ -47,6 +59,133 @@ export function transcriptDirs(cfg, repos) {
   return { dirs: [...dirs.keys()], searched, files: [...dirs].flatMap(([d, sessions]) => sessions.files(d)) };
 }
 
+/** The in-flight REMOTE runs a follow can reach (#830): running.json entries that name a
+ * worker (`host`) whose harness still declares a `remote` block in the config pointing at
+ * THAT host (a renamed, deleted, or re-pointed harness is unreachable by construction). `worktree` is the worker launch cwd — the
+ * run's transcript dir is mangled from it, under the worker user's $HOME.
+ * @param {import('../types.js').Config} cfg @param {Record<string, unknown>} running
+ * @returns {{ref: string, stepId: string, startedAt: string, worktree: string, harness: string, agent: string, host: string, remote: import('../types.js').RemoteHarness}[]} */
+export function remoteFollowCandidates(cfg, running) {
+  /** @type {{ref: string, stepId: string, startedAt: string, worktree: string, harness: string, agent: string, host: string, remote: import('../types.js').RemoteHarness}[]} */
+  const out = [];
+  for (const [ref, raw] of Object.entries(running ?? {})) {
+    if (!raw || typeof raw !== "object") continue;
+    const r = /** @type {{ stepId?: string, startedAt?: string, worktree?: string, harness?: string, agent?: string, host?: string }} */ (raw);
+    const harness = typeof r.harness === "string" ? r.harness : undefined;
+    const remote = harness ? cfg.harnesses?.[harness]?.remote : undefined;
+    if (!remote || !harness || !r.host || !r.worktree || r.host !== remote.host) continue;
+    out.push({ ref, stepId: r.stepId ?? "", startedAt: r.startedAt ?? "", worktree: r.worktree, harness: harness, agent: r.agent ?? "", host: r.host, remote });
+  }
+  return out;
+}
+
+/** Does the agent named `name` keep transcripts (the layout `follow` streams)? Unknown
+ * names (an adapter removed since the run started) keep none.
+ * @param {string|undefined} name */
+export function keepsTranscripts(name) {
+  try {
+    return !!getAgent(name).sessions;
+  } catch {
+    return false;
+  }
+}
+
+/** The remote script `follow` streams (#830): resolve the transcript dir under the worker
+ * user's $HOME, pick `<id>.jsonl` (or, with no id, the newest `*.jsonl`), announce which
+ * file it is tailing on an `AHF <file>` header line, then stream it — background
+ * `tail -n 15 -F` with a closed-stdin watchdog (`cat >/dev/null`): with no pty (`-T`) sshd
+ * sends no SIGHUP, so without the watchdog the tail would linger until it next writes. When
+ * the local ssh dies (Ctrl-C), the remote `cat` gets EOF and kills the tail. Exits 3 when
+ * there is no transcript yet. Pure.
+ * @param {string} cwd the worker launch cwd @param {string|null} id @returns {string} */
+function remoteFollowScript(cwd, id) {
+  const dir = shQuote(remoteTranscriptDir(cwd));
+  const pick = id
+    ? `f="$HOME"/${dir}/${shQuote(id)}.jsonl; [ -f "$f" ] || f=""`
+    : `f=$(ls -t "$HOME"/${dir}/*.jsonl 2>/dev/null | head -n1)`;
+  return [
+    `d="$HOME"/${dir}`,
+    pick,
+    `[ -n "$f" ] && [ -f "$f" ] || { echo "no transcript yet in $d" >&2; exit 3; }`,
+    `echo "AHF $f"`,
+    `tail -n 15 -F "$f" & t=$!`,
+    `cat >/dev/null; kill $t 2>/dev/null; exit 0`,
+  ].join("\n");
+}
+
+/** Tagged error: the worker is reachable but the run has not written a transcript yet —
+ * `follow`'s candidate loop may try the next candidate. */
+export class NoTranscriptYet extends Error {}
+
+/** Stream an in-flight remote run's transcript read-only over ssh (#830): the executor's
+ * PROBE argv (`-T`, no pty, `BatchMode=yes`, never `-A`) and the executor's own client env —
+ * stdin is a pipe that is never written: the script's `cat >/dev/null` holds the link, and
+ * when this process dies the remote `cat` gets EOF and kills the tail. Never starts an agent
+ * process. Resolves when ssh exits 0;
+ * rejects with one line otherwise — exit 3 (no transcript yet, tagged `noTranscript` for
+ * `follow`'s candidate loop) or anything else (255 = unreachable worker).
+ * @param {import('../types.js').RemoteHarness} remote @param {string} cwd the worker launch cwd
+ * @param {string|null} id @param {string} harnessName the harness the run is on (error text)
+ * @returns {Promise<void>} */
+export async function followRemote(remote, cwd, id, harnessName) {
+  // The executor's own ssh shape (executor-ssh.js's runRemote): stdin is a pipe follow never
+  // writes — the script's closed-stdin watchdog (`cat >/dev/null; kill $t`) ties the remote
+  // tail's lifetime to this connection, so it can't linger after Ctrl-C or a finished run.
+  const child = spawn("ssh", remoteProbeArgv(remote, remoteFollowScript(cwd, id)), {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: sshClientEnv({ tty: false }),
+  });
+  /** @type {string} */
+  let errBuf = "";
+  /** @type {string} */
+  let buf = "";
+  child.stderr.on("data", (c) => (errBuf += c));
+  child.stdout.on("data", (c) => {
+    buf += c.toString("utf8");
+    let nl;
+    while ((nl = buf.indexOf("\n")) !== -1) {
+      const line = buf.slice(0, nl);
+      buf = buf.slice(nl + 1);
+      if (line.startsWith("AHF ")) {
+        console.log(`following: ${remote.host}:${line.slice(4)}  (Ctrl+C to stop — agent keeps running)`);
+        console.log("────────────────────────────────────────────────────────");
+      } else if (line) render(line);
+    }
+  });
+  return new Promise((resolve, reject) => {
+    child.on("error", (e) => reject(e));
+    child.on("close", (code) => {
+      const first = errBuf.split("\n").map((l) => l.trim()).find(Boolean) ?? "";
+      if (code === 0) return resolve();
+      reject(
+        code === 3
+          ? new NoTranscriptYet(
+              `no transcript yet on ${remote.host} for ${id ?? "<newest>"} — the run has not written one (agent keeps running)`,
+            )
+          : new Error(`worker ${remote.host} (harness "${harnessName}") unreachable: ${first || `ssh exited ${code}`}`),
+      );
+    });
+  });
+}
+
+/** A remote run of an agent that keeps no transcript (#830, opencode): there is nothing on
+ * the worker to stream, so tail the HUB-side run log of the in-flight run — `top`'s
+ * Enter-follow lookup (`readRuns` + `resolveRunLog`), raw renderer. New for remote runs only;
+ * local `follow` for a no-transcript profile still errors as before. Resolves when `signal`
+ * aborts (the command's never-aborting default blocks until Ctrl-C).
+ * @param {import('../types.js').Config} cfg @param {{ref: string, agent: string, host: string}} cand
+ * @param {AbortSignal} [signal] @returns {Promise<void>} */
+export async function followRemoteRunLog(cfg, cand, signal = new AbortController().signal) {
+  const dir = profileDir(registryDir, cfg.stateKey);
+  const runs = dir ? readRuns(cfg.stateKey, cand.ref, dir) : [];
+  const run = runs.find((r) => r.running);
+  const file = run ? resolveRunLog(registryDir, cfg.stateKey, run.run) : null;
+  if (!file) throw new Error(`agent ${cand.agent} keeps no transcript on ${cand.host} and no hub run log is readable for ${cand.ref}`);
+  console.log(`agent ${cand.agent} keeps no transcript on ${cand.host} — following its hub run log (Ctrl+C to stop)`);
+  console.log("────────────────────────────────────────────────────────");
+  await tailFile(file, { signal, write: (s) => console.log(s) });
+}
+
 /** @param {string} s @param {number} [n] */
 const clip = (s, n = 200) => {
   s = (s || "").replace(/\s+/g, " ").trim();
@@ -77,6 +216,15 @@ function render(line) {
   }
 }
 
+/** Tail one local transcript file with the transcript renderer. @param {string} file @returns {Promise<void>} */
+async function tailLocal(file) {
+  console.log(`following: ${path.basename(file)}  (Ctrl+C to stop — agent keeps running)`);
+  console.log("────────────────────────────────────────────────────────");
+  // The tail loop, shared with `top`'s follow (#797), and a never-aborting signal (this
+  // command blocks until Ctrl-C, as before).
+  await tailFile(file, { signal: new AbortController().signal, write: (s) => console.log(s), render });
+}
+
 /** @param {any} args */
 export async function follow(args) {
   const cfg = loadConfig({ configPath: args.config });
@@ -86,13 +234,67 @@ export async function follow(args) {
     if (!hit) throw new Error(`unknown repo "${args.repo}" — valid ids: ${repos.map((r) => r.id).join(", ")}`);
     repos = [hit];
   }
-  const { files, searched } = transcriptDirs(cfg, repos);
+  // Local search only — a remote run's transcript never lands on the hub. The search throws
+  // for a profile whose agents keep no transcripts (opencode/pi); remote candidates don't
+  // need the local dirs, so keep the error and only rethrow when no remote candidate can
+  // answer — a profile with no remote run still gets its original error, unchanged.
+  /** @type {{id: string, file: string}[]} */
+  let files = [];
+  /** @type {string[]} */
+  let searched = [];
+  /** @type {Error|undefined} */
+  let localErr;
+  try {
+    const local = transcriptDirs(cfg, repos);
+    files = local.files;
+    searched = local.searched;
+  } catch (e) {
+    localErr = /** @type {Error} */ (e);
+  }
+  const candidates = remoteFollowCandidates(cfg, createStore(cfg.dataDir).listRunning());
 
   const id = args._[0];
-  let file = "";
   if (id) {
-    file = files.find((f) => f.id === id)?.file || "";
-  } else {
+    const hit = files.find((f) => f.id === id);
+    if (hit) return tailLocal(hit.file);
+    // Nothing local: try each remote run whose agent keeps transcripts. Validate the id
+    // before it can reach a remote script — it is shQuoted, but the whitelist is the
+    // transcript layout, not a shell.
+    const remoteCands = candidates.filter((c) => keepsTranscripts(c.agent));
+    if (remoteCands.length && !/^[A-Za-z0-9-]+$/.test(id)) {
+      throw new Error(`invalid session id "${id}" for a remote transcript (allowed: letters, digits, -)`);
+    }
+    /** @type {NoTranscriptYet|undefined} */
+    let last;
+    for (const cand of remoteCands) {
+      try {
+        await followRemote(cand.remote, cand.worktree, id, cand.harness);
+        return;
+      } catch (e) {
+        if (!(e instanceof NoTranscriptYet)) throw e; // unreachable/other: stop with that line
+        last = e; // no transcript on this worker yet — try the next candidate
+      }
+    }
+    if (last) throw last;
+    if (!remoteCands.length) throw localErr ?? new Error(`session transcript not found: ${id} (searched ${searched.join(", ")})`);
+  }
+
+  // No id: an in-flight remote run wins — its transcript lives on the worker, so stream it
+  // there (opencode: the hub-side run log). Otherwise the local auto-pick, unchanged.
+  if (candidates.length) {
+    const newest = candidates.slice().sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0];
+    if (keepsTranscripts(newest.agent)) {
+      await followRemote(newest.remote, newest.worktree, null, newest.harness);
+      return;
+    }
+    // `args.signal` is optional (the CLI never passes one — the default blocks until Ctrl-C);
+    // tests pass one so the run-log tail ends.
+    return followRemoteRunLog(cfg, newest, args.signal);
+  }
+
+  if (localErr) throw localErr; // a no-transcript profile with no remote run: the original error
+  let file = "";
+  {
     const newest = files.map(({ file: full }) => ({ full, m: fs.statSync(full).mtimeMs })).sort((a, b) => b.m - a.m);
     for (const { full } of newest) {
       if (fs.readFileSync(full, "utf8").slice(0, 8000).includes("=== TICKET ===")) {
@@ -101,14 +303,8 @@ export async function follow(args) {
       }
     }
   }
-  if (!file) throw new Error(`session transcript not found: ${id || "<auto>"} (searched ${searched.join(", ")})`);
-
-  console.log(`following: ${path.basename(file)}  (Ctrl+C to stop — agent keeps running)`);
-  console.log("────────────────────────────────────────────────────────");
-
-  // The tail loop, shared with `top`'s follow (#797), with the transcript renderer and a
-  // never-aborting signal (this command blocks until Ctrl-C, as before).
-  await tailFile(file, { signal: new AbortController().signal, write: (s) => console.log(s), render });
+  if (!file) throw new Error(`session transcript not found: <auto> (searched ${searched.join(", ")})`);
+  return tailLocal(file);
 }
 
 /**

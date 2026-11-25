@@ -404,11 +404,12 @@ test("breaker: at the attempt cap a tripping run still requeues (a trip never co
   const end = events.find((e) => e.event === "run_end");
   assert.equal(end.outcome, "requeued");
   assert.equal(s2.getAttempt("42", "code"), 1, "the pre-run bump is undone — still at its pre-run value");
-  // and past the cap, same behaviour: still requeued, counter restored
+  // a second trip at the cap behaves the same: still requeued, counter restored (the real
+  // past-the-cap case, 3 > 2, lives in dispatch-ssh-unreachable-routing.test.js)
   const { info: info2, advanced: advanced2, store: s3 } = await dispatchOnce(dir, { harnesses, pipeline: [{ id: "code", harness: "local", maxAttempts: 2 }] }, { harness: "local" });
   assert.deepEqual(advanced2, []);
   assert.equal(info2.health.requeue, true);
-  assert.equal(s3.getAttempt("42", "code"), 1, "still at its pre-run value past the cap");
+  assert.equal(s3.getAttempt("42", "code"), 1, "still at its pre-run value on a repeat trip");
 });
 
 test("dispatch: the usage record's durationMs is kept when the adapter reports it, else derived from startedAt/endedAt (#652)", async () => {

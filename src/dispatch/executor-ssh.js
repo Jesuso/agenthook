@@ -12,6 +12,8 @@ import path from "node:path";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { MAX_SANDBOX_VERDICT_BYTES } from "./verdict.js";
+import { runtimeEnv } from "./sandbox.js";
+import { mangle } from "../paths.js";
 import { OUTBOX_FILE_NAMES, OUTBOX_COPY_CAP_BYTES } from "./outbox.js";
 import { gitArgv, HOST_GIT_TIMEOUT_MS } from "../worktree.js";
 
@@ -98,6 +100,43 @@ export function sshBaseArgs(remote) {
  * shQuoted, same as `runRemote`. @param {import('../types.js').RemoteHarness} remote @param {string} script @returns {string[]} */
 export function remoteProbeArgv(remote, script) {
   return [...sshBaseArgs(remote), shQuote("sh"), shQuote("-c"), shQuote(script)];
+}
+
+/** The full `ssh` argv for an INTERACTIVE command on this harness's worker (`resume --exec`,
+ * #830): the only tty variant — `-t` instead of `-T`, the same options (still `BatchMode=yes`,
+ * never `-A`) and host, then the same shQuoted `sh -c <script>` tail. @param {import('../types.js').RemoteHarness} remote @param {string} script @returns {string[]} */
+export function sshInteractiveArgv(remote, script) {
+  return ["-t", ...sshOptionArgs(remote), remote.host, shQuote("sh"), shQuote("-c"), shQuote(script)];
+}
+
+/** The env the LOCAL ssh client for this worker gets: the receiver's own runtime env
+ * (`runtimeEnv` — PATH/HOME/USER/XDG_RUNTIME_DIR + container prefixes, never the step's `env`
+ * nor the rest of process.env) plus the agent-forwarding socket, and `TERM` only for a pty
+ * (`sshInteractiveArgv`). Same env shape as the executor's own ssh call. @param {{tty?: boolean}} [o] @returns {Record<string, string>} */
+export function sshClientEnv({ tty = false } = {}) {
+  const env = { ...runtimeEnv(process.env) };
+  if (typeof process.env.SSH_AUTH_SOCK === "string") env.SSH_AUTH_SOCK = process.env.SSH_AUTH_SOCK;
+  if (tty && typeof process.env.TERM === "string") env.TERM = process.env.TERM;
+  return env;
+}
+
+/** The worker paths one run's agent lived in (#830): its launch cwd (the worktree or export dir
+ * `paths()` computed) and — for a worktree step — the bare repo that worktree came from, so a
+ * hand-resume can `git worktree add` it back. Reuses the private path helpers, so nothing else
+ * re-derives them. @param {import('../types.js').RemoteHarness} remote @param {string} stateKey
+ * @param {{ref: string, stepId: string, hasWorktree: boolean, repoId?: string}} o
+ * @returns {{cwd: string, bareRepo?: string}} */
+export function remoteRunPaths(remote, stateKey, { ref, stepId, hasWorktree, repoId }) {
+  const cwd = hasWorktree ? remoteWorktreePath(remote, stateKey, ref) : remoteExportPath(remote, stateKey, ref, stepId);
+  return { cwd, ...(hasWorktree && repoId ? { bareRepo: remoteRepoGitPath(remote, stateKey, repoId) } : {}) };
+}
+
+/** The agent transcript dir for a worker launch cwd, RELATIVE to the worker user's `$HOME`
+ * (#830): Claude keys its project dir by the launch cwd's mangle (src/paths.js), and no `HOME`
+ * crosses to the worker (`remoteEnvAllowlist`) — so it's the worker user's own `~/.claude`.
+ * @param {string} cwd the worker launch cwd (absolute) @returns {string} */
+export function remoteTranscriptDir(cwd) {
+  return path.posix.join(".claude", "projects", mangle(cwd));
 }
 
 /** `GIT_SSH_COMMAND` for a hub git-transport call (push/fetch) against this harness's worker

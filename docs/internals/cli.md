@@ -25,8 +25,8 @@ node bin/agenthook.js reload            # re-read + validate the config and appl
 node bin/agenthook.js remove <name|key> [--purge] [--yes] [--keep-hooks]  # retire a profile: archive ~/.agenthook/<key>/ to ~/.agenthook-archive/ (running: decommission at idle; --purge = delete permanently, stopped only)
 node bin/agenthook.js ls                 # table of ALL profiles under ~/.agenthook + live status
 node bin/agenthook.js status [name]      # one profile in detail (url, queue, recent runs)
-node bin/agenthook.js follow [session]   # tail a live agent transcript read-only
-node bin/agenthook.js resume [ref [session]]  # last N runs / a ref's sessions / print|--exec claude --resume
+node bin/agenthook.js follow [session]   # tail a live agent transcript read-only; a remote-harness run's transcript lives on its worker and is streamed read-only over the executor's no-pty ssh (`-T`, never `-A`) — nothing is pulled or copied locally (an in-flight remote run of an agent that keeps no transcript, e.g. opencode, follows its HUB run log instead — nothing on the worker to stream; #830)
+node bin/agenthook.js resume [ref [session]]  # last N runs / a ref's sessions / print|--exec claude --resume; a remote-harness session (listed as `id @host`) is resumed on the WORKER: a no-pty probe checks its dir first (`syncAfter` removes it after every run — gone ⇒ re-run the step or `git worktree add` on the worker, and never sync back), present ⇒ `ssh -t` (the only tty variant, `sshInteractiveArgv`) into it with `--exec` or just prints the command; the step's env is NEVER forwarded (a step env set on the hub is only warned about)
 node bin/agenthook.js agents [--all]     # running agent runs (this profile; --all = every profile)
 node bin/agenthook.js cleanup [--apply [--force]]  # tear down done agent worktrees
 node bin/agenthook.js register <url>     # manual webhook create (hosted/static URL)
@@ -88,4 +88,8 @@ lint config.
   from the per-run logs) and `listSessions` (every session a ref has, each labelled with its pipeline
   step by correlating the session's first-message time to the nearest run-log start). Backs `resume`.
   Note: a ref's transcripts live under `mangle(worktreePath(cfg, ref))` (agent cwd = worktree), **not**
-  the repo mangle `follow` uses; a ref has one session per step run (code, review, …).
+  the repo mangle `follow` uses; a ref has one session per step run (code, review, …). A usage record
+  of a REMOTE-harness run additionally carries `host` + `remoteCwd` (the worker's host + launch cwd,
+  `src/dispatch/finish.js`) and is listed even though claude keeps its transcripts locally — the
+  session is tagged `remote: {harness, host, cwd}` and lives on the worker (`resume` handles it,
+  #830); older records have neither field and say so instead of guessing.
