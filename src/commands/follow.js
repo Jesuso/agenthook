@@ -92,10 +92,11 @@ export function keepsTranscripts(name) {
 
 /** The remote script `follow` streams (#830): resolve the transcript dir under the worker
  * user's $HOME, pick `<id>.jsonl` (or, with no id, the newest `*.jsonl`), announce which
- * file it is tailing on an `AHF <file>` header line, then stream it — foreground
- * `tail -n 15 -F`; when the local connection dies (Ctrl-C kills the ssh), sshd kills the
- * remote tail with it, so nothing lingers on the worker. Exits 3 when there is no
- * transcript yet. Pure.
+ * file it is tailing on an `AHF <file>` header line, then stream it — background
+ * `tail -n 15 -F` with a closed-stdin watchdog (`cat >/dev/null`): with no pty (`-T`) sshd
+ * sends no SIGHUP, so without the watchdog the tail would linger until it next writes. When
+ * the local ssh dies (Ctrl-C), the remote `cat` gets EOF and kills the tail. Exits 3 when
+ * there is no transcript yet. Pure.
  * @param {string} cwd the worker launch cwd @param {string|null} id @returns {string} */
 function remoteFollowScript(cwd, id) {
   const dir = shQuote(remoteTranscriptDir(cwd));
@@ -107,7 +108,8 @@ function remoteFollowScript(cwd, id) {
     pick,
     `[ -n "$f" ] && [ -f "$f" ] || { echo "no transcript yet in $d" >&2; exit 3; }`,
     `echo "AHF $f"`,
-    `exec tail -n 15 -F "$f"`,
+    `tail -n 15 -F "$f" & t=$!`,
+    `cat >/dev/null; kill $t 2>/dev/null; exit 0`,
   ].join("\n");
 }
 
@@ -117,19 +119,20 @@ export class NoTranscriptYet extends Error {}
 
 /** Stream an in-flight remote run's transcript read-only over ssh (#830): the executor's
  * PROBE argv (`-T`, no pty, `BatchMode=yes`, never `-A`) and the executor's own client env —
- * stdin is a pipe that is never written, so killing this process closes the link and sshd
- * kills the remote `tail` with it. Never starts an agent process. Resolves when ssh exits 0;
+ * stdin is a pipe that is never written: the script's `cat >/dev/null` holds the link, and
+ * when this process dies the remote `cat` gets EOF and kills the tail. Never starts an agent
+ * process. Resolves when ssh exits 0;
  * rejects with one line otherwise — exit 3 (no transcript yet, tagged `noTranscript` for
  * `follow`'s candidate loop) or anything else (255 = unreachable worker).
  * @param {import('../types.js').RemoteHarness} remote @param {string} cwd the worker launch cwd
  * @param {string|null} id @param {string} harnessName the harness the run is on (error text)
  * @returns {Promise<void>} */
 export async function followRemote(remote, cwd, id, harnessName) {
-  // The executor's own ssh shape (executor-ssh.js's runRemote) minus its stdin pipe: follow
-  // never writes to it, so stdin is /dev/null — the remote tail's lifetime is the ssh
-  // connection's, and sshd kills it when this process dies.
+  // The executor's own ssh shape (executor-ssh.js's runRemote): stdin is a pipe follow never
+  // writes — the script's closed-stdin watchdog (`cat >/dev/null; kill $t`) ties the remote
+  // tail's lifetime to this connection, so it can't linger after Ctrl-C or a finished run.
   const child = spawn("ssh", remoteProbeArgv(remote, remoteFollowScript(cwd, id)), {
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
     env: sshClientEnv({ tty: false }),
   });
   /** @type {string} */
@@ -280,7 +283,9 @@ export async function follow(args) {
       await followRemote(newest.remote, newest.worktree, null, newest.harness);
       return;
     }
-    return followRemoteRunLog(cfg, newest);
+    // `args.signal` is optional (the CLI never passes one — the default blocks until Ctrl-C);
+    // tests pass one so the run-log tail ends.
+    return followRemoteRunLog(cfg, newest, args.signal);
   }
 
   let file = "";

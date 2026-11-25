@@ -14,9 +14,10 @@ import { loadConfig, registryDir } from "../src/config.js";
 import { createStore } from "../src/store.js";
 import { mangle } from "../src/paths.js";
 import { listSessions } from "../src/sessions.js";
-import { follow, followRemote, followRemoteRunLog, remoteFollowCandidates, NoTranscriptYet } from "../src/commands/follow.js";
+import { follow, followRemote, NoTranscriptYet } from "../src/commands/follow.js";
 import { resume, unreachableWorker } from "../src/commands/resume.js";
 import { sshInteractiveArgv, sshBaseArgs, remoteProbeArgv, remoteRunPaths, remoteTranscriptDir } from "../src/dispatch/executor-ssh.js";
+import { runtimeEnv } from "../src/dispatch/sandbox.js";
 
 // --- fakes: an ssh that logs its argv and runs the remote script locally with $HOME pointed
 // at a fake worker home (plus a non-following `tail`, so `tail -n 15 -F` prints and exits) ---
@@ -32,7 +33,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
-fs.appendFileSync(path.join(here, "record.jsonl"), JSON.stringify({ all: args }) + "\\n");
+fs.appendFileSync(path.join(here, "record.jsonl"), JSON.stringify({ all: args, envKeys: Object.keys(process.env), secrets: { GITHUB_TOKEN: process.env.GITHUB_TOKEN, ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY, API_KEY: process.env.API_KEY } }) + "\\n");
 try {
   const forced = fs.readFileSync(path.join(here, "SSH_EXIT"), "utf8").split("\\n");
   console.error(forced.slice(1).join("\\n"));
@@ -56,11 +57,18 @@ process.exit(r.status ?? 1);
  * exit, instead of following forever. */
 const FAKE_TAIL = `#!/bin/sh\nhead -n 15 "$4"\n`;
 
+/** A fake `cat` that lingers a beat: the remote script's `cat >/dev/null` watchdog gets EOF
+ * instantly here (the fake worker has no live ssh stdin), so without the delay it would `kill`
+ * the just-spawned background tail before it could print. A live worker's ssh stdin blocks
+ * until Ctrl-C, which is the delay this stands in for. */
+const FAKE_CAT = `#!/bin/sh\nsleep 0.2\n`;
+
 function withFakeWorkerSsh() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-rfr-bin-"));
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "ah-rfr-home-"));
   fs.writeFileSync(path.join(dir, "ssh"), FAKE_SSH, { mode: 0o755 });
   fs.writeFileSync(path.join(dir, "tail"), FAKE_TAIL, { mode: 0o755 });
+  fs.writeFileSync(path.join(dir, "cat"), FAKE_CAT, { mode: 0o755 });
   fs.writeFileSync(path.join(dir, "FAKE_HOME"), home);
   const saved = { PATH: process.env.PATH };
   process.env.PATH = `${dir}${path.delimiter}${process.env.PATH}`;
@@ -136,6 +144,32 @@ const TRANSCRIPT =
   JSON.stringify({ type: "assistant", timestamp: "2026-01-01T00:00:01.000Z", message: { content: [{ type: "text", text: "working on it" }] } }) +
   "\n";
 
+/** Assert the fake ssh's received env is EXACTLY the executor's client env: no key beyond
+ * `runtimeEnv` + `SSH_AUTH_SOCK` + TERM, and the seeded secrets/step-env keys absent. A
+ * regression to `env: process.env` (or `{...process.env, ...step.env}`) fails both checks.
+ * @param {{envKeys: string[], secrets: Record<string, string|undefined>}} rec */
+function assertWorkerEnvClean(rec) {
+  const allowed = new Set([...Object.keys(runtimeEnv(process.env)), "SSH_AUTH_SOCK", "TERM"]);
+  assert.deepEqual(rec.envKeys.filter((k) => !allowed.has(k)).sort(), [], `unexpected keys in the worker ssh env`);
+  assert.equal(rec.secrets.GITHUB_TOKEN, undefined, "seeded GITHUB_TOKEN must not reach the worker");
+  assert.equal(rec.secrets.ANTHROPIC_API_KEY, undefined, "seeded ANTHROPIC_API_KEY must not reach the worker");
+  assert.equal(rec.secrets.API_KEY, undefined, "a step-env-named key from process.env must not reach the worker");
+}
+
+/** Seed fake secrets + a step-env-named key into process.env; returns a restore fn. */
+function seedSecrets() {
+  const saved = { g: process.env.GITHUB_TOKEN, a: process.env.ANTHROPIC_API_KEY, k: process.env.API_KEY };
+  process.env.GITHUB_TOKEN = "fake-gh-token";
+  process.env.ANTHROPIC_API_KEY = "fake-ant-token";
+  process.env.API_KEY = "fake-step-token";
+  return () => {
+    const put = (k, v) => (v === undefined ? delete process.env[k] : (process.env[k] = v));
+    put("GITHUB_TOKEN", saved.g);
+    put("ANTHROPIC_API_KEY", saved.a);
+    put("API_KEY", saved.k);
+  };
+}
+
 /** Plant a worker transcript `<id>.jsonl` for launch cwd; returns its path. */
 function plantTranscript(home, cwd, id) {
   const dir = path.join(home, ".claude", "projects", mangle(cwd));
@@ -182,17 +216,22 @@ test("follow (no id): an in-flight remote claude run wins over local search and 
     const wt = `${prof.workDir}/.agenthook/${prof.stateKey}/worktrees/1`;
     const file = plantTranscript(ssh.home, wt, "sess-1");
     storeFor(cfg).setRunning("1", { stepId: "code", startedAt: new Date().toISOString(), worktree: wt, harness: "worker", agent: "claude", host: "worker.test" });
+    const unseed = seedSecrets();
 
     const out = await withLogs(() => follow({ config: prof.file, _: [] }));
     assert.ok(out.includes(`following: worker.test:${file}  (Ctrl+C to stop — agent keeps running)`), out);
     assert.ok(out.includes("🤖 working on it"), `rendered transcript line missing:\n${out}`);
 
-    const argv = ssh.record().at(-1).all;
+    const last = ssh.record().at(-1);
+    const argv = last.all;
     assert.equal(argv[0], "-T", "follow must use the no-pty probe argv");
     assert.deepEqual(argv.slice(0, 4), ["-T", "-o", "BatchMode=yes", "worker.test"]);
     assert.ok(!argv.includes("-t") && !argv.includes("-A"), "never a pty, never agent-socket forwarding");
     assert.ok(argv[6].includes(`.claude/projects/${mangle(wt)}`), `script must resolve the worker transcript dir under $HOME (got ${argv[6]})`);
-    assert.ok(argv[6].includes("exec tail -n 15 -F"), "read-only tail, nothing else");
+    assert.ok(argv[6].includes('tail -n 15 -F "$f" &') && argv[6].includes("cat >/dev/null"), `the remote tail must run under the closed-stdin watchdog (got ${argv[6]})`);
+    // The ssh client env is the executor's own: no seeded secrets, nothing beyond runtimeEnv.
+    assertWorkerEnvClean(last);
+    unseed();
   } finally {
     ssh.restore();
   }
@@ -261,34 +300,34 @@ test("followRemote: exit 3 (no transcript yet) is tagged NoTranscriptYet so foll
 
 // --- follow: an opencode remote run tails the HUB run log (nothing on the worker to stream) ---
 
-test("followRemoteRunLog: tails the in-flight run's hub log; none readable is a plain error", async () => {
+test("follow (no id): an in-flight remote opencode run follows its HUB run log (the keepsTranscripts routing)", async () => {
   const ssh = withFakeWorkerSsh();
   const prof = makeProfile({ harnesses: workerRemote });
   try {
     const cfg = loadConfig({ configPath: prof.file });
     const wt = `${prof.workDir}/.agenthook/${prof.stateKey}/worktrees/9`;
-    const store = storeFor(cfg);
-    store.setRunning("9", { stepId: "code", startedAt: new Date().toISOString(), worktree: wt, harness: "worker", agent: "opencode", host: "worker.test" });
-    const cand = remoteFollowCandidates(cfg, store.listRunning())[0];
-    assert.equal(cand.agent, "opencode");
+    storeFor(cfg).setRunning("9", { stepId: "code", startedAt: new Date().toISOString(), worktree: wt, harness: "worker", agent: "opencode", host: "worker.test" });
 
-    // No run log yet → the plain error.
+    // No run log yet → the plain error, through the command (not the helper).
     await assert.rejects(
-      withLogs(() => followRemoteRunLog(cfg, cand, new AbortController().signal)),
+      withLogs(() => follow({ config: prof.file, _: [] })),
       /agent opencode keeps no transcript on worker\.test and no hub run log is readable for 9/,
     );
 
-    // A run log + a run_start event → the log's lines, raw, through the command's output.
+    // A run log + a run_start event → follow() routes opencode to the hub run log and
+    // streams it raw (the abort signal is the test's stand-in for Ctrl-C).
     fs.mkdirSync(cfg.logDir, { recursive: true });
     fs.writeFileSync(path.join(cfg.logDir, "2026-01-01T00-00-00-000Z-step-code-9.log"), "hub boot line\nopencode said hello\n");
     fs.appendFileSync(path.join(cfg.stateDir, "events.jsonl"), JSON.stringify({ event: "run_start", ref: "9", step: "code", ts: "2026-01-01T00:00:00.000Z" }) + "\n");
     const ac = new AbortController();
-    const p = withLogs(() => followRemoteRunLog(cfg, cand, ac.signal));
+    const p = withLogs(() => follow({ config: prof.file, _: [], signal: ac.signal }));
     await new Promise((r) => setTimeout(r, 150));
     ac.abort();
     const out = await p;
     assert.ok(out.includes("agent opencode keeps no transcript on worker.test — following its hub run log"), out);
     assert.ok(out.includes("opencode said hello"), `run log line missing:\n${out}`);
+    // The keepsTranscripts routing kept opencode off the remote-tail path: no ssh at all.
+    assert.equal(ssh.record().length, 0, "an opencode run must not reach the worker over ssh");
   } finally {
     ssh.restore();
   }
@@ -341,17 +380,20 @@ test("resume <ref> <sel> (remote, dir present): prints the ssh -t command, never
   }
 });
 
-test("resume <ref> <sel> (remote, dir gone after the run): says so, offers the two options + the no-sync warning, exits 1", async () => {
+test("resume <ref> <sel> (remote, dir gone after the run, --exec): says so, offers the two options + the no-sync warning, exits 1, spawns no interactive ssh", async () => {
   const ssh = withFakeWorkerSsh();
   const prof = makeProfile({ pipeline: [{ id: "code", createsWorktree: true }], harnesses: workerRemote });
   try {
     const cfg = loadConfig({ configPath: prof.file });
     const store = storeFor(cfg);
-    recordRemoteUsage(store, "7", "rs-1", path.join(ssh.home, "gone", "7")); // never created
+    // The recorded cwd is the run's real WORKTREE path (what executor.paths() recorded) — it
+    // never existed on the (fake) worker, so the probe says "gone". The worktree shape is what
+    // makes option 2 (hand `git worktree add`) appear.
+    recordRemoteUsage(store, "7", "rs-1", `${prof.workDir}/.agenthook/${prof.stateKey}/worktrees/7`); // never created
 
     process.exitCode = 0;
     try {
-      const out = await withLogs(() => resume({ config: prof.file, _: ["7", "rs-1"] }));
+      const out = await withLogs(() => resume({ config: prof.file, _: ["7", "rs-1"], exec: true }));
       assert.ok(out.includes("was removed after the run"), out);
       assert.ok(out.includes("re-run the step from the tracker"), out);
       assert.ok(out.includes("worktree add"), `a worktree step offers the hand-recreate (got ${out})`);
@@ -381,6 +423,7 @@ test("resume <ref> <sel> --exec (remote, dir present): runs the -t ssh with the 
     const dir = path.join(ssh.home, "wd", "7");
     fs.mkdirSync(dir, { recursive: true });
     recordRemoteUsage(store, "7", "rs-1", dir);
+    const unseed = seedSecrets();
 
     process.exitCode = 0;
     try {
@@ -391,11 +434,31 @@ test("resume <ref> <sel> --exec (remote, dir present): runs the -t ssh with the 
     } finally {
       process.exitCode = 0;
     }
-    const calls = ssh.record().map((c) => c.all);
-    assert.equal(calls.at(-1)[0], "-t", "the exec launch is the tty variant (the probe before it was -T)");
-    assert.equal(calls.at(-1).includes("-A"), false, "never agent-socket forwarding");
-    const script = calls.at(-1)[6];
+    const last = ssh.record().at(-1);
+    assert.equal(last.all[0], "-t", "the exec launch is the tty variant (the probe before it was -T)");
+    assert.equal(last.all.includes("-A"), false, "never agent-socket forwarding");
+    const script = last.all[6];
     assert.ok(script.includes(dir) && script.includes("definitely-missing-830") && script.includes("'rs-1'"), JSON.stringify(script));
+    // The interactive ssh got the tty client env: no seeded secrets, nothing beyond runtimeEnv.
+    assertWorkerEnvClean(last);
+    unseed();
+  } finally {
+    ssh.restore();
+  }
+});
+
+test("resume <ref> <sel> (remote, unreachable worker): one line naming host + harness + stderr", async () => {
+  const ssh = withFakeWorkerSsh();
+  const prof = makeProfile({ pipeline: [{ id: "code", createsWorktree: true }], harnesses: workerRemote });
+  try {
+    const cfg = loadConfig({ configPath: prof.file });
+    const store = storeFor(cfg);
+    recordRemoteUsage(store, "7", "rs-1", path.join(ssh.home, "wd", "7"));
+    ssh.setUnreachable(255, "Connection timed out");
+    await assert.rejects(
+      withLogs(() => resume({ config: prof.file, _: ["7", "rs-1"] })),
+      /worker worker\.test \(harness "worker"\) unreachable: Connection timed out/,
+    );
   } finally {
     ssh.restore();
   }

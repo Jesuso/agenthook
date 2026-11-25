@@ -13,7 +13,6 @@
 //   agenthook resume <ref> <id|prefix|n>    print `cd <worktree> && claude -r <id>`
 //   agenthook resume <ref> <sel> --exec     run it now (interactive; inherits terminal)
 import fs from "node:fs";
-import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { loadConfig } from "../config.js";
 import { createStore } from "../store.js";
@@ -23,8 +22,6 @@ import { sessionDirs, listSessions, recentRuns, refRepo, agentSessions } from ".
 import { agentFor, getAgent } from "../agents/index.js";
 import { remoteProbeArgv, sshInteractiveArgv, sshClientEnv, shQuote, remoteRunPaths } from "../dispatch/executor-ssh.js";
 import { ago } from "./ls.js";
-
-const PKG_VERSION = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version;
 
 /** @param {string|number} s @param {number} n */
 const pad = (s, n) => String(s).padEnd(n);
@@ -144,15 +141,16 @@ async function resumeRemote(cfg, session, remoteInfo, ref, exec, bin) {
   const { harness, host, cwd } = remoteInfo;
   const remote = cfg.harnesses?.[harness]?.remote;
   if (!remote || remote.host !== host) throw new Error(`harness "${harness}" (host "${host}") is no longer in the config — its worker can't be reached`);
-  if (!cwd) throw new Error(`can't locate this run's directory on ${host} (recorded before agenthook ${PKG_VERSION} added remoteCwd to usage.jsonl)`);
+  if (!cwd) throw new Error(`can't locate this run's directory on ${host} (recorded before agenthook tracked a remote run's worker dir in usage.jsonl)`);
   const pipeline = cfg.pipeline ?? [];
-  const i = pipeline.findIndex((s) =>
-    s.id === session.step);
+  const i = pipeline.findIndex((s) => s.id === session.step);
   const step = i >= 0 ? pipeline[i] : undefined;
-  // Whether the run lived in a worktree (the bare repo keeps its branch) mirrors dispatch:
-  // a worktree exists once any step up to and including this one declares createsWorktree.
-  const hasWorktree = i >= 0 && pipeline.slice(0, i + 1).some((s) => s.createsWorktree);
-  const paths = remoteRunPaths(remote, cfg.stateKey, { ref, stepId: session.step, hasWorktree, repoId: refRepo(cfg, ref).id });
+  // Whether the run lived in a worktree (the bare repo keeps its branch) is read from the
+  // recorded cwd itself — a worktree run's cwd is the worktree path, an export run's is not —
+  // so option 2 (hand `git worktree add`) is offered exactly when the run was in a worktree.
+  const repoId = refRepo(cfg, ref).id;
+  const hasWorktree = cwd === remoteRunPaths(remote, cfg.stateKey, { ref, stepId: session.step, hasWorktree: true, repoId }).cwd;
+  const paths = remoteRunPaths(remote, cfg.stateKey, { ref, stepId: session.step, hasWorktree, repoId });
 
   // Probe first — the run is finished/hold when you resume, so the dir usually is gone.
   const probe = spawnSync("ssh", remoteProbeArgv(remote, `test -d ${shQuote(cwd)}`), { encoding: "utf8", env: sshClientEnv({ tty: false }) });
@@ -176,6 +174,9 @@ async function resumeRemote(cfg, session, remoteInfo, ref, exec, bin) {
 
   const argv = sshInteractiveArgv(remote, `cd ${shQuote(cwd)} && exec ${shQuote(bin)} ${resumeArgs(cfg, session).map(shQuote).join(" ")}`);
   const stepEnv = step?.env && Object.keys(step.env).length ? Object.keys(step.env) : null;
+  // Printed on BOTH paths: the note is about what does NOT reach the worker, so it applies
+  // whether you run the ssh or copy it. Keys only — never values.
+  if (stepEnv) console.log(`  note: step "${session.step}" sets env ${stepEnv.join(", ")} for its agent — NOT forwarded to the worker`);
   if (exec) {
     const r = spawnSync("ssh", argv, { stdio: "inherit", env: sshClientEnv({ tty: true }) });
     if (r.error) throw r.error;
@@ -183,7 +184,6 @@ async function resumeRemote(cfg, session, remoteInfo, ref, exec, bin) {
     return;
   }
   console.log(`ssh ${argv.join(" ")}`);
-  if (stepEnv) console.log(`  note: step "${session.step}" sets env ${stepEnv.join(", ")} for its agent — NOT forwarded to the worker`);
 }
 
 /** @param {any} args */
