@@ -60,8 +60,8 @@ export function transcriptDirs(cfg, repos) {
 }
 
 /** The in-flight REMOTE runs a follow can reach (#830): running.json entries that name a
- * worker (`host`) whose harness still declares a `remote` block in the config (a renamed or
- * deleted harness is unreachable by construction). `worktree` is the worker launch cwd — the
+ * worker (`host`) whose harness still declares a `remote` block in the config pointing at
+ * THAT host (a renamed, deleted, or re-pointed harness is unreachable by construction). `worktree` is the worker launch cwd — the
  * run's transcript dir is mangled from it, under the worker user's $HOME.
  * @param {import('../types.js').Config} cfg @param {Record<string, unknown>} running
  * @returns {{ref: string, stepId: string, startedAt: string, worktree: string, harness: string, agent: string, host: string, remote: import('../types.js').RemoteHarness}[]} */
@@ -73,7 +73,7 @@ export function remoteFollowCandidates(cfg, running) {
     const r = /** @type {{ stepId?: string, startedAt?: string, worktree?: string, harness?: string, agent?: string, host?: string }} */ (raw);
     const harness = typeof r.harness === "string" ? r.harness : undefined;
     const remote = harness ? cfg.harnesses?.[harness]?.remote : undefined;
-    if (!remote || !harness || !r.host || !r.worktree) continue;
+    if (!remote || !harness || !r.host || !r.worktree || r.host !== remote.host) continue;
     out.push({ ref, stepId: r.stepId ?? "", startedAt: r.startedAt ?? "", worktree: r.worktree, harness: harness, agent: r.agent ?? "", host: r.host, remote });
   }
   return out;
@@ -234,18 +234,22 @@ export async function follow(args) {
     if (!hit) throw new Error(`unknown repo "${args.repo}" — valid ids: ${repos.map((r) => r.id).join(", ")}`);
     repos = [hit];
   }
-  // Local search only — a remote run's transcript never lands on the hub. Throws for a
-  // profile whose agents keep no transcripts (unchanged); remote candidates don't need it.
+  // Local search only — a remote run's transcript never lands on the hub. The search throws
+  // for a profile whose agents keep no transcripts (opencode/pi); remote candidates don't
+  // need the local dirs, so keep the error and only rethrow when no remote candidate can
+  // answer — a profile with no remote run still gets its original error, unchanged.
   /** @type {{id: string, file: string}[]} */
   let files = [];
   /** @type {string[]} */
   let searched = [];
+  /** @type {Error|undefined} */
+  let localErr;
   try {
     const local = transcriptDirs(cfg, repos);
     files = local.files;
     searched = local.searched;
-  } catch {
-    /* no local transcripts — remote candidates (or the "not found" error) decide */
+  } catch (e) {
+    localErr = /** @type {Error} */ (e);
   }
   const candidates = remoteFollowCandidates(cfg, createStore(cfg.dataDir).listRunning());
 
@@ -272,7 +276,7 @@ export async function follow(args) {
       }
     }
     if (last) throw last;
-    throw new Error(`session transcript not found: ${id} (searched ${searched.join(", ")})`);
+    if (!remoteCands.length) throw localErr ?? new Error(`session transcript not found: ${id} (searched ${searched.join(", ")})`);
   }
 
   // No id: an in-flight remote run wins — its transcript lives on the worker, so stream it
@@ -288,6 +292,7 @@ export async function follow(args) {
     return followRemoteRunLog(cfg, newest, args.signal);
   }
 
+  if (localErr) throw localErr; // a no-transcript profile with no remote run: the original error
   let file = "";
   {
     const newest = files.map(({ file: full }) => ({ full, m: fs.statSync(full).mtimeMs })).sort((a, b) => b.m - a.m);

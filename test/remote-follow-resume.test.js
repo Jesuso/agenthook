@@ -14,9 +14,9 @@ import { loadConfig, registryDir } from "../src/config.js";
 import { createStore } from "../src/store.js";
 import { mangle } from "../src/paths.js";
 import { listSessions } from "../src/sessions.js";
-import { follow, followRemote, NoTranscriptYet } from "../src/commands/follow.js";
+import { follow, followRemote, NoTranscriptYet, remoteFollowCandidates } from "../src/commands/follow.js";
 import { resume, unreachableWorker } from "../src/commands/resume.js";
-import { sshInteractiveArgv, sshBaseArgs, remoteProbeArgv, remoteRunPaths, remoteTranscriptDir } from "../src/dispatch/executor-ssh.js";
+import { sshInteractiveArgv, sshBaseArgs, remoteProbeArgv, remoteRunPaths, remoteTranscriptDir, shQuote } from "../src/dispatch/executor-ssh.js";
 import { runtimeEnv } from "../src/dispatch/sandbox.js";
 
 // --- fakes: an ssh that logs its argv and runs the remote script locally with $HOME pointed
@@ -91,7 +91,7 @@ function withFakeWorkerSsh() {
 
 let n = 0;
 const madeState = [];
-/** @param {{pipeline?: any[], harnesses?: (p: any) => any}} o */
+/** @param {{pipeline?: any[], harnesses?: (p: any) => any, agent?: string}} o */
 function makeProfile(o = {}) {
   n++;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `ah-rfr-${n}-`));
@@ -107,6 +107,7 @@ function makeProfile(o = {}) {
       name: `rf${n}`,
       stateId: `rf${n}`,
       repoPath: repo,
+      ...(o.agent ? { agent: o.agent } : {}),
       tracker: { type: "asana", pipeline: o.pipeline ?? [{ id: "code" }] },
       ...(o.harnesses ? { harnesses: o.harnesses(prof) } : {}),
     }),
@@ -206,17 +207,27 @@ test("unreachableWorker: one line naming host, harness and the first stderr line
   assert.match(unreachableWorker({ host: "h.test" }, "worker", new Error("")).message, /unreachable: ssh failed$/);
 });
 
+test("remoteFollowCandidates: only runs whose harness still points at that exact host qualify", () => {
+  const cfg = { harnesses: { worker: { remote: { host: "worker.test", workDir: "/w" } } } };
+  const running = {
+    "1": { stepId: "code", startedAt: "a", worktree: "/w/1", harness: "worker", agent: "claude", host: "worker.test" },
+    "2": { stepId: "code", startedAt: "b", worktree: "/w/2", harness: "worker", agent: "claude", host: "repointed.test" }, // harness edited mid-run
+    "3": { stepId: "code", startedAt: "c", worktree: "/w/3", harness: "gone", agent: "claude", host: "gone.test" }, // harness removed
+  };
+  assert.deepEqual(remoteFollowCandidates(cfg, running).map((c) => c.ref), ["1"]);
+});
+
 // --- follow: an in-flight remote claude run, auto-picked with no id ---
 
 test("follow (no id): an in-flight remote claude run wins over local search and streams its worker transcript over -T ssh", async () => {
   const ssh = withFakeWorkerSsh();
   const prof = makeProfile({ harnesses: workerRemote });
+  const unseed = seedSecrets();
   try {
     const cfg = loadConfig({ configPath: prof.file });
     const wt = `${prof.workDir}/.agenthook/${prof.stateKey}/worktrees/1`;
     const file = plantTranscript(ssh.home, wt, "sess-1");
     storeFor(cfg).setRunning("1", { stepId: "code", startedAt: new Date().toISOString(), worktree: wt, harness: "worker", agent: "claude", host: "worker.test" });
-    const unseed = seedSecrets();
 
     const out = await withLogs(() => follow({ config: prof.file, _: [] }));
     assert.ok(out.includes(`following: worker.test:${file}  (Ctrl+C to stop — agent keeps running)`), out);
@@ -231,7 +242,23 @@ test("follow (no id): an in-flight remote claude run wins over local search and 
     assert.ok(argv[6].includes('tail -n 15 -F "$f" &') && argv[6].includes("cat >/dev/null"), `the remote tail must run under the closed-stdin watchdog (got ${argv[6]})`);
     // The ssh client env is the executor's own: no seeded secrets, nothing beyond runtimeEnv.
     assertWorkerEnvClean(last);
+  } finally {
     unseed();
+    ssh.restore();
+  }
+});
+
+test("follow (opencode profile, no remote run): the original 'no transcripts to follow' error, unchanged", async () => {
+  const prof = makeProfile({ agent: "opencode" });
+  await assert.rejects(follow({ config: prof.file, _: [] }), (e) => /^opencode runs have no transcripts to follow$/.test(e.message));
+});
+
+test("follow <id> (opencode profile, no remote run): same error, no ssh call", async () => {
+  const ssh = withFakeWorkerSsh();
+  const prof = makeProfile({ agent: "opencode" });
+  try {
+    await assert.rejects(follow({ config: prof.file, _: ["s-1"] }), (e) => /^opencode runs have no transcripts to follow$/.test(e.message));
+    assert.equal(ssh.record().length, 0, "no remote candidate, so no ssh call");
   } finally {
     ssh.restore();
   }
@@ -417,13 +444,13 @@ test("resume <ref> <sel> --exec (remote, dir present): runs the -t ssh with the 
   // `claude`, and the assertion is on the plumbing, not on claude's exit codes. It also pins
   // the precedence `remote.bin` > agent default.
   const prof = makeProfile({ pipeline: [{ id: "code", createsWorktree: true }], harnesses: (p) => ({ worker: { remote: { host: "worker.test", workDir: p.workDir, bin: "definitely-missing-830" } } }) });
+  const unseed = seedSecrets();
   try {
     const cfg = loadConfig({ configPath: prof.file });
     const store = storeFor(cfg);
     const dir = path.join(ssh.home, "wd", "7");
     fs.mkdirSync(dir, { recursive: true });
     recordRemoteUsage(store, "7", "rs-1", dir);
-    const unseed = seedSecrets();
 
     process.exitCode = 0;
     try {
@@ -436,13 +463,16 @@ test("resume <ref> <sel> --exec (remote, dir present): runs the -t ssh with the 
     }
     const last = ssh.record().at(-1);
     assert.equal(last.all[0], "-t", "the exec launch is the tty variant (the probe before it was -T)");
+    assert.deepEqual(last.all.slice(0, 4), ["-t", "-o", "BatchMode=yes", "worker.test"], "the tty argv keeps BatchMode, host and no -A");
     assert.equal(last.all.includes("-A"), false, "never agent-socket forwarding");
-    const script = last.all[6];
-    assert.ok(script.includes(dir) && script.includes("definitely-missing-830") && script.includes("'rs-1'"), JSON.stringify(script));
+    // The exact remote script: cd into the worker dir, exec the bin with the agent's resume
+    // argv. The argv element is shQuoted once more (as in runRemote), so compare that form.
+    const script = `cd ${shQuote(dir)} && exec 'definitely-missing-830' '-r' 'rs-1'`;
+    assert.equal(last.all[6], shQuote(script), "the tty launch must run exactly `cd <cwd> && exec <bin> -r <id>` on the worker");
     // The interactive ssh got the tty client env: no seeded secrets, nothing beyond runtimeEnv.
     assertWorkerEnvClean(last);
-    unseed();
   } finally {
+    unseed();
     ssh.restore();
   }
 });
