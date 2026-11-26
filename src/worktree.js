@@ -157,6 +157,30 @@ async function resolveBase(cfg, repo) {
   return { ref, sha: git(cfg, repo, ["rev-parse", "--short", ref]) };
 }
 
+/** The hub-side merge base for a REMOTE (ssh) run's review diff (#826): the worker's clone
+ * is fresh (no origin default ref), so the hub computes `merge-base origin/<default> HEAD`
+ * in its own worktree and embeds the sha in the prompt. Falls back to the local default
+ * branch when `origin/<default>` isn't resolvable; null when nothing is.
+ * @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown} | undefined>}} cfg @param {string} worktree @returns {{sha: string, ref: string} | null} */
+export function remoteMergeBase(cfg, worktree) {
+  /** @param {string[]} args */
+  const tryGit = (args) => {
+    try {
+      return git(cfg, worktree, args);
+    } catch {
+      return null;
+    }
+  };
+  let name = tryGit(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])?.replace("origin/", "") ?? null;
+  if (!name) name = tryGit(["symbolic-ref", "--short", "HEAD"]);
+  if (!name) return null;
+  const sha = tryGit(["merge-base", `origin/${name}`, "HEAD"]);
+  if (sha) return { sha, ref: `origin/${name}` };
+  const local = tryGit(["merge-base", name, "HEAD"]);
+  if (local) console.log(`[worktree] remote merge base: origin/${name} not resolvable — using local ${name} (${local.slice(0, 8)})`);
+  return local ? { sha: local, ref: name } : null;
+}
+
 /**
  * Ensure a worktree exists for this task, creating the branch on first use.
  * Idempotent: a second call (e.g. the review step) returns the existing one.

@@ -603,6 +603,35 @@ export function createGithubProjectsAdapter(cfg, store) {
     return opts.map((/** @type {any} */ o) => ({ id: o.name, label: o.name }));
   };
 
+  // Serve the issue's comments for a REMOTE (ssh) run's prompt (#826): the worker holds no
+  // tracker credentials, so the hub embeds the thread instead of telling the agent to read it
+  // with `gh`. Same thread postComment writes to (the card's ISSUE, resolved the same way),
+  // the NEWEST up to 100 (`comments(last:100)` — GraphQL still returns them ascending, so no
+  // page walk is needed). `owner` uses the SAME strict rule as the `@agent` resume gate
+  // (assigneeLogin under App auth, else the viewer's login; an unresolvable author/identity
+  // fails closed), computed here so dispatch never guesses. Returned oldest→newest (the
+  // prompt reverses to newest-first).
+  /** @param {string} ref @returns {Promise<import('../types.js').TicketComment[]>} */
+  async function fetchComments(ref) {
+    const item = await findItem(ref);
+    const subjectId = item?.issue?.id || (await issueNodeId(ref));
+    const body = await gql(
+      `query($id:ID!){ node(id:$id){ ... on Issue { comments(last:100){ nodes{ author{ login } body createdAt } } } } }`,
+      { id: subjectId },
+    );
+    /** @type {import('../types.js').TicketComment[]} */
+    const out = [];
+    for (const c of body?.data?.node?.comments?.nodes || []) {
+      out.push({
+        author: c?.author?.login ?? null,
+        body: typeof c?.body === "string" ? c.body : "",
+        createdAt: typeof c?.createdAt === "string" ? c.createdAt : "",
+        owner: await isOwner(c?.author?.login),
+      });
+    }
+    return out;
+  }
+
   return {
     describe: () => ({
       platform: "GitHub Projects",
@@ -740,6 +769,9 @@ export function createGithubProjectsAdapter(cfg, store) {
       console.log(`[comment] posted on #${ref}${typeof dbId === "number" ? ` (comment ${dbId})` : ""}`);
       return dbId ?? null;
     },
+
+    // The ticket's comments for a remote run's prompt (#826) — implementation just above the `return`.
+    fetchComments,
 
     // Resolve a finished step by SETTING the item's Status to the option its verdict
     // maps to — and that Status change is itself the trigger for whatever step that

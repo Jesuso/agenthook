@@ -485,6 +485,36 @@ export function createGithubAdapter(cfg, store) {
     return ((await json(res)) || []).map((/** @type {any} */ l) => ({ id: l.name, label: l.name }));
   };
 
+  // Serve the issue's comments for a REMOTE (ssh) run's prompt (#826): the worker holds no
+  // tracker credentials, so the hub embeds the thread instead of telling the agent to read it
+  // with `gh`. REST lists comments ascending, so the NEWEST up to 100 = the LAST page (named
+  // by the Link header's rel="last" — one extra request only when the history exceeds 100).
+  // `owner` uses the SAME strict rule as the `@agent` resume gate (isOwner — our own
+  // identity, an unresolvable one fails closed), computed here so dispatch never guesses.
+  // Returned oldest→newest (the prompt reverses to newest-first).
+  /** @param {string} ref @returns {Promise<import('../types.js').TicketComment[]>} */
+  async function fetchComments(ref) {
+    const q = `${repoPath()}/issues/${ref}/comments?per_page=100`;
+    let res = await api(q);
+    if (!res.ok) throw new Error(`list comments ${res.status}`);
+    const lastPage = String(res.headers.get("link") || "").match(/page=(\d+)>;\s*rel="last"/);
+    if (lastPage && Number(lastPage[1]) > 1) {
+      res = await api(`${q}&page=${lastPage[1]}`);
+      if (!res.ok) throw new Error(`list comments ${res.status}`);
+    }
+    /** @type {import('../types.js').TicketComment[]} */
+    const out = [];
+    for (const c of (await json(res) || []).slice(-100)) {
+      out.push({
+        author: c?.user?.login ?? null,
+        body: typeof c?.body === "string" ? c.body : "",
+        createdAt: typeof c?.created_at === "string" ? c.created_at : "",
+        owner: await isOwner(c?.user?.login),
+      });
+    }
+    return out;
+  }
+
   return {
     describe: () => ({
       platform: "GitHub",
@@ -717,6 +747,11 @@ export function createGithubAdapter(cfg, store) {
         console.log(`[closed] #${ref} (terminal step ${entered.id})`);
       }
     },
+
+    // Serve the issue's comments for a REMOTE (ssh) run's prompt (#826) — the implementation is
+    // just above the `return` (it needs `isOwner`); the hub embeds the thread in the prompt
+    // because the worker holds no tracker credentials.
+    fetchComments,
 
     // Post a comment on the ticket (#825): the hub-side half of a remote run's outbox
     // (src/dispatch/publish.js). `body` was size-capped and trigger-stripped at read time
