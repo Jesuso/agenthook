@@ -29,7 +29,7 @@ import { isAppAuth, normalizePem, createGithubAuth, mintInstallationToken } from
 import { runTokenPermissions, revokeRunToken, originUrl, RUN_TOKEN_STRIP } from "../github-run-token.js";
 import { parseGithubRemote } from "../forges/github.js";
 import { isSandboxed } from "../sandbox/names.js";
-import { DEFAULT_IMAGE, AGENT_DOCKERFILE, buildImageArgs } from "../sandbox/image.js";
+import { DEFAULT_IMAGE, AGENT_DOCKERFILE, buildImageArgs, serviceImageRemedy } from "../sandbox/image.js";
 import { serviceImages } from "../sandbox/container.js";
 import { claudePermissionArgs, claudePolicyArgs, sandboxCredentialProblem } from "../agents/claude.js";
 import { agentSpawnEnv } from "../dispatch/spawn.js";
@@ -877,7 +877,7 @@ export async function sandboxRuntimeChecks({ type: runtime, image }, { run, has 
               if (b.status !== 0) throw new Error(`\`${bin} build\` exited ${b.status}`);
             },
           }
-        : { manual: `build ${img} (FROM ${DEFAULT_IMAGE}, with sh, git, gh and the agent CLI on PATH) — see docs/sandbox.md` },
+        : { manual: `${runtime} build -t ${img} <dir with a Dockerfile that starts FROM ${DEFAULT_IMAGE}> — it needs sh, git, gh and the agent CLI on PATH — see docs/sandbox.md` },
     });
   }
   return out;
@@ -904,7 +904,7 @@ export async function sandboxChecks(cfg, { run, has = onPath, build = buildImage
   for (const img of serviceImages(cfg)) {
     if (images.includes(img)) continue;
     const r = await run(bin, ["image", "inspect", img], { timeoutMs: 30_000 }).catch((e) => ({ code: 1, stdout: "", stderr: e.message }));
-    out.push({ ok: r.code === 0, label: `sandbox service image present: ${img}`, note: r.code === 0 ? "" : "missing", fix: { manual: `${cfg.sandbox.type} pull ${img}` } });
+    out.push({ ok: r.code === 0, label: `sandbox service image present: ${img}`, note: r.code === 0 ? "" : "missing", fix: { manual: serviceImageRemedy(cfg.sandbox.type, img) } });
   }
   for (const s of cfg.pipeline ?? []) {
     if (s.manual || !isSandboxed(cfg, s)) continue;

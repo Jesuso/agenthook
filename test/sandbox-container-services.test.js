@@ -245,7 +245,7 @@ test("reap(): service containers go with the rest of the profile's (by label)", 
   assert.deepEqual(s.calls[4].slice(1), ["network", "rm", "n1"]);
 });
 
-test("check(): every sandboxed step's service images are inspected; a missing one names the pull to run", async () => {
+test("check(): every sandboxed step's service images are inspected; a missing one names the pull (or build, if locally built) to run", async () => {
   const pipeline = [{ id: "code", services: ["db", "cache"] }, { id: "review", services: ["db"] }, { id: "done", manual: true }];
   const cfg = { ...svcCfg({ egress: { mode: "open" } }), pipeline };
   const s = stubRun({});
@@ -254,6 +254,6 @@ test("check(): every sandboxed step's service images are inspected; a missing on
   /** @type {import('../src/types.js').IngressRun} */
   const missing = async (_bin, args) => ({ code: args[2] === "redis:7.2" ? 1 : 0, stdout: "", stderr: "" });
   const r = await createContainerSandbox(cfg, { runtime: "podman", run: missing }).check();
-  assert.deepEqual(r, { ok: false, reason: "service image redis:7.2 not found — run `podman pull redis:7.2`" });
+  assert.deepEqual(r, { ok: false, reason: "service image redis:7.2 not found — run podman pull redis:7.2, or if it is built locally: podman build -t redis:7.2 <dir with its Dockerfile>" });
   assert.deepEqual(serviceImages({ ...cfg, pipeline: [{ id: "code", sandbox: false, services: ["db"] }] }), [], "an unsandboxed step's services are never run");
 });
