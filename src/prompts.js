@@ -165,7 +165,7 @@ function runConstraints(kind, remote, meta, url) {
     lines.push(
       `- To open the draft PR, write \`${remote.outboxDir}/pr.json\` with {"title","body"}; the body must start`,
       `  with exactly: **${meta.platform}:** ${url} — the hub opens/updates the PR on your behalf. On a rework`,
-      `  pass, do not write pr.json: the existing PR is reused.`,
+      `  pass it's optional — the hub reuses the existing PR, so writing it again is harmless.`,
     );
   }
   lines.push(
@@ -278,7 +278,9 @@ export function stepPrompt(task, meta, step, ctx) {
         ? "opened a draft PR"
         : "left the work as uncommitted/committed changes in the worktree";
     const findDiff = ctx.remote
-      ? `Review the committed change with \`git -C ${ctx.worktree || "<worktree>"} diff ${ctx.remote.base ? `${ctx.remote.base.sha}...` : ""}HEAD\` (and \`git diff --stat\`) and run the\nrelevant tests, then report your findings per the standing instructions above. There is NO PR to\nopen — the diff is the deliverable. Do not run any \`gh\` command.`
+      ? ctx.remote.base
+        ? `Review the committed change with \`git -C ${ctx.worktree || "<worktree>"} diff ${ctx.remote.base.sha}...HEAD\` (and \`git diff --stat\`) and run the\nrelevant tests, then report your findings per the standing instructions above. There is NO PR to\nopen — the diff is the deliverable. Do not run any \`gh\` command.`
+        : `The hub could not determine this branch's base commit, so there is no single diff to read. Use\n\`git -C ${ctx.worktree || "<worktree>"} log --oneline\` to list the branch's commits and review them one\nby one (\`git show\`), and run the relevant tests, then report your findings per the standing\ninstructions above. If the branch has no commits at all, "hold" and say the review could not\nestablish a base. There is NO PR to open. Do not run any \`gh\` command.`
       : usesPR
         ? `Find the PR for branch "${ctx.branch}" (\`gh pr list --head ${ctx.branch} --json number,url\`),\nreview the diff, and report your findings per the standing instructions above.\nAlso check the PR body (\`gh pr view ${ctx.branch || "<branch>"} --json body\`) contains a line linking this ${N}\n(\`**${meta.platform}:** ${task.url}\`). If it doesn't, that is a blocking finding: use "changes" and say so.\nNever "advance" a PR without it.`
         : `Review the change with \`git -C ${ctx.worktree || "<worktree>"} diff\` (and \`git diff --stat\`) and run the\nrelevant tests, then report your findings per the standing instructions above. There is NO PR — do\nnot run any \`gh\` command.`;
@@ -370,7 +372,7 @@ export function stepPrompt(task, meta, step, ctx) {
       ? `- Post a brief status comment back on the ${N}: ${meta.commentHowTo}.\n  What it says (audience, detail level) is set by the standing instructions above; if they don't say, include the PR link. Do NOT start the comment with "${meta.trigger}".`
       : `- Do NOT post comments anywhere — put any status note in the verdict \`reason\`.`;
   const advanceLine = ctx.remote
-    ? `- "advance": the work is done, committed on the branch, the relevant tests pass, and \`pr.json\` is in the\n  outbox (first pass — on a rework pass the existing PR is reused, so pr.json is not needed) — hand it to review.`
+    ? `- "advance": the work is done, committed on the branch, the relevant tests pass, and \`pr.json\` is in the\n  outbox (first pass — on a rework pass the existing PR is reused, so pr.json is optional) — hand it to review.`
     : usesPR
       ? `- "advance": the work is done, the draft PR is open, mergeable with base (not "CONFLICTING"), green, and its\n  body carries the \`**${meta.platform}:**\` task link — hand it to review.`
       : `- "advance": the work is done, committed on the branch, and the relevant tests pass — hand it to review.`;

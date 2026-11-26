@@ -410,6 +410,8 @@ test("implement prompt (remote): commits + pr.json outbox contract, hub opens th
   assert.match(p, /COMMIT your work on the branch — the\s*\n?\s*receiver pushes it and opens\/updates the draft PR with the hub's credentials/);
   assert.match(p, /`\/state\/outbox\/pr\.json` with {"title","body"}; the body must start\s*\n?\s*with exactly: \*\*GitHub:\*\* http:\/\/x\/1/);
   assert.match(p, /the hub opens\/updates the PR on your behalf/);
+  assert.match(p, /pass it's optional — the hub reuses the existing PR, so writing it again is harmless/);
+  assert.doesNotMatch(p, /do not write pr\.json/); // the worker can't know a PR exists — writing it is safe
   assert.doesNotMatch(p, /gh pr/); // no gh command anywhere (list/edit/view/comment/api)
   assert.doesNotMatch(p, /mergeable,mergeStateStatus/); // no CONFLICTING/mergeability dance
   assert.match(p, /no `gh`, no `git push`/);
@@ -428,9 +430,12 @@ test("review prompt (remote): diffs against the hub-computed base sha, NO PR, no
   assert.match(p, /=== RUN CONSTRAINTS/);
 });
 
-test("review prompt (remote, no base): diffs the branch head only", () => {
+test("review prompt (remote, no base): says the base is unknown and points at git log — never a silently empty diff", () => {
   const p = stepPrompt(task, meta, step("review"), { ...ctx, remote: { outboxDir: "/state/outbox", comments: "@a  t  OWNER\nb" } });
-  assert.match(p, /git -C \/w diff HEAD\`/);
+  assert.match(p, /could not determine this branch's base commit/);
+  assert.match(p, /git -C \/w log --oneline/);
+  assert.doesNotMatch(p, /diff HEAD/); // `git diff HEAD` shows only uncommitted changes — empty for committed work
+  assert.match(p, /no commits at all, "hold"/);
 });
 
 test("no ctx.remote: no RUN CONSTRAINTS, no TICKET_COMMENTS, and the prompts are the historical ones", () => {

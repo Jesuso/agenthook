@@ -110,9 +110,13 @@ runs are never stored there).
 
 A harness with `remote: {host, user?, port?, identityFile?, workDir, bin?}` runs its agent under
 `<workDir>/.agenthook/<stateKey>/…` on that worker. Config validation refuses a step on a remote
-harness outright when: the step is sandboxed; per-run GitHub App credentials would be minted for
-it (scoped to the hub, not the worker); its effective agent isn't `claude` or `opencode` (#739);
-or `tracker.type` isn't `local`. `remote.bin` defaults to the resolved agent's own `defaults.bin`
+harness outright when: the step is sandboxed; its effective agent isn't `claude` or `opencode`
+(#739); or `tracker.type` isn't in the remote set — `local`, `github`, `github-projects` (#826; a
+remote worker needs the tracker to serve the ticket's comments to the hub via `fetchComments`, so
+a type without it is refused by name). A remote run under `github`/`github-projects` mints **no**
+per-run GitHub App credentials: the worker holds no tracker or forge access, and the prompt
+carries the embedded comment thread plus the commit-only outbox contract instead
+(`docs/remote.md`). `remote.bin` defaults to the resolved agent's own `defaults.bin`
 (`defaultBin` on `launch()`), never a hard-coded `"claude"`.
 
 **Code transport (#690).** The hub worktree stays the only real copy. `paths({stepId, ref,

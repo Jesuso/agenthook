@@ -207,6 +207,16 @@ export function createStep(ctx) {
     // sandbox always did.
     const headBefore = hasWorktree ? branchHead(cfg, worktree) : null;
 
+    const logPath = logPathFor(step.id, job.ref);
+    console.log(`[run] step ${step.id} ${job.ref} "${task.name}" -> ${logPath}`);
+    // Header line: the human id + title (filename stays keyed by the ref). Written before the
+    // remote-prompt block below, whose fallback lines also go into the run log.
+    try {
+      fs.writeFileSync(logPath, `# ${task.displayId ?? job.ref}  ${task.name ?? ""}\n`);
+    } catch (e) {
+      console.error(`[run] log header failed for ${job.ref}:`, e.message);
+    }
+
     // A remote (ssh) run under a non-local tracker (#826): the worker holds no tracker
     // credentials, so the prompt carries the ticket's comments (newest first, size-capped,
     // owner flagged by the adapter itself) plus the commit-only outbox contract — and the run
@@ -230,9 +240,14 @@ export function createStep(ctx) {
       }
       remoteCtx = { outboxDir, comments };
       if (hasWorktree) {
-        const mb = remoteMergeBase(cfg, worktree);
-        if (mb) remoteCtx.base = mb;
-        else console.log(`[dispatch] ${job.ref}: remote merge base unavailable — the review prompt will diff the branch head only`);
+        const mb = remoteMergeBase(cfg, repo, worktree);
+        if (mb) {
+          remoteCtx.base = mb;
+          if (!mb.ref.startsWith("origin/"))
+            logLine(logPath, `remote merge base: origin default not resolvable — using local ${mb.ref} (${mb.sha.slice(0, 8)})`);
+        } else {
+          logLine(logPath, "remote merge base unavailable — the review prompt will fall back to git log");
+        }
       }
     }
 
@@ -256,14 +271,6 @@ export function createStep(ctx) {
     });
     let prompt = standing ? `${standing}\n\n=== TICKET ===\n\n${base}` : base;
 
-    const logPath = logPathFor(step.id, job.ref);
-    console.log(`[run] step ${step.id} ${job.ref} "${task.name}" -> ${logPath}`);
-    // Header line: the human id + title (filename stays keyed by the ref).
-    try {
-      fs.writeFileSync(logPath, `# ${task.displayId ?? job.ref}  ${task.name ?? ""}\n`);
-    } catch (e) {
-      console.error(`[run] log header failed for ${job.ref}:`, e.message);
-    }
     // Sidecar for the UI's "what the agent sees" preview (src/ui) — the full standing + marker
     // + ticket form, even when a sandboxed run below dedupes `prompt` down to the ticket half
     // (the standing text went into the agent's instructions file instead); src/ui splits this

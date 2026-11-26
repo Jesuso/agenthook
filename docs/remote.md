@@ -317,7 +317,7 @@ shifts to commit-only, and the hub does the tracker side of the bookkeeping:
   `git push` are available.
 - **The worker writes an outbox instead of opening a PR or commenting itself:** a
   `pr.json` (or `comment.md`) the hub publishes with its own credentials after the run —
-  opening/updated the PR, posting the comment, adding the verdict label.
+  opening/updating the PR, posting the comment, adding the verdict label.
 - **Review steps diff against a hub-computed base** — the worker's clone is fresh (no origin
   default ref), so the hub runs `merge-base origin/<default> HEAD` in its own worktree and
   embeds the sha in the prompt; there is no PR for a remote review to look at.
