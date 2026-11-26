@@ -165,6 +165,12 @@ a token. The hint names the App permission to add.
 Under App auth the receiver mints its own installation token, and each agent run gets a
 **separate** one, minted for that run only. Set `githubRunToken: false` to turn this off.
 
+- **Remote (ssh) harness runs get none (#826).** The worker holds no tracker or forge
+  credentials of its own, so a remote run mints no run token regardless of `githubRunToken`:
+  the prompt embeds the ticket's comment thread and switches to the commit-only outbox contract
+  (the hub publishes the PR/comment with its own credentials). See the [remote harness](remote.md)
+  page.
+
 - **Scoped to the run's repos.** That's the routed checkout's `origin` (https, `git@` or
   `ssh://` github.com remotes) and the issue's repo (from the issue URL). On `github-projects` the
   two can differ. Both must be under one account: an installation token can't span two, so a run

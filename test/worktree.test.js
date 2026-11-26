@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ensureWorktree, worktreePath, branchName, branchHead, commitsSince, listWorktrees } from "../src/worktree.js";
+import { ensureWorktree, worktreePath, branchName, branchHead, commitsSince, listWorktrees, remoteMergeBase } from "../src/worktree.js";
 
 const ENV = {
   ...process.env,
@@ -235,6 +235,62 @@ test("commitsSince: counts commits past a sha; 0 when the tree is only dirty, or
     g(r.worktree, ["commit", "--allow-empty", "-m", "c2"]);
     assert.equal(commitsSince(wtCfg(s.cfg), r.worktree, before), 2);
     assert.equal(commitsSince(wtCfg(s.cfg), r.worktree, "not-a-sha"), 0, "an invalid start point fails closed to 0");
+  } finally {
+    fs.rmSync(s.root, { recursive: true, force: true });
+  }
+});
+
+// --- remoteMergeBase (#826): the hub-side base sha for a REMOTE (ssh) run's review diff —
+// the worker's clone is fresh (no origin default ref), so the hub computes it in its own worktree.
+test("remoteMergeBase: resolves origin/<default> via refs/remotes/origin/HEAD and merges it against HEAD", () => {
+  const s = setup();
+  try {
+    const r = remoteMergeBase(s.cfg, { path: s.repoPath }, s.repoPath);
+    assert.ok(r, "a base is found in a normal clone");
+    assert.equal(r.ref, "origin/master");
+    assert.equal(r.sha, g(s.repoPath, ["merge-base", "origin/master", "HEAD"]));
+  } finally {
+    fs.rmSync(s.root, { recursive: true, force: true });
+  }
+});
+
+test("remoteMergeBase: without refs/remotes/origin/HEAD it falls back to the local default branch name (same origin ref)", () => {
+  const s = setup();
+  try {
+    g(s.repoPath, ["symbolic-ref", "--delete", "refs/remotes/origin/HEAD"]); // clone without the remote symbolic ref
+    const r = remoteMergeBase(s.cfg, { path: s.repoPath }, s.repoPath);
+    assert.ok(r, "the local branch name still resolves");
+    assert.equal(r.ref, "origin/master");
+    assert.equal(r.sha, g(s.repoPath, ["rev-parse", "origin/master"]));
+  } finally {
+    fs.rmSync(s.root, { recursive: true, force: true });
+  }
+});
+
+test("remoteMergeBase: in a worktree on the agent branch (no origin/HEAD) the default name comes from the REPO, not the worktree's HEAD", async () => {
+  const s = setup();
+  try {
+    const { worktree } = await ensureWorktree(s.cfg, "7"); // branch agent/7, checked out in its own worktree
+    fs.writeFileSync(path.join(worktree, "a.txt"), "agent work");
+    g(worktree, ["add", "."]);
+    g(worktree, ["commit", "-q", "-m", "agent commit"]);
+    g(s.repoPath, ["symbolic-ref", "--delete", "refs/remotes/origin/HEAD"]); // a clone without the remote symbolic ref
+    const r = remoteMergeBase(s.cfg, { path: s.repoPath }, worktree);
+    assert.ok(r, "the main checkout is on master — a default exists");
+    assert.equal(r.ref, "origin/master", "named from the repo's main checkout, not the worktree's agent branch");
+    assert.equal(r.sha, g(s.repoPath, ["rev-parse", "origin/master"]));
+    assert.notEqual(r.sha, g(worktree, ["rev-parse", "HEAD"]), "never the agent branch's own HEAD (that would diff empty)");
+  } finally {
+    fs.rmSync(s.root, { recursive: true, force: true });
+  }
+});
+
+test("remoteMergeBase: a detached main checkout (no local branch name, no origin/HEAD) is null, not an error", () => {
+  const s = setup();
+  try {
+    g(s.repoPath, ["symbolic-ref", "--delete", "refs/remotes/origin/HEAD"]);
+    g(s.repoPath, ["checkout", "--quiet", "--detach", "HEAD"]);
+    assert.equal(remoteMergeBase(s.cfg, { path: s.repoPath }, s.repoPath), null, "nothing to name a default — fail closed");
   } finally {
     fs.rmSync(s.root, { recursive: true, force: true });
   }

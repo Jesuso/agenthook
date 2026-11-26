@@ -30,7 +30,6 @@ import { SANDBOX_NAMES, EGRESS_MODES, EGRESS_PROXY_ENV_KEYS, isSandboxed } from 
 import { HARNESS_ROUTINGS } from "./config-schema.js";
 import { egressEntryProblem } from "./sandbox/egress.js";
 import { SECRET_FIELDS, isEnvRef } from "./ui/sensitive.js";
-import { isAppAuth } from "./github-auth.js";
 import { harnessesOf } from "./dispatch/harness.js";
 
 // The installed package root (this file is src/config.js). Used only to read
@@ -556,11 +555,21 @@ function harnessesErrors(hs) {
   return errors;
 }
 
+/** The tracker types a remote (ssh) worker can work from (#826): `local` (no tracker
+ * channel at all) plus the ones whose adapters serve ticket comments to the hub
+ * (`fetchComments`, so the worker's prompt carries the thread instead of the agent
+ * reading it with `gh`). Anything else is refused by `remoteHarnessErrors` — and a
+ * test ties every non-local entry to an adapter that actually has `fetchComments`.
+ */
+export const REMOTE_TRACKERS = new Set(["local", "github", "github-projects"]);
+
 /**
  * Refusals for a step whose harness (named directly, or in a routing list) has a `remote` block
- * (#689, experimental): a remote worker can't run the profile's sandbox, mint per-run GitHub App
- * credentials, run a non-claude agent, or work from a non-local tracker (every one of those
- * assumes the hub's own host/sandbox or tracker semantics). Pure.
+ * (#689, experimental): a remote worker can't run the profile's sandbox or a non-claude agent.
+ * A non-local tracker is fine as long as it can serve the ticket's comments (#826 — the worker
+ * holds no credentials, so the prompt embeds them; `REMOTE_TRACKERS` gates it), and GitHub App
+ * auth is fine too: a remote run mints no per-run credentials (src/dispatch/step.js skips
+ * `runCredentials`). Pure.
  * @param {any} cfg  the raw (uninterpolated) config
  * @param {any} step
  * @param {Record<string, any>} harnesses
@@ -575,16 +584,13 @@ function remoteHarnessErrors(cfg, step, harnesses, where) {
   if (isSandboxed(cfg, step)) {
     errors.push(`config: ${where} uses remote harness ${names.map((n) => JSON.stringify(n)).join("/")} but the step is sandboxed — a remote worker can't run the profile's sandbox (set "sandbox": false on the step).`);
   }
-  const appAuth = cfg.githubRunToken !== false && (isAppAuth(cfg.tracker) || isAppAuth(cfg.forge));
-  if (appAuth) {
-    errors.push(`config: ${where} uses remote harness ${names.map((n) => JSON.stringify(n)).join("/")} but per-run GitHub App credentials would be minted for it — they are scoped to the hub, not the worker (set "githubRunToken": false, or stop using GitHub App auth).`);
-  }
   for (const n of names) {
     const agent = step.agent ?? harnesses[n]?.agent ?? cfg.agent ?? DEFAULT_AGENT;
     if (agent !== "claude" && agent !== "opencode") errors.push(`config: ${where} remote harness ${JSON.stringify(n)} resolves to agent ${JSON.stringify(agent)} — only claude and opencode are supported on a remote worker yet.`);
   }
-  if (cfg.tracker?.type !== "local") {
-    errors.push(`config: ${where} uses remote harness ${names.map((n) => JSON.stringify(n)).join("/")} but "tracker.type" is ${JSON.stringify(cfg.tracker?.type)} — only the local tracker is supported with a remote worker yet.`);
+  const trackerType = cfg.tracker?.type;
+  if (trackerType != null && !REMOTE_TRACKERS.has(trackerType)) {
+    errors.push(`config: ${where} uses remote harness ${names.map((n) => JSON.stringify(n)).join("/")} but "tracker.type" is ${JSON.stringify(trackerType)} — a remote worker needs the tracker to serve the ticket's comments to the hub (the adapter's fetchComments), which ${JSON.stringify(trackerType)} doesn't yet.`);
   }
   return errors;
 }

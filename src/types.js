@@ -319,6 +319,15 @@
  * @property {string} [ownerHint]  who "the owner" is in the held-comments line (e.g. "@octocat"), for a tracker whose agents may post as another account (a GitHub App run token posts as `<app>[bot]`); omitted = "the account you are running as"
  */
 
+/** One ticket comment, as served by Adapter.fetchComments (#826). `owner` is computed
+ * INSIDE the adapter with the same strict rule as the `@agent` resume gate (our own
+ * identity, never `isOurs`); an unresolvable author/identity is `false` (fail closed).
+ * @typedef {object} TicketComment
+ * @property {string|null} author  the comment author's login, or null when the API gave none
+ * @property {string} body
+ * @property {string} createdAt  ISO timestamp as the platform reports it
+ * @property {boolean} owner */
+
 /** Per-run credentials an adapter hands one agent run (#474; src/github-run-token.js).
  * @typedef {object} RunCredentials
  * @property {Record<string,string>} env    layered over the #470 allowlisted env, under the step's env
@@ -376,6 +385,7 @@
  * @property {(ref: string) => Promise<string[]>} [openBlockers]  optional; the item's unresolved blockers (empty = unblocked), re-checked at dispatch time so a dependency added while the job waited in the local queue still gates it. Same fail-open semantics as the receive-time gate (API error → [] + warn)
  * @property {(ref: string) => Promise<"ours"|"not_ours"|"check_failed">} [ownership]  optional; the same fail-closed owner check the mutation gate uses, exposed read-only for `prs`' `mine` flag (asana/github/jira only; absent on github-projects/local)
  * @property {(ref: string, body: string) => Promise<number|null>} [postComment]  optional (#825); post `body` on the item's ticket (trusted text the hub composed — a remote run's outbox comment, src/dispatch/publish.js; github/github-projects only). Returns the posted comment's id (null when the API gave none). Throws on a non-2xx
+ * @property {(ref: string) => Promise<TicketComment[]>} [fetchComments]  optional (#826); the ticket's comments (newest 100, oldest→newest) for a REMOTE run's prompt — the worker holds no tracker credentials, so the hub embeds the thread in the prompt instead of pointing the agent at the API. The adapter computes each `owner` flag itself (strict identity, fail closed). Absent = the tracker can't serve comments, which config refuses for a remote harness
  * @property {(publicUrl: string) => Promise<void>} registerWebhook  an HTTP failure throws an Error carrying the numeric `status` (`Object.assign(new Error(msg), {status: res.status})`): boot retries a 5xx/429 (and network errors) indefinitely and a 404 three times (src/engine/boot-retry.js); any other status is fatal
  * @property {() => Promise<void>} unregisterWebhooks
  * @property {(ref: string) => Promise<void>} [complete]  optional; mark the item completed/closed on the tracker (Asana: completed:true). Used by a forge `merge` job; absent = no-op

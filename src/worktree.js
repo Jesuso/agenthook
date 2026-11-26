@@ -157,6 +157,32 @@ async function resolveBase(cfg, repo) {
   return { ref, sha: git(cfg, repo, ["rev-parse", "--short", ref]) };
 }
 
+/** The hub-side merge base for a REMOTE (ssh) run's review diff (#826): the worker's clone
+ * is fresh (no origin default ref), so the hub computes `merge-base origin/<default> HEAD`
+ * in its own worktree and embeds the sha in the prompt. The default branch NAME is resolved
+ * from the repo's main checkout (`repo.path`), never from the worktree's HEAD — the worktree
+ * sits on the agent branch, and naming that would make the "diff" empty. Falls back to the
+ * local default branch when `origin/<default>` isn't resolvable (the caller can see it: `ref`
+ * then lacks the `origin/` prefix); null when nothing names a default (e.g. a detached main
+ * checkout) — a caller must never diff against an unknown base.
+ * @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown} | undefined>}} cfg @param {{path: string}} repo @param {string} worktree @returns {{sha: string, ref: string} | null} */
+export function remoteMergeBase(cfg, repo, worktree) {
+  const name = defaultBranch(cfg, repo.path);
+  if (name === "HEAD") return null; // the main checkout is detached — no default to name
+  /** @param {string[]} args */
+  const tryGit = (args) => {
+    try {
+      return git(cfg, worktree, args);
+    } catch {
+      return null;
+    }
+  };
+  const sha = tryGit(["merge-base", `origin/${name}`, "HEAD"]);
+  if (sha) return { sha, ref: `origin/${name}` };
+  const local = tryGit(["merge-base", name, "HEAD"]);
+  return local ? { sha: local, ref: name } : null;
+}
+
 /**
  * Ensure a worktree exists for this task, creating the branch on first use.
  * Idempotent: a second call (e.g. the review step) returns the existing one.

@@ -8,7 +8,9 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { shQuote, framePayload, remoteEnvAllowlist, remoteProbeArgv } from "../src/dispatch/executor-ssh.js";
 import { createExecutors, executorFor, reapAll } from "../src/dispatch/executor.js";
-import { validateRawConfig } from "../src/config.js";
+import { validateRawConfig, REMOTE_TRACKERS } from "../src/config.js";
+import { createGithubAdapter } from "../src/trackers/github.js";
+import { createGithubProjectsAdapter } from "../src/trackers/github-projects.js";
 
 // --- shQuote ---
 
@@ -49,6 +51,25 @@ test("remoteEnvAllowlist: keeps AGENTHOOK_* and drops every forbidden family", (
   ]) {
     assert.ok(!(forbidden in out), `${forbidden} should have been dropped`);
   }
+});
+
+test("remoteEnvAllowlist: the App-auth credential family (GH_TOKEN/GITHUB_TOKEN/GH_CONFIG_DIR) never crosses to the worker payload, even when the hub has it in the spawn env (#826)", () => {
+  // A hub under GitHub App auth builds a spawn env with the per-run token family; the frame the
+  // worker receives is allowlisted — prove none of the family is in the payload itself.
+  const spawnEnv = {
+    GH_TOKEN: "ghp_app-tracker",
+    GITHUB_TOKEN: "ghp_app-forge",
+    GH_CONFIG_DIR: "/tmp/run-gh-config",
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "credential.https://github.com.helper",
+    GIT_CONFIG_VALUE_0: "!gh auth git-credential",
+    AGENTHOOK_VERDICT_FILE: "/w/state/verdicts/run-1-code/verdict.json",
+  };
+  const payload = framePayload(remoteEnvAllowlist(spawnEnv), "prompt");
+  for (const k of ["GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"]) {
+    assert.ok(!payload.includes(`${k}=`), `${k} crossed the allowlist into the payload`);
+  }
+  assert.ok(payload.includes(`AGENTHOOK_VERDICT_FILE=${spawnEnv.AGENTHOOK_VERDICT_FILE}`), "the verdict path crosses");
 });
 
 test("remoteEnvAllowlist: TERM/LANG/CI come from the receiver's own env, not the input", () => {
@@ -126,18 +147,46 @@ function baseConfig(overrides = {}) {
   };
 }
 
+// #826: the remote tracker set — a worker can work from a tracker whose adapter serves the
+// ticket's comments to the hub (the worker holds none of its own credentials). Any step kind
+// is fine; a remote entry in a routing list is fine.
+const APP_AUTH = { type: "app", appId: "1", installationId: "2", privateKey: "x" };
+
+for (const trackerType of ["github", "github-projects"]) {
+  for (const kind of ["triage", "implement", "review"]) {
+    test(`config: a ${trackerType} tracker with a remote harness validates on a ${kind} step (#826)`, () => {
+      const v = validateRawConfig(baseConfig({ tracker: { type: trackerType, pipeline: [{ id: kind, kind, harness: "worker" }] } }));
+      assert.equal(v.ok, true, v.ok ? "" : v.errors.join("\n"));
+    });
+  }
+}
+
+test("config: GitHub App auth (tracker or forge) with a remote harness validates — no per-run token is minted for the worker (#826)", () => {
+  for (const where of ["tracker", "forge"]) {
+    const tracker = { type: "github", pipeline: [{ id: "code", harness: "worker" }], assigneeLogin: "octo" };
+    const cfg = where === "tracker"
+      ? baseConfig({ tracker: { ...tracker, auth: APP_AUTH } })
+      : baseConfig({ tracker, forge: APP_AUTH });
+    const v = validateRawConfig(cfg);
+    assert.equal(v.ok, true, `${where} app auth: ${v.ok ? "" : v.errors.join("\n")}`);
+    assert.ok(!(v.errors ?? []).some((e) => e.includes("per-run")), 'the old per-run refusal is gone');
+  }
+});
+
+test("config: a remote entry in a first-free routing list still validates (#826)", () => {
+  const cfg = baseConfig({
+    tracker: { type: "github", pipeline: [{ id: "code", harness: ["worker", "host1"], routing: "first-free" }] },
+    harnesses: { worker: { remote: { host: "h", workDir: "/w" } }, host1: {} },
+  });
+  const v = validateRawConfig(cfg);
+  assert.equal(v.ok, true, v.ok ? "" : v.errors.join("\n"));
+});
+
 test("config refusal: a remote harness used by a sandboxed step", () => {
   const cfg = baseConfig({ sandbox: { type: "docker" } });
   const v = validateRawConfig(cfg);
   assert.equal(v.ok, false);
   assert.ok(v.errors.some((e) => e.includes("remote harness") && e.includes("sandboxed")), v.errors.join("\n"));
-});
-
-test("config refusal: GitHub App auth would mint per-run credentials for a remote harness", () => {
-  const cfg = baseConfig({ tracker: { type: "github", pipeline: [{ id: "code", harness: "worker" }], auth: { type: "app", appId: "1", installationId: "2", privateKey: "x" } } });
-  const v = validateRawConfig(cfg);
-  assert.equal(v.ok, false);
-  assert.ok(v.errors.some((e) => e.includes("GitHub App credentials")), v.errors.join("\n"));
 });
 
 test("config refusal: a remote harness resolving to a non-claude agent", () => {
@@ -147,11 +196,27 @@ test("config refusal: a remote harness resolving to a non-claude agent", () => {
   assert.ok(v.errors.some((e) => e.includes('resolves to agent "cursor"')), v.errors.join("\n"));
 });
 
-test("config refusal: a remote harness on a non-local tracker", () => {
+test("config: a remote harness on a tracker type the set doesn't cover is refused, naming the missing comment capability (#826)", () => {
   const cfg = baseConfig({ tracker: { type: "jira", pipeline: [{ id: "code", harness: "worker" }] } });
   const v = validateRawConfig(cfg);
   assert.equal(v.ok, false);
-  assert.ok(v.errors.some((e) => e.includes('"tracker.type" is "jira"')), v.errors.join("\n"));
+  assert.ok(v.errors.some((e) => e.includes('"tracker.type" is "jira"') && e.includes("fetchComments")), v.errors.join("\n"));
+});
+
+// Consistency (ticket #826): every REMOTE_TRACKERS entry other than "local" must name a tracker
+// whose factory actually ships fetchComments — the set is what makes a remote run's prompt
+// carry the ticket's comments, so a member that can't serve them is a broken promise.
+test("REMOTE_TRACKERS: every non-local entry has an adapter with fetchComments", () => {
+  /** @type {Record<string, any>} */
+  const factories = {
+    github: createGithubAdapter({ trigger: "@agent", pipeline: [], providerConfig: { type: "github", token: "t", repository: "o/r", assigneeFilter: false } }, /** @type {any} */ ({ hasSeen: () => false })),
+    "github-projects": createGithubProjectsAdapter({ trigger: "@agent", pipeline: [], providerConfig: { type: "github-projects", token: "t", project: "o/1", assigneeFilter: false } }, /** @type {any} */ ({ hasSeen: () => false })),
+  };
+  for (const t of REMOTE_TRACKERS) {
+    if (t === "local") continue;
+    assert.ok(factories[t], `no factory in the test for REMOTE_TRACKERS entry ${t}`);
+    assert.equal(typeof factories[t].fetchComments, "function", `${t} adapter has fetchComments`);
+  }
 });
 
 test("config: a remote harness on an unsandboxed, non-App-auth, claude, local-tracker step is accepted", () => {

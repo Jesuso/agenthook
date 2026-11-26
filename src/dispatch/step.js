@@ -3,12 +3,12 @@
 import { summarizeDescription } from "../ticket-summary.js";
 import fs from "node:fs";
 import path from "node:path";
-import { stepPrompt, verdictRepairPrompt, gateRepairPrompt } from "../prompts.js";
+import { stepPrompt, verdictRepairPrompt, gateRepairPrompt, formatTicketComments } from "../prompts.js";
 import { guardSandboxVerdict, endedWithQuestion, NO_VALID_VERDICT } from "./verdict.js";
 import { newNonce } from "../untrusted.js";
 import { findStep, stepForStage, DEFAULT_MAX_MINUTES, DEFAULT_MAX_ATTEMPTS } from "../pipeline.js";
 import { runGate } from "./gate.js";
-import { ensureWorktree, drainWorktree, worktreePath, branchName, branchHead, commitsSince } from "../worktree.js";
+import { ensureWorktree, drainWorktree, worktreePath, branchName, branchHead, commitsSince, remoteMergeBase } from "../worktree.js";
 import { reportMoveFailure } from "../events.js";
 import { findBlocker } from "../overlap.js";
 import { agentFor } from "../agents/index.js";
@@ -207,6 +207,50 @@ export function createStep(ctx) {
     // sandbox always did.
     const headBefore = hasWorktree ? branchHead(cfg, worktree) : null;
 
+    const logPath = logPathFor(step.id, job.ref);
+    console.log(`[run] step ${step.id} ${job.ref} "${task.name}" -> ${logPath}`);
+    // Header line: the human id + title (filename stays keyed by the ref). Written before the
+    // remote-prompt block below, whose fallback lines also go into the run log.
+    try {
+      fs.writeFileSync(logPath, `# ${task.displayId ?? job.ref}  ${task.name ?? ""}\n`);
+    } catch (e) {
+      console.error(`[run] log header failed for ${job.ref}:`, e.message);
+    }
+
+    // A remote (ssh) run under a non-local tracker (#826): the worker holds no tracker
+    // credentials, so the prompt carries the ticket's comments (newest first, size-capped,
+    // owner flagged by the adapter itself) plus the commit-only outbox contract — and the run
+    // mints no per-run credentials (the runCredentials block below is skipped for remote).
+    // A local tracker (meta.usesPR false) never gets this: its prompts stay as-is.
+    /** @type {{outboxDir: string, comments: string, base?: {sha: string, ref: string}}|undefined} */
+    let remoteCtx;
+    if (remote && meta.usesPR !== false) {
+      const outboxDir = `${path.posix.dirname(verdictFile)}/outbox`;
+      /** @type {string} */
+      let comments;
+      if (typeof adapter.fetchComments === "function") {
+        try {
+          comments = formatTicketComments(await adapter.fetchComments(job.ref));
+        } catch (e) {
+          comments = "comments could not be loaded; hold if you need them";
+          console.error(`[dispatch] ${job.ref}: fetchComments failed for the remote prompt: ${e instanceof Error ? e.message : e}`);
+        }
+      } else {
+        comments = "comments could not be loaded; hold if you need them";
+      }
+      remoteCtx = { outboxDir, comments };
+      if (hasWorktree) {
+        const mb = remoteMergeBase(cfg, repo, worktree);
+        if (mb) {
+          remoteCtx.base = mb;
+          if (!mb.ref.startsWith("origin/"))
+            logLine(logPath, `remote merge base: origin default not resolvable — using local ${mb.ref} (${mb.sha.slice(0, 8)})`);
+        } else {
+          logLine(logPath, "remote merge base unavailable — the review prompt will fall back to git log");
+        }
+      }
+    }
+
     // Repo context (if the routed repo has an instructionsFile) goes ahead of the step's.
     const standing = [repo.instructionsFile ? readInstructions(repo.instructionsFile) : "", readInstructions(step.instructionsFile || cfg.instructionsFile)]
       .filter(Boolean)
@@ -222,18 +266,11 @@ export function createStep(ctx) {
       overlapGuard: cfg.overlapGuard,
       language: cfg.language,
       nonce: newNonce(),
+      ...(remoteCtx ? { remote: remoteCtx } : {}),
       ...(cfg.multiRepo ? { repo: { id: repo.id, path: repo.path } } : {}),
     });
     let prompt = standing ? `${standing}\n\n=== TICKET ===\n\n${base}` : base;
 
-    const logPath = logPathFor(step.id, job.ref);
-    console.log(`[run] step ${step.id} ${job.ref} "${task.name}" -> ${logPath}`);
-    // Header line: the human id + title (filename stays keyed by the ref).
-    try {
-      fs.writeFileSync(logPath, `# ${task.displayId ?? job.ref}  ${task.name ?? ""}\n`);
-    } catch (e) {
-      console.error(`[run] log header failed for ${job.ref}:`, e.message);
-    }
     // Sidecar for the UI's "what the agent sees" preview (src/ui) — the full standing + marker
     // + ticket form, even when a sandboxed run below dedupes `prompt` down to the ticket half
     // (the standing text went into the agent's instructions file instead); src/ui splits this
@@ -293,11 +330,15 @@ export function createStep(ctx) {
     // and couldn't refuses the run exactly like a preflight — never the operator's token instead.
     /** @type {import('../types.js').RunCredentials|null} */
     let creds = null;
-    if (!refused) {
+    // A remote run mints none (#826): the worker has no credentials of its own, and the
+    // hub's per-run token is scoped to the hub (gh/git on it, not on the worker).
+    if (!refused && !remote) {
       const got = await runCredentials({ ref: job.ref, step, task, repoPath: repo.path, dir: runCredsDirFor(step.id, job.ref), log: (line) => logLine(logPath, line) });
       creds = got.creds;
       refused = got.refused;
       if (creds) logLine(logPath, creds.label);
+    } else if (remote && !refused) {
+      logLine(logPath, "no per-run credentials minted — a remote run's worker holds no tracker/forge access");
     }
     /** @type {Parameters<typeof spawnAgent>[0]['sandboxed']} */
     let sandboxedRun;
