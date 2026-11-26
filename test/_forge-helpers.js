@@ -53,9 +53,9 @@ export function stubFetch(routes) {
       const [m, suffix] = k.split(" ");
       return m === method && String(url).endsWith(suffix);
     });
-    if (!hit) return { ok: false, status: 404, json: async () => ({}), text: async () => "" };
+    if (!hit) return { ok: false, status: 404, json: async () => ({}), text: async () => "", headers: new Headers() };
     const r = hit[1];
-    return { ok: (r.status ?? 200) < 300, status: r.status ?? 200, json: async () => r.json, text: async () => r.text ?? "" };
+    return { ok: (r.status ?? 200) < 300, status: r.status ?? 200, json: async () => r.json, text: async () => r.text ?? "", headers: new Headers(r.headers ?? {}) };
   };
   return { calls, restore: () => (global.fetch = orig) };
 }

@@ -1,7 +1,7 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { stepPrompt, languageLine, UNATTENDED_NOTICE } from "../src/prompts.js";
+import { stepPrompt, languageLine, UNATTENDED_NOTICE, formatTicketComments } from "../src/prompts.js";
 
 const task = { ref: "1", name: "T", url: "http://x/1", description: "body" };
 const meta = {
@@ -334,5 +334,109 @@ test("every step kind's verdict footer offers summary.options, scoped to a hold 
     assert.match(p, /Never invent a false choice/, kind);
     assert.match(p, /Leave it out when the answer is open-ended/, kind);
     assert.match(p, /does not count toward the 300-char limit/, kind);
+  }
+});
+
+// --- #826: the REMOTE (ssh) run under a non-local tracker — the worker holds no tracker
+// credentials, so the prompt embeds the ticket's comments and replaces `gh`/`git push` with
+// the commit-only outbox contract. `ctx.remote` is set ONLY for that case.
+const remote = {
+  outboxDir: "/state/outbox",
+  comments: "@alice  2025-01-02  not owner\nolder comment\n\n@octo  2025-01-03  OWNER\nnewer comment",
+  base: { sha: "abc1234", ref: "origin/main" },
+};
+const rctx = { ...ctx, remote };
+
+// --- formatTicketComments (pure): newest first, owner-flagged, size-capped with an omission note ---
+
+test("formatTicketComments: renders newest first with an OWNER|not owner header per entry", () => {
+  const comments = [
+    { author: "alice", body: "first", createdAt: "2025-01-01", owner: false },
+    { author: "octo", body: "second", createdAt: "2025-01-02", owner: true },
+    { author: null, body: "third", createdAt: "2025-01-03", owner: false },
+  ];
+  const out = formatTicketComments(comments);
+  const lines = out.split("\n");
+  assert.deepEqual(lines, [
+    "(unknown author)  2025-01-03  not owner",
+    "third",
+    "",
+    "@octo  2025-01-02  OWNER",
+    "second",
+    "",
+    "@alice  2025-01-01  not owner",
+    "first",
+  ], "newest first, owner flagged, null author named");
+});
+
+test("formatTicketComments: caps at maxBytes and says how many OLDER comments were omitted", () => {
+  const comments = Array.from({ length: 20 }, (_, i) => ({
+    author: `u${i}`, body: `x`.repeat(2000), createdAt: `t${i}`, owner: i === 5,
+  }));
+  const out = formatTicketComments(comments, 5 * 1024);
+  assert.match(out, /older comments omitted$/);
+  const omittedCount = Number(/** @type {string} */ (out.match(/(\d+) older comments omitted/)[1]));
+  assert.ok(omittedCount >= 1, "something was omitted");
+  assert.ok(out.startsWith("@u19  t19  not owner"), "the newest comment leads");
+  assert.ok(!out.includes("first"));
+});
+
+test("formatTicketComments: a single oversized comment still renders (the cap only omits older entries)", () => {
+  const out = formatTicketComments([{ author: "big", body: "y".repeat(40 * 1024), createdAt: "t", owner: true }], 32 * 1024);
+  assert.match(out, /^@big  t  OWNER\n/);
+  assert.doesNotMatch(out, /omitted/);
+});
+
+// --- the remote prompt shapes (ssh + github) ---
+
+test("triage prompt (remote): embeds the thread in TICKET_COMMENTS fences, owner-marked, newest first, no gh, outbox comment path, constraints after the ticket content", () => {
+  const p = stepPrompt(task, meta, step("triage"), rctx);
+  assert.match(p, /=== TICKET COMMENTS \(embedded — the worker has no tracker access\) ===/);
+  assert.match(p, /<<<UNTRUSTED TICKET_COMMENTS testnonce>>>\n@alice  2025-01-02  not owner\nolder comment\n\n@octo  2025-01-03  OWNER\nnewer comment\n<<<END UNTRUSTED TICKET_COMMENTS testnonce>>>/);
+  assert.match(p, /Newest first/);
+  assert.doesNotMatch(p, /FIRST read its newest comments/); // the embedded thread replaces the read instruction
+  assert.doesNotMatch(p, /gh issue comment/); // no gh anywhere
+  assert.match(p, /`\/state\/outbox\/comment\.md`/);
+  const cIdx = p.indexOf("=== RUN CONSTRAINTS");
+  assert.ok(cIdx > 0, "the RUN CONSTRAINTS section is present");
+  assert.ok(cIdx > p.indexOf("<<<END UNTRUSTED TICKET_COMMENTS"), "constraints come AFTER the ticket content");
+  assert.ok(p.indexOf("git push") > cIdx, "the only git-push mention is the no-push rule in the constraints");
+  assert.equal(p.split("git push").length - 1, 1);
+});
+
+test("implement prompt (remote): commits + pr.json outbox contract, hub opens the PR, no gh / no PR-body-mergeable instructions", () => {
+  const p = stepPrompt(task, meta, step("implement"), rctx);
+  assert.match(p, /\u003c\u003c\u003cUNTRUSTED TICKET_COMMENTS testnonce\u003e\u003e\u003e/, "the thread is embedded for the coding stage too");
+  assert.match(p, /COMMIT your work on the branch — the\s*\n?\s*receiver pushes it and opens\/updates the draft PR with the hub's credentials/);
+  assert.match(p, /`\/state\/outbox\/pr\.json` with {"title","body"}; the body must start\s*\n?\s*with exactly: \*\*GitHub:\*\* http:\/\/x\/1/);
+  assert.match(p, /the hub opens\/updates the PR on your behalf/);
+  assert.doesNotMatch(p, /gh pr/); // no gh command anywhere (list/edit/view/comment/api)
+  assert.doesNotMatch(p, /mergeable,mergeStateStatus/); // no CONFLICTING/mergeability dance
+  assert.match(p, /no `gh`, no `git push`/);
+  assert.match(p, /`\/state\/outbox\/comment\.md`/);
+  assert.match(p, /=== RUN CONSTRAINTS/);
+});
+
+test("review prompt (remote): diffs against the hub-computed base sha, NO PR, no gh, findings-only changes line", () => {
+  const p = stepPrompt(task, meta, step("review"), rctx);
+  assert.match(p, /git -C \/w diff abc1234\.\.\.HEAD/);
+  assert.match(p, /There is NO PR to\s*\n?\s*open — the diff is the deliverable/);
+  assert.doesNotMatch(p, /gh pr/);
+  assert.doesNotMatch(p, /post your outcome on the issue/);
+  assert.doesNotMatch(p, /gh pr comment/); // remote "changes" puts findings only in the verdict
+  assert.match(p, /<<<UNTRUSTED TICKET_COMMENTS testnonce>>>/); // the thread is embedded for review too
+  assert.match(p, /=== RUN CONSTRAINTS/);
+});
+
+test("review prompt (remote, no base): diffs the branch head only", () => {
+  const p = stepPrompt(task, meta, step("review"), { ...ctx, remote: { outboxDir: "/state/outbox", comments: "@a  t  OWNER\nb" } });
+  assert.match(p, /git -C \/w diff HEAD\`/);
+});
+
+test("no ctx.remote: no RUN CONSTRAINTS, no TICKET_COMMENTS, and the prompts are the historical ones", () => {
+  for (const kind of ["triage", "implement", "change", "review"]) {
+    const p = stepPrompt(task, meta, step(kind), ctx);
+    assert.doesNotMatch(p, /RUN CONSTRAINTS/);
+    assert.doesNotMatch(p, /TICKET_COMMENTS/);
   }
 });

@@ -330,6 +330,8 @@ export function createStep(ctx) {
       creds = got.creds;
       refused = got.refused;
       if (creds) logLine(logPath, creds.label);
+    } else if (remote && !refused) {
+      logLine(logPath, "no per-run credentials minted — a remote run's worker holds no tracker/forge access");
     }
     /** @type {Parameters<typeof spawnAgent>[0]['sandboxed']} */
     let sandboxedRun;

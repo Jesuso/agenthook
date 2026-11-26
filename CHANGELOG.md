@@ -28,6 +28,16 @@ All notable changes to this project are documented here. The format is based on
   one run-log line and never fail the step). Only the two fixed names are copied back over ssh
   (128 KiB cap, symlinks/FIFOs refused); anything else in the dir is logged without being read
   (#825, #681 phase 5a).
+- New: remote (ssh) harness runs work under the `github` and `github-projects` trackers, not
+  just `local` (#826, #681 phase 5b). A remote run **mints no per-run credentials** — the worker
+  holds no tracker or forge access (no `GH_TOKEN`/`GITHUB_TOKEN`/`GH_CONFIG_DIR`/`GIT_CONFIG_*`),
+  so GitHub App auth no longer needs `githubRunToken: false` for it. Config accepts any step
+  kind/id with these trackers. The prompt shifts to a commit-only contract: the hub fetches the
+  issue's comment thread (newest first, `OWNER`/`not owner` per entry, ~32 KiB cap; a fetch
+  failure is a notice in the prompt, not a run failure) and embeds it fenced as untrusted input,
+  the worker opens no PR itself and the hub publishes the outbox, and a review step diffs
+  against a hub-computed `merge-base origin/<default> HEAD` (the worker's clone has no origin
+  default ref) instead of a PR it cannot read.
 
 - `follow` and `resume` now support remote (ssh) harness runs (#830): a remote run's transcript
   and session live on the **worker** (`syncAfter` removes the dir after every run), so `follow`

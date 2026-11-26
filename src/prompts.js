@@ -394,6 +394,7 @@ export function stepPrompt(task, meta, step, ctx) {
           fenceUntrusted("REVIEW_FINDINGS", ctx.findings.text, nonce),
         ]
       : []),
+    ...(ctx.remote ? [``, ...remoteCommentsBlock(ctx.remote, meta, nonce)] : []),
     ``,
     `Instructions:`,
     ...readCommentsLine,

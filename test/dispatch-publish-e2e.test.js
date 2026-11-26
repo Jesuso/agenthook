@@ -88,6 +88,8 @@ function remotePublishHarness(o = {}) {
   const pushedArgs = [];
   const prArgs = [];
   const comments = [];
+  /** @type {Array<["adapter"|"forge", string|undefined]>} every runCredentials the hub mints for a run */
+  const credCalls = [];
   const adapter = /** @type {any} */ ({
     describe: () => ({
       platform: "GitHub",
@@ -97,6 +99,7 @@ function remotePublishHarness(o = {}) {
       stageKeys: { source: "sourceLabel", success: "successLabel", failure: "failLabel", hold: "holdLabel", queue: "queueLabel" },
     }),
     fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    runCredentials: async (/** @type {any} */ o) => { credCalls.push(["adapter", o?.ref]); return { label: "adapter-cred" }; },
     advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ verdict) => advanced.push({ ref, stepId, ...verdict }),
     postComment: async (/** @type {string} */ ref, /** @type {string} */ body) => {
       comments.push([ref, body]);
@@ -105,6 +108,7 @@ function remotePublishHarness(o = {}) {
   });
   const forge = /** @type {any} */ ({
     describe: () => ({ name: "github" }),
+    runCredentials: async (/** @type {any} */ o) => { credCalls.push(["forge", o?.ref]); return { label: "forge-cred" }; },
     publishBranch: async (/** @type {any} */ a) => {
       pushedArgs.push(a);
       return o.push ? o.push(a) : { pushed: [] };
@@ -126,7 +130,7 @@ function remotePublishHarness(o = {}) {
       console.log = log;
     }
   };
-  return { ssh, store, advanced, events, pushedArgs, prArgs, comments, runStep, dir };
+  return { ssh, store, advanced, events, pushedArgs, prArgs, comments, credCalls, runStep, dir };
 }
 
 test("finishStep: a remote (ssh) run's outbox is published — the branch is pushed, the draft PR opened, the comment posted — and the run advances", async () => {
@@ -141,6 +145,11 @@ test("finishStep: a remote (ssh) run's outbox is published — the branch is pus
     assert.deepEqual(h.prArgs, [{ branch: "agent/55", title: PR.title, body: PR.body }], "the outbox's PR was opened");
     assert.deepEqual(h.comments, [["55", COMMENT]], "the outbox comment was posted");
     assert.deepEqual(h.advanced.map((a) => a.outcome), ["advance"], "a clean publish leaves the verdict untouched");
+    // No per-run credentials minted for a remote run — the worker holds no tracker/forge access (#826)
+    assert.equal(h.credCalls.length, 0, `no adapter/forge runCredentials for a remote run: ${JSON.stringify(h.credCalls)}`);
+    const codeLogs = fs.readdirSync(h.dir).filter((f) => /step-code-55\.log$/.test(f));
+    assert.ok(codeLogs.length > 0, "the run's step log exists");
+    assert.match(fs.readFileSync(path.join(h.dir, codeLogs[codeLogs.length - 1]), "utf8"), /no per-run credentials minted/);
   } finally {
     h.ssh.restore();
     fs.rmSync(h.dir, { recursive: true, force: true });
@@ -205,9 +214,11 @@ test("finishStep: a host run leaves the SAME outbox files, but nothing is publis
   /** @type {any[]} */
   const advanced = [];
   const calls = { push: 0, pr: 0, comment: 0 };
+  let hostCredCalls = 0;
   const adapter = /** @type {any} */ ({
     describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
     fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    runCredentials: async () => { hostCredCalls += 1; return { label: "host-cred" }; },
     advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ verdict) => advanced.push({ ref, stepId, ...verdict }),
     postComment: () => {
       calls.comment++;
@@ -236,6 +247,7 @@ test("finishStep: a host run leaves the SAME outbox files, but nothing is publis
     }
     assert.deepEqual(advanced.map((a) => a.outcome), ["advance"], "the run's own verdict applies unchanged");
     assert.deepEqual(calls, { push: 0, pr: 0, comment: 0 }, "nothing was published");
+    assert.equal(hostCredCalls, 1, "a host run still mints its per-run credentials");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

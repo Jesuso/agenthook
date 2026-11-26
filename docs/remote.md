@@ -302,13 +302,35 @@ Usage/turns/context/compactions are read off the worker's own `opencode run --fo
 exactly like a local OpenCode run — nothing special about running it remotely changes what
 dispatch records.
 
+## Remote harnesses with a remote tracker (`github`, `github-projects`)
+
+A remote harness also works under the `github` and `github-projects` trackers. The worker has
+no tracker or forge credentials (it mints none — a remote run gets **no** per-run credentials,
+so GitHub App auth is fine and `githubRunToken: false` is not needed), so the run's contract
+shifts to commit-only, and the hub does the tracker side of the bookkeeping:
+
+- **The ticket's comments are embedded in the prompt.** The hub fetches the issue's comment
+  thread (newest first, each entry marked `OWNER`/`not owner`, capped at ~32 KiB) and fences it
+  into the prompt as untrusted input. A fetch failure is a notice in the prompt
+  ("comments could not be loaded; hold if you need them"), not a run failure. The worker is
+  told the embedded thread is the only ticket history it will ever see — no `gh` and no
+  `git push` are available.
+- **The worker writes an outbox instead of opening a PR or commenting itself:** a
+  `pr.json` (or `comment.md`) the hub publishes with its own credentials after the run —
+  opening/updated the PR, posting the comment, adding the verdict label.
+- **Review steps diff against a hub-computed base** — the worker's clone is fresh (no origin
+  default ref), so the hub runs `merge-base origin/<default> HEAD` in its own worktree and
+  embeds the sha in the prompt; there is no PR for a remote review to look at.
+- The remote-run env allowlist still blocks `GH_TOKEN`/`GITHUB_TOKEN`/`GH_CONFIG_DIR`/
+  `GIT_CONFIG_*` — the worker holds no GitHub identity at all.
+
 ## Current limits
 
-- Only the `local` tracker is supported with a remote harness.
+- Trackers supported with a remote harness: `local`, `github`, `github-projects`.
 - Only `claude` and `opencode` are supported as the agent (config refuses any other).
 - The profile's per-run sandbox can't wrap a remote harness's step (`sandbox: false` it).
-- Per-run GitHub App credentials can't be minted for a remote harness's step (they're scoped to
-  the hub, not the worker) — set `githubRunToken: false`, or stop using App auth for that profile.
+- Under `local` and the GitHub trackers a remote run mints no per-run credentials at all —
+  there is nothing to scope to the worker (see above).
 - Submodules and Git LFS are not supported yet — a tree with a `.gitmodules` or a
   `filter=lfs` `.gitattributes` entry refuses the run with a clear reason, before anything syncs.
 - No worker-side container — the agent runs directly as the worker's ssh user, confined only by
