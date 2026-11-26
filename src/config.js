@@ -25,7 +25,7 @@ import { quotaErrors } from "./quota.js";
 import { sinkErrors } from "./sinks-config.js";
 import { reposErrors } from "./repos-config.js";
 import { autoMergeErrors } from "./auto-merge.js";
-import { AGENT_NAMES, AGENT_DEFAULT_BINS, DEFAULT_AGENT } from "./agents/names.js";
+import { AGENT_NAMES, AGENT_DEFAULT_BINS, DEFAULT_AGENT, REMOTE_AGENTS } from "./agents/names.js";
 import { SANDBOX_NAMES, EGRESS_MODES, EGRESS_PROXY_ENV_KEYS, isSandboxed } from "./sandbox/names.js";
 import { HARNESS_ROUTINGS } from "./config-schema.js";
 import { egressEntryProblem } from "./sandbox/egress.js";
@@ -586,7 +586,7 @@ function remoteHarnessErrors(cfg, step, harnesses, where) {
   }
   for (const n of names) {
     const agent = step.agent ?? harnesses[n]?.agent ?? cfg.agent ?? DEFAULT_AGENT;
-    if (agent !== "claude" && agent !== "opencode") errors.push(`config: ${where} remote harness ${JSON.stringify(n)} resolves to agent ${JSON.stringify(agent)} — only claude and opencode are supported on a remote worker yet.`);
+    if (!REMOTE_AGENTS.includes(agent)) errors.push(`config: ${where} remote harness ${JSON.stringify(n)} resolves to agent ${JSON.stringify(agent)} — supported on a remote worker: ${REMOTE_AGENTS.join(", ")}.`);
   }
   const trackerType = cfg.tracker?.type;
   if (trackerType != null && !REMOTE_TRACKERS.has(trackerType)) {

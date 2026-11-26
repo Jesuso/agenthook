@@ -96,13 +96,13 @@ run. It bounds what a bad worker can do **back to the hub**.
 
 Only the allowlisted env (`src/dispatch/executor-ssh.js` `remoteEnvAllowlist`), an explicit, named
 addition of whatever extra keys the agent's own `remote` hook returned (opencode: `OPENCODE_CONFIG`
-plus the two disable flags — never a prefix passthrough, so the hub's own `OPENCODE_*` env never
-crosses just because the name matches), and the framed prompt (plus, for opencode, the contract/
-standing/config files the hook built) reach the worker — never:
+plus the two disable flags; pi: `PI_OFFLINE` — never a prefix passthrough, so the hub's own
+`OPENCODE_*`/`PI_*` env never crosses just because the name matches), and the framed prompt (plus,
+for opencode and pi, the contract/standing files the hook built) reach the worker — never:
 
 - tracker/forge tokens, or any per-run GitHub App token;
-- `ANTHROPIC_*` / `CLAUDE_*`, or the hub's own `OPENCODE_*` (the worker uses its **own**
-  credentials, set up as above);
+- `ANTHROPIC_*` / `CLAUDE_*`, or the hub's own `OPENCODE_*`/`PI_*` (the worker uses its **own**
+  credentials, set up as above; a step's `piConfigDir` is ignored on a remote harness entirely);
 - the ssh agent socket (the connection is never made with `-A`);
 - untracked or gitignored files, `.env`, or the profile config (only committed, tracked content
   travels — a `git archive HEAD` for a no-worktree step, a push + `worktree add` for a worktree
@@ -205,9 +205,10 @@ connection options the executor itself would) and reports, per harness:
 - **reachable** — a plain ssh roundtrip. On failure, the rest of that harness's checks are
   skipped (an unreachable worker would just fail them all the same way).
 - **git** on the worker's `PATH`.
-- the **agent bin** (`remote.bin`, default the resolved agent's own — `claude` or `opencode`) on
-  the worker's `PATH`, plus its `--version` output. A missing `opencode` points at
-  <https://opencode.ai> instead of claude's generic install hint.
+- the **agent bin** (`remote.bin`, default the resolved agent's own — `claude`, `opencode` or
+  `pi`) on the worker's `PATH`, plus its `--version` output. A missing `opencode` points at
+  <https://opencode.ai>, a missing `pi` at `npm i -g @earendil-works/pi-coding-agent`, instead of
+  the generic install hint.
 - **`workDir` is writable** (created if missing).
 - **agent credentials** — claude only (an opencode harness's endpoint/credentials are the
   worker's own OpenCode config's business, not doctor's): whether `ANTHROPIC_API_KEY`,
@@ -302,6 +303,54 @@ Usage/turns/context/compactions are read off the worker's own `opencode run --fo
 exactly like a local OpenCode run — nothing special about running it remotely changes what
 dispatch records.
 
+## Pi on the worker
+
+A remote harness's agent can also be `pi` (`harnesses.<name>.agent: "pi"`, or the profile's
+`agent`). `pi -p` gets the same unattended contract and standing-instructions files a sandboxed
+local pi run gets — written into the per-run dir and passed with `--append-system-prompt` (one per
+file, so both survive compaction, same as the sandbox) — plus a step's `model` (`--model
+provider/id` from the step/harness) — but unlike the sandbox, the worker keeps its **own** pi
+config, model endpoint and credentials; the worker user's own `~/.pi/agent` (`models.json`,
+`settings.json`, auth) is used.
+
+```jsonc
+{
+  "harnesses": {
+    "worker-1": {
+      "agent": "pi",
+      "model": "ollama/qwen3.8:27b-64k",
+      "remote": { "host": "10.0.0.5", "workDir": "/home/agenthook/work/some-repo" }
+    }
+  }
+}
+```
+
+What this adds, beyond the synced code:
+
+- A per-run directory on the worker, outside the synced worktree/export dir (so it's never
+  committed or synced back), holds the unattended-contract file and, when the step has standing
+  instructions ≤ 16 KB, the standing file. An oversize standing stays in the run prompt only (the
+  sandbox's own cap, same warn).
+- **A step's `piConfigDir` is ignored on a remote harness** (a warning is logged, it is never
+  read, never copied): the worker's own `~/.pi/agent` is authoritative — its own model endpoint
+  (Ollama on the worker's loopback, or any provider the worker is configured for) and its own
+  credentials. `piConfigDir` keeps its meaning only for sandboxed pi runs.
+- The worker's `pi` runs with `--offline` and `PI_OFFLINE=1` (belt-and-braces, the same insurance
+  a sandboxed run gets) — pi never phones home for a model catalog; the model comes from the
+  worker's own config. These are an explicit, named addition to the worker's env allowlist — never
+  a prefix passthrough — so none of the hub's own `PI_*` env crosses just because the name matches.
+- The directory (and everything in it) is removed after the run — on a clean exit, a timeout or
+  cancel, and by the boot/shutdown reap sweep for anything a crashed run's own cleanup missed.
+- The prompt still goes out over the connection's own stdin, never argv — pi reads piped stdin as
+  its initial message in `-p` mode (so the worker's `ps`/`/proc` shows
+  `pi -p --mode json --offline [--model …] [--thinking …] --append-system-prompt … --`, nothing
+  after the `--`). A verdict-repair resume turn (`--session <id>`) reuses the same per-run dir and
+  keeps the `--append-system-prompt` flags; a step's raw-launched `gate` runs verbatim and writes
+  no per-run files.
+
+Usage/turns/context/compactions are read off the worker's own `pi -p --mode json` stdout, exactly
+like a local pi run.
+
 ## Remote harnesses with a remote tracker (`github`, `github-projects`)
 
 A remote harness also works under the `github` and `github-projects` trackers. The worker has
@@ -327,7 +376,7 @@ shifts to commit-only, and the hub does the tracker side of the bookkeeping:
 ## Current limits
 
 - Trackers supported with a remote harness: `local`, `github`, `github-projects`.
-- Only `claude` and `opencode` are supported as the agent (config refuses any other).
+- Only `claude`, `opencode` and `pi` are supported as the agent (config refuses any other).
 - The profile's per-run sandbox can't wrap a remote harness's step (`sandbox: false` it).
 - Under `local` and the GitHub trackers a remote run mints no per-run credentials at all —
   there is nothing to scope to the worker (see above).

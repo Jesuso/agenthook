@@ -256,6 +256,32 @@ export function buildPiUsageRecord({ ref, stepId, model, bin, startedAt, endedAt
 }
 
 /**
+ * The unattended contract + standing-instructions files and their `--append-system-prompt` args,
+ * shared by the `sandbox` hook (written into a per-run HOME's `.pi/agent`) and the `remote` hook
+ * (written into a per-run worker dir, #827) — only the destination base differs. Appends to the
+ * given `files` list; returns the `args` and whether the standing text went into a file.
+ * @param {{step: import('../types.js').Step, verdictFile: string, standing?: string, base: string, files: {dst: string, content: string, mode?: number}[]}} o
+ */
+function piPromptFiles({ step, verdictFile, standing, base, files }) {
+  const contractDst = path.posix.join(base, "agenthook-unattended.md");
+  const standingDst = path.posix.join(base, "agenthook-standing.md");
+  files.push({ dst: contractDst, content: piContract(verdictFile), mode: 0o600 });
+  const args = ["--append-system-prompt", contractDst];
+  let standingInInstructions = false;
+  if (typeof standing === "string" && standing) {
+    const bytes = Buffer.byteLength(standing, "utf8");
+    if (bytes <= STANDING_MAX_BYTES) {
+      files.push({ dst: standingDst, content: standing, mode: 0o600 });
+      args.push("--append-system-prompt", standingDst);
+      standingInInstructions = true;
+    } else {
+      console.warn(`[dispatch] step ${step.id}: standing instructions are ${bytes} bytes (> ${STANDING_MAX_BYTES}) — not written to a pi system-prompt file; they stay in the run prompt only`);
+    }
+  }
+  return { args, standingInInstructions };
+}
+
+/**
  * Read and validate a file inside a resolved `piConfigDir` (already absolute). The dir itself is
  * checked once (lstat, must be a directory) and each present file with the same rules as
  * opencode's config (lstat regular file, ≤ 256 KB, valid JSON). A present file that fails a check
@@ -392,26 +418,34 @@ export const pi = {
     if (!verdictFile) {
       return { mounts: [], files, env: {} };
     }
-    const contractDst = path.posix.join(base, "agenthook-unattended.md");
-    const standingDst = path.posix.join(base, "agenthook-standing.md");
-    files.push({ dst: contractDst, content: piContract(verdictFile), mode: 0o600 });
-    /** @type {string[]} */
-    const args = ["--append-system-prompt", contractDst];
-    let standingInInstructions = false;
-    if (typeof standing === "string" && standing) {
-      const bytes = Buffer.byteLength(standing, "utf8");
-      if (bytes <= STANDING_MAX_BYTES) {
-        files.push({ dst: standingDst, content: standing, mode: 0o600 });
-        args.push("--append-system-prompt", standingDst);
-        standingInInstructions = true;
-      } else {
-        console.warn(`[dispatch] step ${step.id}: standing instructions are ${bytes} bytes (> ${STANDING_MAX_BYTES}) — not written to a pi system-prompt file; they stay in the run prompt only`);
-      }
-    }
+    const { args, standingInInstructions } = piPromptFiles({ step, verdictFile, standing, base, files });
     return {
       mounts: [],
       files,
       env: {},
+      args,
+      ...(standingInInstructions ? { standingInInstructions: /** @type {const} */ (true) } : {}),
+    };
+  },
+  // Remote (#827): the worker keeps its OWN pi config, model endpoint and credentials — the
+  // worker user's own `~/.pi/agent` (models.json, settings.json, auth) is used, so a step's
+  // `piConfigDir` NEVER crosses (it is ignored with a warning, never read, never copied). The
+  // contract (and, when provided, the standing instructions ≤ 16 KB) are written into the per-run
+  // `dir` the ssh executor creates and removes, and wired in as `--append-system-prompt` flags —
+  // returned in `args`, which dispatch splices before the argv's `--` (survives compaction, like
+  // the sandbox's). `PI_OFFLINE: "1"` is belt-and-braces with the `--offline` flag. The prompt
+  // itself goes over the launcher's stdin (pi reads piped stdin as its initial message in -p
+  // mode), so no prompt file is written.
+  remote({ step, dir, verdictFile, standing }) {
+    if (step.piConfigDir) {
+      console.warn(`[dispatch] step ${step.id}: piConfigDir ${step.piConfigDir} is ignored on a remote worker — the worker's own ~/.pi/agent (models, settings, auth) is used`);
+    }
+    /** @type {{dst: string, content: string, mode?: number}[]} */
+    const files = [];
+    const { args, standingInInstructions } = piPromptFiles({ step, verdictFile, standing, base: dir, files });
+    return {
+      files,
+      env: { PI_OFFLINE: "1" },
       args,
       ...(standingInInstructions ? { standingInInstructions: /** @type {const} */ (true) } : {}),
     };
