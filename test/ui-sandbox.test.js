@@ -109,7 +109,8 @@ test("sandboxReadiness: a custom image missing → ✗ with doctor's manual buil
   const { run } = stubRun({ "image inspect": 1 });
   const r = await sandboxReadiness(registry, "nocred", { run, has: () => true });
   assert.equal(r?.image, "mine:1");
-  assert.match(row(r, "image").remedy, /^build mine:1 \(FROM /);
+  assert.match(row(r, "image").remedy, /^docker build -t mine:1 /);
+  assert.ok(row(r, "image").remedy.includes(`FROM ${DEFAULT_IMAGE}`));
 });
 
 test("sandboxReadiness: no .env, or one without a non-empty credential var → credential ✗ with the setup-token remedy", async () => {

@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- Fixed: a missing sandbox **service** image no longer gets a remedy that can't work — the
+  `agenthook doctor` fix and the run-time refusal (`` service image <image> not found — run … ``)
+  now offer `<runtime> pull <image>` plus `… or if it is built locally: <runtime> build -t
+  <image> <dir with its Dockerfile>` for bare names, the build alone for podman's `localhost/…`
+  names, and the pull alone for registry/namespace names. A missing **custom agent** image now
+  names its build (`<runtime> build -t <image> <dir with a Dockerfile that starts FROM
+  agenthook-agent:<version>>`) instead of only its requirements (#834).
+
 - New: a remote worker that is unreachable (connection refused/timed out, no route, unresolvable
   host) now trips its harness's health breaker with `worker unreachable: <host> (<detail>)` and
   the job goes back to the front of the queue — it no longer refuses or fails the ticket (#828).

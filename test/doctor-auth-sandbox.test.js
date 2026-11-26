@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { agentBinChecks, runChecks, applyFixes, fixableCount, githubAppChecks, sandboxChecks, sandboxRuntimeChecks, egressLints, runTokenLints } from "../src/commands/doctor.js";
 import { resetGithubAuthCache } from "../src/github-auth.js";
-import { DEFAULT_IMAGE } from "../src/sandbox/image.js";
+import { DEFAULT_IMAGE, serviceImageRemedy } from "../src/sandbox/image.js";
 import { SANDBOX_CREDENTIAL_VARS } from "../src/agents/claude.js";
 import { cleanProfile, io } from "./_doctor-helpers.js";
 
@@ -163,18 +163,42 @@ test("sandboxChecks: a missing default image is ✗ with an apply fix that build
 
 test("sandboxChecks: each service image is checked (fix: pull it, never applied) and each sandboxed step's services listed as info", async () => {
   const cfg = sbCfg({
-    sandbox: { type: "podman", egress: { mode: "open" }, services: { db: { image: "postgres:16.4" }, cache: { image: "redis:7.2" } } },
-    pipeline: [{ id: "code", services: ["db", "cache"], env: { CLAUDE_CODE_OAUTH_TOKEN: "t" } }, { id: "review", env: { CLAUDE_CODE_OAUTH_TOKEN: "t" } }, { id: "done", manual: true }],
+    sandbox: { type: "podman", egress: { mode: "open" }, services: { db: { image: "postgres:16.4" }, cache: { image: "redis:7.2" }, vec: { image: "pgvector/pgvector:pg17" }, local: { image: "localhost/vecdb:pg17" } } },
+    pipeline: [{ id: "code", services: ["db", "cache", "vec", "local"], env: { CLAUDE_CODE_OAUTH_TOKEN: "t" } }, { id: "review", env: { CLAUDE_CODE_OAUTH_TOKEN: "t" } }, { id: "done", manual: true }],
   });
   /** @type {string[][]} */
   const calls = [];
-  const run = /** @type {import('../src/types.js').IngressRun} */ (async (_bin, args) => (calls.push(args), { code: args[2] === "redis:7.2" ? 1 : 0, stdout: "", stderr: "" }));
+  const missing = new Set(["redis:7.2", "pgvector/pgvector:pg17", "localhost/vecdb:pg17"]);
+  const run = /** @type {import('../src/types.js').IngressRun} */ (async (_bin, args) => (calls.push(args), { code: missing.has(args[2]) ? 1 : 0, stdout: "", stderr: "" }));
   const checks = await sandboxChecks(cfg, { run, has: () => true });
   const svc = checks.filter((c) => c.label.startsWith("sandbox service image present"));
-  assert.deepEqual(svc.map((c) => [c.ok, c.label]), [[true, "sandbox service image present: postgres:16.4"], [false, "sandbox service image present: redis:7.2"]]);
-  assert.deepEqual(svc[1].fix, { manual: "podman pull redis:7.2" });
-  assert.deepEqual(checks.filter((c) => c.info).map((c) => c.label), ['step "code" services: db, cache']);
+  assert.deepEqual(svc.map((c) => [c.ok, c.label]), [
+    [true, "sandbox service image present: postgres:16.4"],
+    [false, "sandbox service image present: redis:7.2"],
+    [false, "sandbox service image present: pgvector/pgvector:pg17"],
+    [false, "sandbox service image present: localhost/vecdb:pg17"],
+  ]);
+  // Bare names can't be told offline from locally built ones — both remedies; registries pull only.
+  assert.deepEqual(svc[1].fix, { manual: "podman pull redis:7.2, or if it is built locally: podman build -t redis:7.2 <dir with its Dockerfile>" });
+  assert.deepEqual(svc[2].fix, { manual: "podman pull pgvector/pgvector:pg17" });
+  assert.deepEqual(svc[3].fix, { manual: "this image is built locally: podman build -t localhost/vecdb:pg17 <dir with its Dockerfile>" });
+  assert.ok(!/** @type {any} */ (svc[3].fix).manual.includes("pull"));
+  assert.deepEqual(checks.filter((c) => c.info).map((c) => c.label), ['step "code" services: db, cache, vec, local']);
   assert.equal(fixableCount(checks), fixableCount(checks.filter((c) => !c.label.startsWith("sandbox service image"))), "a pull is never auto-applied");
+});
+
+test("serviceImageRemedy: bare → pull-or-build, localhost/ → build only, registry/namespace → pull only (docker and podman)", () => {
+  for (const rt of ["docker", "podman"]) {
+    assert.equal(
+      serviceImageRemedy(rt, "myproj-db:pg17"),
+      `${rt} pull myproj-db:pg17, or if it is built locally: ${rt} build -t myproj-db:pg17 <dir with its Dockerfile>`,
+    );
+    assert.equal(serviceImageRemedy(rt, "localhost/myproj-db:pg17"), `this image is built locally: ${rt} build -t localhost/myproj-db:pg17 <dir with its Dockerfile>`);
+    assert.equal(serviceImageRemedy(rt, "ghcr.io/x/y:1"), `${rt} pull ghcr.io/x/y:1`);
+    assert.equal(serviceImageRemedy(rt, "localhost:5000/x:1"), `${rt} pull localhost:5000/x:1`);
+    assert.equal(serviceImageRemedy(rt, "img@sha256:deadbeef"), `${rt} pull img@sha256:deadbeef, or if it is built locally: ${rt} build -t img@sha256:deadbeef <dir with its Dockerfile>`);
+  }
+  for (const s of ["ghcr.io/x/y:1", "pgvector/pgvector:pg17"]) assert.ok(!serviceImageRemedy("podman", s).includes("build -t"), s);
 });
 
 test("sandboxChecks: runtime missing or down stops there", async () => {
@@ -196,12 +220,17 @@ test("sandboxRuntimeChecks: binary, info, then each image — a custom image's f
     [false, "sandbox image present: mine:1"],
     [true, `sandbox image present: ${DEFAULT_IMAGE} (egress proxy)`],
   ]);
-  assert.match(/** @type {any} */ (checks[2].fix).manual, /^build mine:1 \(FROM /);
+  assert.match(/** @type {any} */ (checks[2].fix).manual, /^podman build -t mine:1 /);
+  assert.ok(/** @type {any} */ (checks[2].fix).manual.includes(`FROM ${DEFAULT_IMAGE}`));
+  assert.ok(/** @type {any} */ (checks[2].fix).manual.includes("docs/sandbox.md"));
   assert.ok(checks[3].fix && "apply" in checks[3].fix);
   assert.deepEqual(calls, [["info"], ["image", "inspect", "mine:1"], ["image", "inspect", DEFAULT_IMAGE]]);
   // images defaults to [image]; a down runtime stops before any inspect.
   assert.equal((await sandboxRuntimeChecks({ type: "docker", image: DEFAULT_IMAGE }, { run: sbRun(), has: () => true })).length, 3);
   assert.deepEqual((await sandboxRuntimeChecks({ type: "docker", image: DEFAULT_IMAGE }, { run: sbRun({ info: 1 }), has: () => true })).map((c) => c.ok), [true, false]);
+  // The runtime word in a custom image's remedy is the configured type.
+  const d = await sandboxRuntimeChecks({ type: "docker", image: "mine:1" }, { run, has: () => true, images: ["mine:1"] });
+  assert.match(/** @type {any} */ (d[2].fix).manual, /^docker build -t mine:1 /);
 });
 
 test("sandboxChecks: a sandboxed hermes step ✗, a credential-less claude step ✗, an absolute claudeBin ⚠, sandbox:false skipped", async () => {

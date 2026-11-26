@@ -232,7 +232,7 @@ profile, then opt a step into the names it needs:
 
 | Key | Meaning |
 |-----|---------|
-| `image` | Required, pinned to a tag or digest (`postgres:16.4`, never `postgres` or `postgres:latest`) — service images are **never pulled**, so pull it yourself and `agenthook doctor` / `check()` name the exact `<runtime> pull <image>` command when it's missing. |
+| `image` | Required, pinned to a tag or digest (`postgres:16.4`, never `postgres` or `postgres:latest`) — service images are **never pulled or built** for the operator, so prepare it yourself. When it's missing, `agenthook doctor` / `check()` name the remedy: `<runtime> pull <image>`, plus a `build` alternative when the name could be locally built (bare names), or a `build` remedy alone for podman's `localhost/…` names. |
 | `env` | Literal env for the service container (e.g. `POSTGRES_PASSWORD`). Values are never read from your host env. |
 | `wait.cmd` | Optional readiness probe: an argv `exec`'d in the service container (e.g. `pg_isready`) until it exits 0, polled every 500ms. Unset = the service is considered ready as soon as it starts. Probe over TCP (`-h 127.0.0.1`), not the default Unix socket — many database images' entrypoints run their init scripts against a temporary, socket-only server, so a socket probe (`pg_isready -U postgres`) can report ready before the real server is up; use `mysqladmin ping -h 127.0.0.1 --protocol=tcp` for MySQL/MariaDB. |
 | `wait.timeoutS` | How long `wait.cmd` may take to pass. Default **60**. |
@@ -327,8 +327,10 @@ prefixes the run failure with `sandbox (<runtime>) could not start the run: …`
 
 **Observability.** `agenthook doctor` lists each sandboxed step's services
 (`step "<id>" services: db, cache`) and fails the sandbox check when a service's image isn't
-present locally, naming the exact pull command: `` service image <image> not found — run
-`<runtime> pull <image>` ``. A run whose step used services carries `services: [names]` on its
+present locally, naming the remedy: `` service image <image> not found — run <remedy> `` — a
+`<runtime> pull <image>` command, extended with `… or if it is built locally: <runtime> build -t
+<image> <dir with its Dockerfile>` when the name is bare (a local build can't be told from an
+official library image offline), or build-only for `localhost/…` names. A run whose step used services carries `services: [names]` on its
 `run_end`.
 
 **Limits / out of scope.** No Docker socket (still never mounted — see the Testcontainers recipe
@@ -442,7 +444,11 @@ The default image is `node:22-bookworm-slim` + `git`, `gh` and the `claude` CLI;
 
 A custom `image` (e.g. one built `FROM` the default with your toolchain added) must provide `sh`,
 `git`, `gh` and the agent CLI. The receiver runs it with `--pull never`, so it must already be
-present locally. The egress proxy always runs the built-in image, so a profile with a custom
+present locally — build it with `<runtime> build -t <image> <dir>` (a context dir holding its
+Dockerfile). When it's missing, `agenthook doctor` names exactly that build. Name it with podman's
+`localhost/` prefix (e.g. `localhost/myproj-agent:1`) if you want `doctor` to offer the build remedy
+without a pull alternative; a bare name gets both remedies, since it can't be told offline from a
+library image. The egress proxy always runs the built-in image, so a profile with a custom
 `image` still needs `agenthook-agent:<version>`.
 
 The image's `claude` is whatever `npm i -g @anthropic-ai/claude-code@latest` resolved when it was

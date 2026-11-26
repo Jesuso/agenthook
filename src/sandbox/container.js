@@ -28,7 +28,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_IMAGE } from "./image.js";
+import { DEFAULT_IMAGE, serviceImageRemedy } from "./image.js";
 import { needsEgressProxy } from "./egress.js";
 import { isSandboxed, EGRESS_PROXY_ENV_KEYS } from "./names.js";
 
@@ -377,7 +377,7 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
       for (const img of serviceImages(cfg)) {
         if (agentImages.has(img)) continue;
         const r = await run(bin, ["image", "inspect", img], { timeoutMs: 30_000 }).catch((e) => ({ code: 1, stdout: "", stderr: e.message }));
-        if (r.code !== 0) return { ok: false, reason: `service image ${img} not found — run \`${bin} pull ${img}\`` };
+        if (r.code !== 0) return { ok: false, reason: `service image ${img} not found — run ${serviceImageRemedy(runtime, img)}` };
       }
       return { ok: true };
     },

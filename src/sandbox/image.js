@@ -34,3 +34,25 @@ RUN mkdir -p /home/agent && chmod 1777 /home/agent
 export function buildImageArgs(_runtime, image) {
   return ["build", "-t", image, "-"];
 }
+
+/**
+ * The manual remedy for a missing service image. A bare name (`postgres:16.4`) can't be told
+ * offline from a locally built one (`myproj-db:pg17`), so both remedies are named; podman's
+ * `localhost/` prefix for locally built images is unambiguous.
+ * - `localhost/<repo>` → build only: `this image is built locally: <runtime> build -t <img> <dir with its Dockerfile>`.
+ * - Bare name (no `/`) → `<runtime> pull <img>, or if it is built locally: <runtime> build -t <img> <dir with its Dockerfile>`.
+ * - Registry or namespace (`ghcr.io/x/y:1`, `pgvector/pgvector:pg17`) → `<runtime> pull <img>`.
+ * @param {string} runtime "docker" | "podman" (the configured `sandbox.type`)
+ * @param {string} img the service image ref
+ * @returns {string}
+ */
+export function serviceImageRemedy(runtime, img) {
+  const withoutDigest = img.split("@")[0];
+  const lastSlash = withoutDigest.lastIndexOf("/");
+  const lastColon = withoutDigest.lastIndexOf(":");
+  const repo = lastColon > lastSlash ? withoutDigest.slice(0, lastColon) : withoutDigest;
+  const build = `${runtime} build -t ${img} <dir with its Dockerfile>`;
+  if (repo.split("/")[0] === "localhost") return `this image is built locally: ${build}`;
+  if (!repo.includes("/")) return `${runtime} pull ${img}, or if it is built locally: ${build}`;
+  return `${runtime} pull ${img}`;
+}
