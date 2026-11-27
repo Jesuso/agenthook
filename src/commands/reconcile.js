@@ -26,7 +26,7 @@ import { isPipeline } from "../pipeline.js";
 import { staleOverlaps } from "../overlap.js";
 import { readRecheckState, recordBoardDone } from "../recheck.js";
 import { clearHoldOnDone } from "../board-done.js";
-import { controlRequest } from "../ui/control-client.js";
+import { controlRequest } from "../control/client.js";
 
 /** @param {any} args */
 export async function reconcile(args) {

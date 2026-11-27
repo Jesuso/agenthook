@@ -424,7 +424,7 @@ the snapshot lists the new key (the old one vanishes with the dir) the view foll
 / Projects Status options needs tracker credentials the UI never holds. Adapters gain an optional
 `listStages()` (extracted from their `init` wizard discovery); the receiver answers a read-only
 `discover` command on `control.sock`. The UI server exposes this as `GET /api/discover?profile=`
-(cookie-auth, no write guards — it's a read) via `src/ui/control-client.js`'s `controlRequest`: one
+(cookie-auth, no write guards — it's a read) via `src/control/client.js`'s `controlRequest`: one
 NDJSON request over the profile's `control.sock`, skipping the `hello` line. Unknown profile →
 `404` (socket never contacted); receiver down → `503`; no reply within 5 s → `504`; receiver
 `ok:false` → `502` with its error; else `200` + the `discover` result as is.

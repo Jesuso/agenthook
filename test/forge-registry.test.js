@@ -1,6 +1,6 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // GitHub forge webhook registration, the forge registry (`createForge`), listAgentPrs/
-// listMergedAgentPrs/ciStatus (fetch stubbed), and GitHub App auth (src/github-auth.js).
+// listMergedAgentPrs/ciStatus (fetch stubbed), and GitHub App auth (src/github/auth.js).
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { forgeBlock } from "../src/forges/github.js";
 import { createForge } from "../src/forges/index.js";
-import { resetGithubAuthCache } from "../src/github-auth.js";
+import { resetGithubAuthCache } from "../src/github/auth.js";
 import { forge, makeStore, pipeline, SECRET, ghTracker, stubFetch } from "./_forge-helpers.js";
 
 /** Writes `publicUrlFile` with `url` so the forge snapshots it as its previous URL
@@ -323,7 +323,7 @@ test("ciStatus: whole check-run roll-up + mergeability for one PR head", async (
   }
 });
 
-// --- GitHub App auth (src/github-auth.js) ---
+// --- GitHub App auth (src/github/auth.js) ---
 
 const APP_PEM = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs1", format: "pem" }).toString();
 const APP_AUTH = { type: "app", appId: "101", installationId: "202", privateKey: APP_PEM };

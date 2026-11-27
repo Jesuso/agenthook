@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import { ensurePrivateDir } from "../config.js";
 import { planRestore } from "../queue.js";
-import { startControl } from "../control.js";
+import { startControl } from "../control/server.js";
 import { readQuota } from "../quota-file.js";
 import { runMergeCatchup, runReconcile } from "../commands/reconcile.js";
 import { recoverInterrupted } from "./recovery.js";

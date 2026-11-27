@@ -31,14 +31,14 @@
 //     comment only — never into a job, a finding or a prompt (the PR head controls it).
 //   - Token: `admin:repo_hook` (classic) or Webhooks: Read & write (fine-grained); red
 //     CI also needs `repo` (classic) or Actions + Pull requests: Read & write. Or a
-//     GitHub App (`auth: {type: "app", …}`, src/github-auth.js; see docs/github-app.md).
+//     GitHub App (`auth: {type: "app", …}`, src/github/auth.js; see docs/github-app.md).
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { verifyHubSignature } from "../hmac.js";
-import { createGithubAuth, githubFetch } from "../github-auth.js";
-import { githubRunCredentials, originUrl } from "../github-run-token.js";
+import { createGithubAuth, githubFetch } from "../github/auth.js";
+import { githubRunCredentials, originUrl } from "../github/run-token.js";
 import { DEFAULT_BRANCH_PREFIX, HOST_GIT_TIMEOUT_MS, gitArgv } from "../worktree.js";
 
 const pexecFile = promisify(execFile);
@@ -342,7 +342,7 @@ export function createGithubForge(cfg, store, /** @type {{publishGitTimeoutMs?: 
   /** git env for `publishBranch`: the token ONLY in the environment (a GIT_CONFIG env var →
    * `http.extraheader`), never in argv; inherited github.com credential helpers reset; SSH
    * github remotes rewritten to HTTPS so the push authenticates with the token, not the
-   * operator's SSH key; no prompts. Same pattern as runGitEnv (src/github-run-token.js).
+   * operator's SSH key; no prompts. Same pattern as runGitEnv (src/github/run-token.js).
    * @param {string} token @returns {Record<string, string>} */
   const publishGitEnv = (token) => {
     const pairs = [

@@ -1,13 +1,13 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // GitHub Projects v2 adapter — the `@agent` comment trigger (issue_comment → resume the held
-// step), GitHub App auth (src/github-auth.js: installation token + human assigneeLogin), and
+// step), GitHub App auth (src/github/auth.js: installation token + human assigneeLogin), and
 // the done signal (fetchTask().completed mirrors the issue's native closed flag). The adapter
 // is GraphQL-only, so the fetch stubs route by inspecting the posted `query` string.
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { createGithubProjectsAdapter } from "../src/trackers/github-projects.js";
-import { resetGithubAuthCache } from "../src/github-auth.js";
+import { resetGithubAuthCache } from "../src/github/auth.js";
 import { adapter, makeStore, stubGraphql, evt, PROJECT_ID } from "./_github-projects-helpers.js";
 
 // --- the `@agent` comment trigger (issue_comment → resume the held step) ---
@@ -143,7 +143,7 @@ test("issue_comment: a duplicate delivery of the same comment carries the same d
   assert.equal(result[0].dedupKey, "trigger:9001");
 });
 
-// --- GitHub App auth (src/github-auth.js): installation token + human assigneeLogin ---
+// --- GitHub App auth (src/github/auth.js): installation token + human assigneeLogin ---
 
 const APP_PEM = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs1", format: "pem" }).toString();
 const APP_PC = { token: undefined, auth: { type: "app", appId: "101", installationId: "202", privateKey: APP_PEM }, assigneeLogin: "alice" };

@@ -5,7 +5,7 @@
 import { peekConfig } from "../config.js";
 import { readProfile } from "../heartbeat.js";
 import { controlSockPath } from "../paths.js";
-import { controlRequest } from "../ui/control-client.js";
+import { controlRequest } from "../control/client.js";
 
 /** @param {{config?: string}} args */
 export async function reload(args) {

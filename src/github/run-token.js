@@ -1,5 +1,5 @@
 // Per-run GitHub App tokens for agents (#474). Under App auth the receiver mints its own
-// hour-long installation token (src/github-auth.js); an agent run gets a SEPARATE one, minted
+// hour-long installation token (src/github/auth.js); an agent run gets a SEPARATE one, minted
 // for that run only: scoped to the run's repo(s), limited to what the step kind needs (never
 // `workflows`, admin or secrets), revoked when the run ends.
 //
@@ -9,12 +9,12 @@
 // (`!gh auth git-credential`) read it again on every call. GH_TOKEN/GITHUB_TOKEN are stripped
 // from the run's env because `gh` prefers an env token over its config.
 //
-// Run tokens never go through github-auth.js's cache, and an agent never gets the receiver's
+// Run tokens never go through auth.js's cache, and an agent never gets the receiver's
 // cached token.
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { mintInstallationToken, isAppAuth } from "./github-auth.js";
+import { mintInstallationToken, isAppAuth } from "./auth.js";
 
 const API = "https://api.github.com";
 // Re-mint a run token this long before its `expires_at`.
@@ -136,10 +136,10 @@ function writeSecret(file, text) {
  * so an in-flight call isn't cut off. A failed refresh logs one line and retries every minute
  * until expiry — it never kills the run. `dispose` stops refreshing, revokes the current token
  * and removes `dir`; idempotent, never throws. Null when neither repo is on github.com.
- * @param {import('./types.js').GithubAuthConfig} auth
+ * @param {import('../types.js').GithubAuthConfig} auth
  * @param {{codeRepo: string|null, issueRepo: string|null, kind?: string, dir: string, log?: (line: string) => void,
  *   fetch?: typeof fetch, now?: () => number, setTimeout?: (fn: () => void, ms: number) => any, clearTimeout?: (t: any) => void}} o
- * @returns {Promise<import('./types.js').RunCredentials|null>}
+ * @returns {Promise<import('../types.js').RunCredentials|null>}
  */
 export async function createRunCredentials(auth, { codeRepo, issueRepo, kind, dir, log = () => {}, fetch: f = (...a) => globalThis.fetch(...a), now = Date.now, setTimeout: st = setTimeout, clearTimeout: ct = clearTimeout }) {
   const scoped = runTokenBody({ codeRepo, issueRepo, kind });
@@ -237,16 +237,16 @@ export function originUrl(repoPath) {
  * The `runCredentials` method a GitHub adapter (tracker or forge) exposes. It returns null —
  * the #470 env applies — unless `block` is on GitHub App auth and `githubRunToken` isn't false.
  * Any failure to scope throws `GitHub run token: <why>`, and dispatch refuses the run.
- * @param {{auth?: import('./types.js').GithubAuthConfig}} block  the adapter's config block
- * @param {Pick<import('./types.js').Config, 'githubRunToken'>} cfg
+ * @param {{auth?: import('../types.js').GithubAuthConfig}} block  the adapter's config block
+ * @param {Pick<import('../types.js').Config, 'githubRunToken'>} cfg
  * @param {{codeRepo: (repoPath: string) => string|null, issueRepo?: string|null}} o  the adapter's code-repo resolver and issue-repo fallback
- * @returns {NonNullable<import('./types.js').Adapter['runCredentials']>}
+ * @returns {NonNullable<import('../types.js').Adapter['runCredentials']>}
  */
 export function githubRunCredentials(block, cfg, { codeRepo, issueRepo }) {
   return async ({ step, task, repoPath, dir, log }) => {
     if (!isAppAuth(block) || cfg.githubRunToken === false) return null;
     try {
-      return await createRunCredentials(/** @type {import('./types.js').GithubAuthConfig} */ (block.auth), {
+      return await createRunCredentials(/** @type {import('../types.js').GithubAuthConfig} */ (block.auth), {
         codeRepo: codeRepo(repoPath),
         issueRepo: issueRepoFromUrl(task.url) ?? issueRepo ?? null,
         kind: step.kind,

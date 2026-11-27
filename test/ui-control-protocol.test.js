@@ -1,6 +1,6 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
-// `ah ui` control-socket protocol — `GET /api/discover` + `POST /api/restart` (src/ui/control-
-// client.js, src/control.js protocol), plus the raw `controlRequest`/`resolveProfileSock`
+// `ah ui` control-socket protocol — `GET /api/discover` + `POST /api/restart` (src/control/
+// client.js, src/control/server.js protocol), plus the raw `controlRequest`/`resolveProfileSock`
 // building blocks underneath them. Fixture: `setupUiControl()` (see _ui-control-helpers.js)
 // stands a fake control socket per profile that sends the v1 `hello` line, then replies to one
 // request per test scenario (ok, ok:false, or never — to exercise the 503/504/502/200 mapping),
@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { controlRequest, resolveProfileSock } from "../src/ui/control-client.js";
+import { controlRequest, resolveProfileSock } from "../src/control/client.js";
 import { setupUiControl } from "./_ui-control-helpers.js";
 
 const { root, registry, profiles, calls, request } = setupUiControl();

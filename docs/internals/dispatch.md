@@ -10,7 +10,7 @@
   `agentEnv` + `cfg.agentEnvPassthrough` — minus the run credentials' `strip`, under `agent.env`, then the run
   credentials' `env`, then step `env`, #470/#474; `runCredentials` = `forge.runCredentials` else
   `adapter.runCredentials` — a throw refuses the run like a preflight, `step.js` disposes them in a `finally`
-  once the run settles; the GitHub App per-run token lives in `src/github-run-token.js`), `usage.js` (finalize,
+  once the run settles; the GitHub App per-run token lives in `src/github/run-token.js`), `usage.js` (finalize,
   energy), `routing.js`, `merge.js`, `ci.js`, and `runStep` cut in two: `step.js` (gates, worktree,
   prompt — standing instructions + `stepPrompt` base joined by `=== TICKET ===` — and the spawn with
   `AGENTHOOK_VERDICT_FILE`) → `finish.js` (usage, verdict, run_end, `adapter.advance`, then the opt-in

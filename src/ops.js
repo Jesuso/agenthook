@@ -1,4 +1,4 @@
-// Operator commands served over the control socket (src/control.js) — the live half of the
+// Operator commands served over the control socket (src/control/server.js) — the live half of the
 // agent-facing surface (`agenthook mcp`, docs/mcp.md). Reads that need the tracker/forge
 // (`board`, `prs`, `epics`) and writes that need the engine (`pause`, `cancel`, `run`, …) live here;
 // everything readable from the state dir is read by the MCP process directly, receiver up or not.

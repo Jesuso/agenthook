@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { agentBinChecks, runChecks, applyFixes, fixableCount, githubAppChecks, sandboxChecks, sandboxRuntimeChecks, egressLints, runTokenLints } from "../src/commands/doctor.js";
-import { resetGithubAuthCache } from "../src/github-auth.js";
+import { resetGithubAuthCache } from "../src/github/auth.js";
 import { DEFAULT_IMAGE, serviceImageRemedy } from "../src/sandbox/image.js";
 import { SANDBOX_CREDENTIAL_VARS } from "../src/agents/claude.js";
 import { cleanProfile, io } from "./_doctor-helpers.js";

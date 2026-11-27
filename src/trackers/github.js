@@ -10,7 +10,7 @@
 //     Needs `repo` (read/write issues) + `admin:repo_hook` (create the webhook),
 //     or the fine-grained equivalents (Issues: RW, Webhooks: RW, Metadata: R).
 //     GITHUB_TOKEN is the only secret a user supplies. Or a GitHub App (`auth: {type:
-//     "app", …}`, src/github-auth.js) with the same repository permissions; then
+//     "app", …}`, src/github/auth.js) with the same repository permissions; then
 //     assigneeLogin is required (an installation token has no user).
 //   - Webhook: auto-created via REST like Asana, but signed with an agenthook-
 //     GENERATED secret like Jira (or an explicit tracker.webhookSecret; `false`
@@ -33,8 +33,8 @@ import crypto from "node:crypto";
 import { startsWithTrigger, resumeJob } from "../pipeline.js";
 import { verifyHubSignature } from "../hmac.js";
 import { checkOwner, MoveRefusedError } from "./owner.js";
-import { createGithubAuth, githubFetch } from "../github-auth.js";
-import { githubRunCredentials, originUrl } from "../github-run-token.js";
+import { createGithubAuth, githubFetch } from "../github/auth.js";
+import { githubRunCredentials, originUrl } from "../github/run-token.js";
 import { parseGithubRemote } from "../forges/github.js";
 
 /** Is `issue` an epic — its type matches `epicType`, OR it carries `epicLabel` (any
@@ -171,7 +171,7 @@ export const githubEgressHosts = () => ["api.github.com"];
 /** @type {import('../types.js').AdapterFactory} */
 export function createGithubAdapter(cfg, store) {
   const pc = cfg.providerConfig;
-  // A personal token, or a GitHub App's installation token (src/github-auth.js). Both are
+  // A personal token, or a GitHub App's installation token (src/github/auth.js). Both are
   // resolved from env/.env by loadConfig.
   const auth = createGithubAuth(pc);
   // owner/repo come from `repository: "owner/name"` or explicit owner+repo. Resolved
