@@ -46,7 +46,7 @@ test("uiViolations: flags a non-exempt import reaching into src/ui/ and ignores 
   assert.deepEqual(uiViolations("src/ops.js", `import type { Foo } from "./ui/server.js";`), []);
 });
 
-test("uiViolations: allow-lists the ui entrypoint and flags the former save.js removal exceptions", () => {
+test("uiViolations: allow-lists only the ui entrypoint and flags any other import into src/ui/", () => {
   assert.deepEqual(uiViolations("src/commands/ui.js", `import { createUiServer } from "../ui/server.js";`), []);
   assert.deepEqual(uiViolations("src/archive.js", `import { atomicSave } from "./ui/save.js";`), ["src/archive.js: ./ui/save.js"]);
 });
