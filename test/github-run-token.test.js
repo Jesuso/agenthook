@@ -1,5 +1,5 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
-// src/github-run-token.js — per-run GitHub App tokens for agents (#474). No network: fetch,
+// src/github/run-token.js — per-run GitHub App tokens for agents (#474). No network: fetch,
 // the clock and the timer are injected.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -18,8 +18,8 @@ import {
   githubRunCredentials,
   RUN_TOKEN_REFRESH_MS,
   RUN_TOKEN_RETRY_MS,
-} from "../src/github-run-token.js";
-import { createGithubAuth, resetGithubAuthCache } from "../src/github-auth.js";
+} from "../src/github/run-token.js";
+import { createGithubAuth, resetGithubAuthCache } from "../src/github/auth.js";
 import { staleRunCreds } from "../src/commands/cleanup.js";
 
 const PEM = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs1", format: "pem" }).toString();

@@ -29,7 +29,7 @@ test("remoteEnvAllowlist: keeps AGENTHOOK_* and drops every forbidden family", (
     AGENTHOOK_RUN_ID: "42-code",
     GH_TOKEN: "tracker-token",
     GITHUB_TOKEN: "forge-token",
-    // the per-run GitHub App token family (github-run-token.js runGitEnv()/GH_CONFIG_DIR) — real
+    // the per-run GitHub App token family (github/run-token.js runGitEnv()/GH_CONFIG_DIR) — real
     // key names, real values, so a prefix match against "AGENTHOOK_" can't accidentally pass.
     GH_CONFIG_DIR: "/tmp/run-gh-config",
     GIT_CONFIG_COUNT: "4",

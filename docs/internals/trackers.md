@@ -55,7 +55,7 @@
   board only. No `epic_changed` signals yet (the org hook carries no sub-issue events).
 - **GitHub App auth** (`github`, `github-projects`, and the `github` forge) — an optional
   `auth: {type:"app", appId, installationId, privateKey|privateKeyPath}` replaces `token`.
-  `src/github-auth.js` (node:crypto only) signs an RS256 JWT, exchanges it for an installation
+  `src/github/auth.js` (node:crypto only) signs an RS256 JWT, exchanges it for an installation
   token, and caches it module-wide per `appId:installationId` (shared by tracker + forge), refetching
   5 min before `expires_at`. `githubFetch` retries a 401 once with a fresh token. An installation
   token is a `[bot]`, so 'us' is **`tracker.assigneeLogin`** (required, validated) and never `/user`

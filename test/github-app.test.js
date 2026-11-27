@@ -6,10 +6,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { createGithubAdapter } from "../src/trackers/github.js";
-import { resetGithubAuthCache } from "../src/github-auth.js";
+import { resetGithubAuthCache } from "../src/github/auth.js";
 import { adapter, evt, heldPipeline, makeStore, withDeps } from "./_github-helpers.js";
 
-// --- GitHub App auth (src/github-auth.js): installation token + human assigneeLogin ---
+// --- GitHub App auth (src/github/auth.js): installation token + human assigneeLogin ---
 
 const APP_PEM = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs1", format: "pem" }).toString();
 const APP_AUTH = { type: "app", appId: "101", installationId: "202", privateKey: APP_PEM };
