@@ -126,10 +126,10 @@ export function createUsage(ctx) {
  * turn's `usageRecord` (tokens add; `costUsd`/`durationMs` add when numbers; the last `sessionId`
  * wins) then each turn's `turnStats` (`turns` add; `peakContext` takes the max with `?? 0`; the
  * last `lastContext` wins; `compactions` add). A no-op when `turns` had no results.
- * @param {import('../types.js').UsageRecord} usage
+ * @param {import('../types/index.js').UsageRecord} usage
  * @param {ExtraTurns|undefined} turns
- * @param {import('../types.js').AgentAdapter} agent
- * @param {import('../types.js').AgentUsageCtx} meta
+ * @param {import('../types/index.js').AgentAdapter} agent
+ * @param {import('../types/index.js').AgentUsageCtx} meta
  */
 export function addTurns(usage, turns, agent, meta) {
   if (!turns?.results?.length) return;
@@ -151,7 +151,7 @@ export function addTurns(usage, turns, agent, meta) {
 /**
  * The run's usage and cost record: one per run, summed across the first turn and every
  * verdict-repair (#677) and gate-repair (#710) turn, ready for `store.recordUsage` and run_end.
- * @param {{agent: import('../types.js').AgentAdapter, result: unknown, meta: import('../types.js').AgentUsageCtx, finalized: {input?: number, output?: number, cacheRead?: number, cacheCreate?: number, model?: string}|null, model: string|undefined, turnStats: TurnStat|undefined, repair: ExtraTurns|undefined, gate: ExtraTurns|undefined, harness: {harness?: string|null}, remoteCwd: string|undefined, energy: {kWh: number}|null, cfg: Pick<import('../types.js').Config, "pricing"|"harnesses"|"energy">}} o
+ * @param {{agent: import('../types/index.js').AgentAdapter, result: unknown, meta: import('../types/index.js').AgentUsageCtx, finalized: {input?: number, output?: number, cacheRead?: number, cacheCreate?: number, model?: string}|null, model: string|undefined, turnStats: TurnStat|undefined, repair: ExtraTurns|undefined, gate: ExtraTurns|undefined, harness: {harness?: string|null}, remoteCwd: string|undefined, energy: {kWh: number}|null, cfg: Pick<import('../types/index.js').Config, "pricing"|"harnesses"|"energy">}} o
  */
 export function runUsageRecord({ agent, result, meta, finalized, model, turnStats, repair, gate, harness, remoteCwd, energy, cfg }) {
   const usage = agent.usageRecord(result, meta);
