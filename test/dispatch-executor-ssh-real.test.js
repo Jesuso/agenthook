@@ -157,17 +157,23 @@ test("real ssh: a rotated host key is refused and classified as an ssh host-key 
     const remote = remoteFor(workDir, { bin: "/bin/true" });
     const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(workDir, "hub.json") } });
     const { spawnAgent } = spawnCtx();
+    const { agent, err } = capturingAgent(({ prompt }) => ["-p", prompt]);
     const result = await spawnAgent({
-      agent: capturingAgent(({ prompt }) => ["-p", prompt]).agent,
+      agent,
       prompt: "hi",
       cwd: workDir,
       logPath: path.join(workDir, "run.log"),
       sandboxed: { ref: "5", stepId: "code", step: {}, mounts: [] },
       executor,
     });
-    assert.equal(result.code, 255);
-    assert.match(result.sshConfigFailure ?? "", /^ssh host key failed on 127\.0\.0\.1: /);
+    assert.equal(result.code, 255, JSON.stringify(result));
+    assert.match(
+      result.sshConfigFailure ?? "",
+      /^ssh host key failed on 127\.0\.0\.1: /,
+      `result=${JSON.stringify(result)} stderr=${JSON.stringify(err.join(""))}`,
+    );
   } finally {
+    sshd.restoreHostKey(); // undo the rotation so every later test connects normally
     fs.rmSync(workDir, { recursive: true, force: true });
   }
 });
@@ -267,10 +273,11 @@ test("real ssh: killing the local ssh client ends the remote agent process (clos
 test("real ssh: run.kill() TERM-then-KILLs the remote process group via a fresh ssh call", async (t) => {
   if (unavailable(t)) return;
   const workDir = mkWork();
+  let sleeper;
   try {
     fs.mkdirSync(path.join(workDir, ".agenthook", "p", "runs"), { recursive: true });
     const { spawn } = await import("node:child_process");
-    const sleeper = spawn("sh", ["-c", "trap '' TERM; exec sleep 30"], { detached: true });
+    sleeper = spawn("sh", ["-c", "trap '' TERM; exec sleep 30"], { detached: true });
     fs.writeFileSync(path.join(workDir, ".agenthook", "p", "runs", "k1.pgid"), String(sleeper.pid));
     const remote = remoteFor(workDir);
     const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(workDir, "hub.json") } });
@@ -292,6 +299,13 @@ test("real ssh: run.kill() TERM-then-KILLs the remote process group via a fresh 
     }
     assert.equal(alive, false, "kill() must end even a TERM-ignoring remote process group");
   } finally {
+    if (sleeper) {
+      try {
+        process.kill(sleeper.pid, "SIGKILL");
+      } catch {
+        /* already gone */
+      }
+    }
     fs.rmSync(workDir, { recursive: true, force: true });
   }
 });
@@ -346,6 +360,13 @@ test("real ssh: an AGENTHOOK_ env value and the prompt reach the agent but never
     while (!fs.existsSync(envOutFile) && Date.now() < envOutDeadline) await new Promise((r) => setTimeout(r, 50));
     assert.equal(fs.readFileSync(envOutFile, "utf8"), secretEnv, "the agent must still SEE the env value on its own stdin-independent env");
   } finally {
+    if (fs.existsSync(pidFile)) {
+      try {
+        process.kill(Number(fs.readFileSync(pidFile, "utf8").trim()), "SIGKILL");
+      } catch {
+        /* already gone */
+      }
+    }
     fs.rmSync(workDir, { recursive: true, force: true });
   }
 });

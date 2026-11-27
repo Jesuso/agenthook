@@ -69,7 +69,7 @@ async function waitUntilReady(realSsh, sshConfig, port, identityFile, deadlineMs
  * resolves to `{available: false, reason}` — callers must `t.skip(reason)`, never fail, on that.
  * @returns {Promise<{available: false, reason: string}|{available: true, port: number, host: string,
  *   identityFile: string, wrongIdentityFile: string, binDir: string, tmp: string,
- *   rotateHostKey: () => void, stop: () => Promise<void>}>}
+ *   rotateHostKey: () => void, restoreHostKey: () => void, stop: () => Promise<void>}>}
  */
 export async function startThrowawaySshd() {
   const realSsh = findBin("ssh", []);
@@ -188,6 +188,13 @@ export async function startThrowawaySshd() {
     fs.writeFileSync(knownHosts, hostKnownHostsLine(otherKey, port), { mode: 0o600 });
   };
 
+  /** Undo `rotateHostKey()`: put the server's real host key back in known_hosts so every test
+   * after A5 connects normally — without this, A5 permanently breaks host-key verification for
+   * the rest of the file. */
+  const restoreHostKey = () => {
+    fs.writeFileSync(knownHosts, hostKnownHostsLine(hostKey, port), { mode: 0o600 });
+  };
+
   return {
     available: true,
     port,
@@ -197,6 +204,7 @@ export async function startThrowawaySshd() {
     binDir,
     tmp,
     rotateHostKey,
+    restoreHostKey,
     stop,
   };
 }
