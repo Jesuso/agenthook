@@ -456,8 +456,13 @@ The harness's `piConfigDir` is a host dir holding Pi's `models.json` (and option
 agenthook copies `piConfigDir`'s files verbatim — never mounted — into the run's per-run sandbox
 HOME at `.pi/agent/` (see [Pi in the sandbox](sandbox.md#pi-in-the-sandbox)). A bad `piConfigDir`
 (missing, not a directory, an oversized or invalid file) refuses the run before anything spawns.
+Pi also runs on a **remote** worker (`harnesses.<name>.remote`): the same contract + standing
+files via `--append-system-prompt`, the `--offline`/`PI_OFFLINE=1` env, and the worker's **own**
+`~/.pi/agent` — there a step's `piConfigDir` is ignored (warned, never copied); see
+[Pi on the worker](remote.md#pi-on-the-worker).
 Pi takes no allow/deny policy and its print mode has no permission prompt, so a pi step must run
-sandboxed; see [Agents](agents.md#a-local-model-step-pi--ollama).
+sandboxed **or on a remote worker** (where it is unsandboxed — the worker OS account is the only
+limit); see [Agents](agents.md#a-local-model-step-pi--ollama).
 
 #### Compaction survival (verified)
 

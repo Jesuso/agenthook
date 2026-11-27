@@ -5,8 +5,8 @@
 // + `worktree add` for a worktree step, a tracked-only `git archive` for a no-worktree step; after
 // every run (always, incl. timeout/cancel) any commits are fetched back and fast-forwarded into the
 // hub worktree. The hub worktree stays the only real copy; the worker's uncommitted edits never
-// travel either direction. Submodules/LFS are refused (not supported yet). Claude and OpenCode are
-// supported (config refuses any other agent on a remote harness, #739).
+// travel either direction. Submodules/LFS are refused (not supported yet). Claude, OpenCode and
+// pi are supported (config validates against REMOTE_AGENTS, #739/#827).
 import fs from "node:fs";
 import path from "node:path";
 import { execFile, execFileSync, spawn } from "node:child_process";
@@ -73,8 +73,9 @@ const remoteExportPath = (remote, stateKey, ref, stepId) => `${remoteExportsDir(
 
 /** Per-run config dir (#739) an `AgentAdapter.remote` hook's `files` are written into — under
  * `runs/`, outside the synced worktree/export dir, so it is never committed or synced back.
- * Deterministic per ref+step (like `remoteVerdictDir`), so a verdict-repair resume turn's
- * `OPENCODE_CONFIG` still points at a dir that exists. @param {import('../types.js').RemoteHarness} remote @param {string} stateKey @param {string} ref @param {string} stepId */
+ * Deterministic per ref+step (like `remoteVerdictDir`), so a verdict-repair resume turn's hook
+ * files still point at a dir that exists (opencode's `OPENCODE_CONFIG`, pi's `--append-system-prompt` files, #827).
+ * The `.opencode` suffix is a historical name — pi reuses the same dir. @param {import('../types.js').RemoteHarness} remote @param {string} stateKey @param {string} ref @param {string} stepId */
 const remoteConfigDir = (remote, stateKey, ref, stepId) => `${remoteRunsDir(remote, stateKey)}/${safePart(ref)}-${safePart(stepId)}.opencode`;
 
 /** The ssh option argv (no `-T`, no host) shared by the launcher's own ssh call and
@@ -677,8 +678,8 @@ export function createSshExecutor({ stateKey, remote, spawnPaths, cfg = {} }) {
       // verdict out from under it.
       const verdictDir = raw ? undefined : remoteVerdictDir(remote, stateKey, ref, stepId);
       const hubVerdictFile = raw ? undefined : spawnPaths.sandboxVerdictPathFor(stepId, ref);
-      // Per-run config dir (#739): only created/written/removed when an AgentAdapter.remote hook
-      // actually returned files (opencode) — a plain claude run never touches it.
+      // Per-run config dir (#739/#827): only created/written/removed when an AgentAdapter.remote
+      // hook actually returned files (opencode, pi) — a plain claude run never touches it.
       const hasFiles = !raw && Array.isArray(files) && files.length > 0;
       const configDir = hasFiles ? remoteConfigDir(remote, stateKey, ref, stepId) : undefined;
       // The agent's own cwd: the worker path `paths()` already computed (worktree or export

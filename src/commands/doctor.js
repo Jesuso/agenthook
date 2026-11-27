@@ -172,7 +172,9 @@ export async function remoteHarnessChecks(cfg, { run }) {
     if (binCheck.code !== 0) {
       const fix = agentName === "opencode"
         ? `install opencode on the worker — see https://opencode.ai — or set harnesses.${name}.remote.bin to its path there`
-        : `install ${bin} on the worker, or set harnesses.${name}.remote.bin to its path there`;
+        : agentName === "pi"
+          ? `install pi on the worker (npm i -g @earendil-works/pi-coding-agent) — or set harnesses.${name}.remote.bin to its path there`
+          : `install ${bin} on the worker, or set harnesses.${name}.remote.bin to its path there`;
       out.push({ ok: false, label: label(`has agent bin ${JSON.stringify(bin)}`), note: "not found on the worker", fix: { manual: fix } });
     } else {
       const ver = await probe(`${shQuote(bin)} --version`);
