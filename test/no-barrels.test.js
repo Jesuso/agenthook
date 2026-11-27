@@ -71,11 +71,14 @@ function stripComments(content) {
 // own code).
 const RUNTIME_REEXPORT = /export\s+(?:\*\s*(?:as\s+[A-Za-z0-9_$]+\s*)?|\{[^}]*\}\s*)from\s+["'][^"']*["']/g;
 
-// Any top-level export statement at all (used to detect "only re-exports").
-const ANY_EXPORT_STATEMENT = /export\s+(?:type\s*)?(?:\*\s*(?:as\s+[A-Za-z0-9_$]+\s*)?from\s+["'][^"']*["']|\{[^}]*\}(?:\s*from\s+["'][^"']*["'])?)/g;
+// Any re-export statement, type-only or runtime (used to detect "only re-exports"). Unlike
+// RUNTIME_REEXPORT, this also matches `export type {...} from`. Deliberately requires a `from`
+// clause — `export {}` (a bare module marker) and `export {x}` (the separate
+// import-then-re-export shape, out of scope for this guard) are not re-exports.
+const ANY_REEXPORT_STATEMENT = /export\s+(?:type\s*)?(?:\*\s*(?:as\s+[A-Za-z0-9_$]+\s*)?|\{[^}]*\}\s*)from\s+["'][^"']*["']/g;
 
 function isPureBarrel(reduced) {
-  const exportStatements = reduced.match(ANY_EXPORT_STATEMENT) || [];
+  const exportStatements = reduced.match(ANY_REEXPORT_STATEMENT) || [];
   if (exportStatements.length === 0) return false;
   // Remove every export statement; if nothing meaningful remains, the file only re-exports.
   let rest = reduced;
@@ -83,8 +86,36 @@ function isPureBarrel(reduced) {
   // Remove import statements (a pure barrel may still import for other purposes — ignore them
   // for this check, matching the ticket's "every statement is export ... from").
   rest = rest.replace(/import\s+[^;]*;?/g, '');
-  return rest.trim() === '';
+  // Export statements don't consume their trailing `;`; drop stray semicolons too before
+  // deciding nothing meaningful remains.
+  return rest.replace(/;/g, '').trim() === '';
 }
+
+describe('no-barrels: detection helpers', () => {
+  test('type-only pure barrel with trailing semicolon is caught', () => {
+    const reduced = stripComments('export type { MessageKey } from "./i18n/en";\n');
+    assert.equal(isPureBarrel(reduced), true);
+  });
+
+  test('runtime pure barrel is caught by both checks', () => {
+    const reduced = stripComments('export { foo } from "./foo.js";\n');
+    assert.equal(isPureBarrel(reduced), true);
+    assert.deepEqual(reduced.match(RUNTIME_REEXPORT) || [], ['export { foo } from "./foo.js"']);
+  });
+
+  test('multi-line export {...} from is caught', () => {
+    const reduced = stripComments('export {\n  foo,\n  bar,\n} from "./foo.js";\n');
+    assert.equal((reduced.match(RUNTIME_REEXPORT) || []).length, 1);
+  });
+
+  test('a file with its own code plus a type-only re-export passes', () => {
+    const reduced = stripComments(
+      'export type { Foo } from "./foo.js";\nexport function bar() { return 1; }\n',
+    );
+    assert.equal(isPureBarrel(reduced), false);
+    assert.deepEqual(reduced.match(RUNTIME_REEXPORT) || [], []);
+  });
+});
 
 describe('no-barrels', () => {
   const files = [
