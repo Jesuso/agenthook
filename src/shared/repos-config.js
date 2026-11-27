@@ -1,4 +1,4 @@
-// Import-free validation for the optional `repos` config block (like src/sinks-config.js): config.js
+// Import-free validation for the optional `repos` config block (like src/shared/sinks-config.js): config.js
 // validates with it, the UI's Repos tab (ui/src/configEdit.ts) reuses it for inline card errors, and
 // the browser bundles it.
 

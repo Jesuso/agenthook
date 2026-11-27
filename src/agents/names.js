@@ -1,4 +1,4 @@
-// The agent adapter names, import-free on purpose: src/config-schema.js (bundled by the
+// The agent adapter names, import-free on purpose: src/shared/config-schema.js (bundled by the
 // browser) offers them as options and src/config.js validates against them, neither of
 // which may pull the Node-side registry (src/agents/index.js). A test holds the two equal.
 

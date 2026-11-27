@@ -22,7 +22,7 @@ import { EPIC_REF_RE, epicDetail, epicStats } from "./epics.js";
 import { repositoryOf } from "./heartbeat.js";
 import { buildRows, readProfileState } from "./ui/rows.js";
 import { readHistory } from "./ui/stats.js";
-import { canonicalLang } from "./digest-config.js";
+import { canonicalLang } from "./shared/digest-config.js";
 import { markFollowUpDone } from "./followup.js";
 import { heartbeatOverrides } from "./overrides.js";
 
@@ -118,7 +118,7 @@ export function ttlCache(fn, ttlMs, now = Date.now) {
  *   harnessQuota?: { suppress(name: string, until: number): void },
  *   reload?: () => Promise<{ changed: string[], note: string }>,
  * }} deps  isLocked: a restart/decommission/shutdown owns the queue pause — `resume` must not undo it.
- *   pacer: the quota pacer (src/quota.js) — told about operator pauses so its reset never undoes one,
+ *   pacer: the quota pacer (src/shared/quota.js) — told about operator pauses so its reset never undoes one,
  *   and an operator `resume` overrides a quota pause until that window resets.
  *   harnessQuota: the harnessed quota controller — `harness_reset` on a quota-closed harness tells it
  *   to suppress re-closing that harness until the trip's reset.

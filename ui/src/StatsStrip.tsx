@@ -3,7 +3,7 @@ import type { StatsView } from "./contract";
 import { Segmented, ShowHide } from "./components";
 import type { FeedEntry } from "./feed";
 import { formatSpend } from "./format";
-import { formatEnergy } from "../../src/energy.js";
+import { formatEnergy } from "../../src/shared/energy.js";
 import { DEFAULT_RANGE, RANGES, latestChange, shortDate, statsUrl, summarizeStats } from "./stats";
 import type { Range } from "./stats";
 import { useT } from "./i18n/react";

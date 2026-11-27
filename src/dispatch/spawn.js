@@ -156,7 +156,7 @@ export function createSpawn(ctx) {
    * `errorLine` (#688) is the breaker's agent-side detail for its fast-exit reason: the last
    * non-blank line of the final result text when there is one, else of a small raw-stderr tail —
    * redacted (src/agent-env.js redactSecrets) and clipped to 200 chars; absent when there is none.
-   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, unreachable?: string, sshConfigFailure?: string, noOutput?: boolean, apiDown?: string, lastText?: string, errorLine?: string}>}
+   * @returns {Promise<{code: number, result: any, quota: import('../shared/quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, unreachable?: string, sshConfigFailure?: string, noOutput?: boolean, apiDown?: string, lastText?: string, errorLine?: string}>}
    */
   async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, allow, deny, bin, agentEnv, creds, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed, executor, resumeSessionId }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });

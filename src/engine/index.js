@@ -230,7 +230,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     server: http.createServer(createRequestHandler({ adapter, forge, intake, ciGreen, epicChanged, boardDone, prPush })),
   };
 
-  // Quota pacing: receiver-wide without harnesses (`createQuotaControl`, src/quota.js pacer), or
+  // Quota pacing: receiver-wide without harnesses (`createQuotaControl`, src/shared/quota.js pacer), or
   // per-harness with them (`createHarnessQuota`). `quota` config is opt-in in both modes.
   const quotaPacer = cfg.harnesses
     ? undefined
@@ -242,7 +242,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   const harnessQuota = cfg.harnesses ? createHarnessQuota({ cfg, queue, heartbeat }) : undefined;
   // The active controller boot seeds and teardown stops (one of the two is always undefined).
   const quotaController = {
-    /** @param {import('../quota.js').QuotaReading|null} q */
+    /** @param {import('../shared/quota.js').QuotaReading|null} q */
     reading(q) {
       if (harnessQuota) harnessQuota.reading(q);
       else quotaPacer?.reading(q);

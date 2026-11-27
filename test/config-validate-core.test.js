@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { loadConfig, validateRawConfig, literalSecrets, SECRET_FIELDS, registryDir } from "../src/config.js";
-import { isEnvRef } from "../src/ui/sensitive.js";
+import { isEnvRef } from "../src/shared/sensitive.js";
 import { raw, loadError } from "./_config-validate-helpers.js";
 
 for (const v of ["ASANA_TOKEN", "GITHUB_TOKEN", "NGROK_AUTHTOKEN", "AH_UNSET_VAR"]) delete process.env[v];

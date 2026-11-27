@@ -88,7 +88,7 @@ browser edit ──POST {path, baseHash, content}──► atomic write ──�
 - `GET /api/snapshot` → full state on connect. `GET /api/stream` (SSE) → typed deltas. The browser
   `EventSource` reconnects by itself and re-fetches the snapshot on reconnect.
 - `ProfileView.recentCosts` → `{at, costUsd, estUsd}[]`: the `run_end` events with a reported cost
-  or a rate-table estimate (`src/pricing.js` `costOf`, the heartbeat's `pricing` overrides) from
+  or a rate-table estimate (`src/shared/pricing.js` `costOf`, the heartbeat's `pricing` overrides) from
   the last 48 h of the profile's events tail, oldest first; the field that doesn't apply is 0.
   Tiles show `$x + ~$y est.`, never one blended sum. The Statistics Today card's "cost today (approx.)"
   buckets them by the browser's local midnight — approximate because the tail is
@@ -168,7 +168,7 @@ already flagged with a PR reason, never the board. Same guard chain as dismiss.
 | UI server | `src/ui/` — plain `node:http`, **JSDoc-typed JS**, zero runtime deps | Matches the core; runs unbuilt. Node refuses to strip `.ts` under `node_modules`, so server-side TS would break `npm install`ed copies. |
 | Frontend | `ui/` — **TypeScript + React + Vite + Tailwind** | Real TS where a build step exists anyway; the stack agents write most fluently. Bundle size is moot for a local tool. |
 | Editor (v2) | CodeMirror 6, markdown mode + split preview | MIT, light; Monaco is too heavy. |
-| Shared contract | `src/ui/contract.js` (JSDoc typedefs: snapshot, SSE events, `TicketRow`) | The frontend `import type`s it, so server and browser can't drift. |
+| Shared contract | `src/shared/contract.js` (JSDoc typedefs: snapshot, SSE events, `TicketRow`) | The frontend `import type`s it, so server and browser can't drift. |
 | Tests | `node:test` for the server (watcher, debounce, row builder, auth); Vitest for frontend logic | Same zero-dep core runner; Playwright smoke later. |
 
 Dependency policy:
@@ -330,7 +330,7 @@ confirm and sends nothing, but turns every incomplete hint into a normal error. 
 never block Save. `closeIssue` / `completeTask` show only on the last step, a manual step, or a
 step that already sets them — they act when a task enters that step.
 
-**Tracker / Forge / Ingress tabs.** Rendered from the config schema (`src/config-schema.js`): each
+**Tracker / Forge / Ingress tabs.** Rendered from the config schema (`src/shared/config-schema.js`): each
 tab lists its section's entries whose `scope` includes the active `tracker.type` (or has none) —
 a new scoped schema entry adds a field — with the `advanced` ones in a collapsed "Advanced · N set".
 `tracker.type` is read-only once set (every step's stage keys depend on it; change it in Raw) and a
@@ -350,7 +350,7 @@ shows `authtoken`, `domain` (unset = a new URL every start) and advanced `webAdd
 the file.
 
 **Secret fields** (`tracker.token`, `tracker.webhookSecret`, `forge.token`, `forge.webhookSecret`,
-`ingress.authtoken`, `sinks[*].url`, `sinks[*].botToken` — `SECRET_FIELDS`, which lives in the browser-bundled `src/ui/sensitive.js`
+`ingress.authtoken`, `sinks[*].url`, `sinks[*].botToken` — `SECRET_FIELDS`, which lives in the browser-bundled `src/shared/sensitive.js`
 beside `isEnvRef`, the `${VAR}` check `literalSecrets` uses too). A `${VAR}` ref is shown and
 edited as text; an absent one hints to put the value in the `.env` beside the config and reference
 it. A **literal** already in the file never reaches the DOM (not even an input's `value`): the field
@@ -380,8 +380,8 @@ checking it on one card clears every other card's in the same edit — and, unde
 default repo `src/config.js` synthesizes on its own, so routing doesn't change — but it does switch
 the profile into multi-repo mode, which nests worktrees under `worktreePrefix/<id>/`, so finish or
 drain in-flight tickets before declaring `repos`). Sink, digest and repos rules come from the
-import-free `src/sinks-config.js` / `src/digest-config.js` / `src/repos-config.js` the server
-validates with, shown as client checks. Every schema key has a form now (`src/config-schema.js`'s
+import-free `src/shared/sinks-config.js` / `src/shared/digest-config.js` / `src/shared/repos-config.js` the server
+validates with, shown as client checks. Every schema key has a form now (`src/shared/config-schema.js`'s
 drift test asserts no entry is left `editor: "pending"`); Raw stays the escape hatch for sharing
 whole blocks, `//` comment keys, unknown/future keys, and fixing invalid JSON.
 
@@ -691,7 +691,7 @@ default, plus total, per-day average, rework rate (from 10 runs) and best day).
   Day payload (`DayStats`) gained `byStep`, `outcomes` and `ticketCost`; `days` may now be up to 366.
 - **Estimated spend** (#394): `DayStats` also carries `estUsd` (rate-table estimates, never in
   `costUsd`), `unestimatedRuns` (runs with neither), `byStep[step].estUsd` and `ticketEst` (the
-  ticket-cost spread over estimates). Every reader prices through `src/pricing.js` `costOf` with the
+  ticket-cost spread over estimates). Every reader prices through `src/shared/pricing.js` `costOf` with the
   heartbeat's `pricing` overrides; an old `run_end` with no tokens is joined to `usage.jsonl` by
   ref + step within 5 s. The History line reads `$12.40 + ~$3.10 est.` plus `N runs no estimate`;
   *Spend by step* stacks each step's estimate above its reported spend as its own washed-out,
@@ -804,7 +804,7 @@ A **Digest** is an on-demand, agent-written summary of one profile ("Catch me up
   receiver is up or down. Not audited to `control-audit.jsonl` (only the receiver's `digest` op
   is). `events.jsonl` only gets `digest_start`/`digest_end` from the CLI when the receiver is down
   (it stays the single writer while it's up); the UI picks up the written `digest.json` either way.
-- **As built**: `src/digest.js` (snapshot, prompt, argv, single-flight runner), `src/digest-config.js`
+- **As built**: `src/digest.js` (snapshot, prompt, argv, single-flight runner), `src/shared/digest-config.js`
   (validation), the receiver op `digest` (`ops.js`, audited), `GET`/`POST /api/digest` (POST waits up to
   200 s for the agent), `DigestPanel.tsx` in the Overview. The agent runs with `--tools ""`,
   `--strict-mcp-config`, `--no-session-persistence` and `--setting-sources project`, so the owner's
@@ -970,8 +970,8 @@ in the panel re-renders the app in place through `I18nProvider` (in `App.tsx`) a
   body, reasons, summaries), log text, config keys and the raw key shown beside each form label,
   ids, code and copyable CLI commands. A server's error detail is quoted as-is inside a
   translated sentence.
-- **Known gap:** the spend, energy and quota readouts come from `src/pricing.js`,
-  `src/energy.js` and `src/quota.js`, which the CLI shares, so they stay English in every
+- **Known gap:** the spend, energy and quota readouts come from `src/shared/pricing.js`,
+  `src/shared/energy.js` and `src/shared/quota.js`, which the CLI shares, so they stay English in every
   language.
 
 The code is `ui/src/i18n/`, with no dependency: `en.ts` is the source of truth, a flat map of
@@ -985,7 +985,7 @@ their hand-built English, so output never depends on the browser's ICU; other la
 other helper that returns UI text (`epics.ts`, `failure.ts`, `remove.ts`, `save.ts`, `config.ts`,
 …) takes the same trailing `lang`, and its English output is unchanged byte for byte.
 
-**Config labels and help.** `src/config-schema.js` stays English: the CLI and the server share
+**Config labels and help.** `src/shared/config-schema.js` stays English: the CLI and the server share
 it. A language translates it with an overlay, `ui/src/i18n/schema.<lang>.ts`: a
 `Record<path, { label, help }>` keyed by the entry's dotted path (`tracker.pipeline.*.maxMinutes`).
 `fieldMeta(path, lang)` uses the overlay's entry when it has one, else the schema's English; the

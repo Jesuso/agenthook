@@ -3,11 +3,11 @@ import { act, createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BasicsForm, PipelineForm, fieldMeta } from "./ConfigForms";
 import { numberEdit, textEdit } from "./configEdit";
-import { STEP_KINDS, schemaEntry, stepEntry } from "../../src/config-schema.js";
+import { STEP_KINDS, schemaEntry, stepEntry } from "../../src/shared/config-schema.js";
 import { click, mount } from "./domHarness";
 import type { Mounted } from "./domHarness";
 
-// The Basics and step fields render from src/config-schema.js: label, raw key, "?" help, placeholder.
+// The Basics and step fields render from src/shared/config-schema.js: label, raw key, "?" help, placeholder.
 
 let m: Mounted | null = null;
 afterEach(async () => {

@@ -1,7 +1,7 @@
-import { PROFILE_COLORS, PROFILE_EMOJIS } from "../../src/identity.js";
+import { PROFILE_COLORS, PROFILE_EMOJIS } from "../../src/shared/identity.js";
 import type { ProfileView } from "./contract";
 
-export { PROFILE_COLORS, PROFILE_EMOJIS, deriveIdentity } from "../../src/identity.js";
+export { PROFILE_COLORS, PROFILE_EMOJIS, deriveIdentity } from "../../src/shared/identity.js";
 
 /**
  * Inline style that scopes `--profile-accent` to a profile's palette colour; everything that

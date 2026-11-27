@@ -2,7 +2,7 @@
 // is built from. One object per dispatcher — two dispatchers never share any of it.
 
 /**
- * @typedef {{killGraceMs?: number, finalizeTimeoutMs?: number, energySampler?: Pick<ReturnType<typeof import('../energy-sampler.js').createEnergySampler>, "start"|"stop">, onQuota?: (q: import('../quota.js').QuotaReading, meta: {harness: string|null, stepId: string}) => void, sandbox?: import('../types.js').Sandbox|null, executors?: {host: import('../types.js').Executor, sandbox?: import('../types.js').Executor, ssh?: Record<string, import('../types.js').Executor>}}} DispatchOpts
+ * @typedef {{killGraceMs?: number, finalizeTimeoutMs?: number, energySampler?: Pick<ReturnType<typeof import('../energy-sampler.js').createEnergySampler>, "start"|"stop">, onQuota?: (q: import('../shared/quota.js').QuotaReading, meta: {harness: string|null, stepId: string}) => void, sandbox?: import('../types.js').Sandbox|null, executors?: {host: import('../types.js').Executor, sandbox?: import('../types.js').Executor, ssh?: Record<string, import('../types.js').Executor>}}} DispatchOpts
  */
 
 /**

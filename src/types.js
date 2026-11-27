@@ -70,7 +70,7 @@
  * @property {string[]} [toolsets]            hermes `-t`: the toolsets this step's agent may use (default ["terminal","file"] when isolated); other agents ignore it
  * @property {string|(string|HarnessEntry)[]} [harness]  name(s) from the profile's `harnesses` this step's runs use; the queue picks one with a free slot when a job starts. An element may instead be `{name, model?, effort?}`, whose `model`/`effort` pin only runs routed to that harness — they win over the step's, the harness's, `escalate` and `lite` for that harness alone. Otherwise the step's own agent/model/bin/provider/toolsets/opencodeConfig win over the harness's; `env` merges (step keys win)
  * @property {'first-free'|'round-robin'} [routing]  how a `harness` list is picked: first-free (default) = the first listed harness with room; round-robin = rotate, skipping full ones. Needs a list
- * @property {boolean} [energy]               opt-in: measure this step's runs with the profile's `energy` source (kWh + USD on usage.jsonl / run_end, src/energy.js); needs a profile `energy` block
+ * @property {boolean} [energy]               opt-in: measure this step's runs with the profile's `energy` source (kWh + USD on usage.jsonl / run_end, src/shared/energy.js); needs a profile `energy` block
  * @property {boolean} [isolated]             hermes: run in the profile's own HERMES_HOME (`<stateDir>/hermes-home`, only `config.yaml` copied) with `--ignore-rules --source tool` (default true); false = the user's real Hermes home. Other agents ignore it
  * @property {Record<string, string>} [env]   extra environment for this step's agent only, merged over the agent's filtered env (see agentEnvPassthrough; AGENTHOOK_VERDICT_FILE is reserved)
  * @property {boolean} [sandbox]              false = run this step on the host even when the profile has a `sandbox` (the operator's explicit escape hatch)
@@ -230,9 +230,9 @@
  * @property {number} [costUsd]    result.total_cost_usd (kept raw even when `unpriced` — readers ignore it then)
  * @property {string} [sessionId]  result.session_id
  * @property {true} [unpriced]     local model (step `bin` or a non-Claude model): `costUsd` is not real spend
- * @property {number} [estUsd]     rate-table estimate (src/pricing.js `costOf`), stamped at write time; absent on a reported run or with no rate/tokens
+ * @property {number} [estUsd]     rate-table estimate (src/shared/pricing.js `costOf`), stamped at write time; absent on a reported run or with no rate/tokens
  * @property {'reported'|'rate-table'} [costBasis]  which figure stands for this run: `costUsd` (reported) or `estUsd` (rate-table)
- * @property {number} [energyKwh]   measured energy of an `energy: true` step's run (src/energy.js; 1e-9 kWh), its share of machine power; absent when unmeasured
+ * @property {number} [energyKwh]   measured energy of an `energy: true` step's run (src/shared/energy.js; 1e-9 kWh), its share of machine power; absent when unmeasured
  * @property {number} [energyUsd]   energyKwh × the profile's `energy.usdPerKwh` (1e-6 $) — a third figure, never in costUsd/estUsd
  * @property {'hwmon'|'command'|'watts'} [energySource]  the `energy.source.type` that measured it
  */
@@ -615,7 +615,7 @@
  * @property {any} result                       the agent's final result record (null until seen); passed to `usageRecord`
  * @property {string|undefined} sessionId       the run's session id, once known
  * @property {(chunk: string) => void} [pushStderr]  stderr reaches the parser only through this (e.g. hermes' session id)
- * @property {import('./quota.js').QuotaReading|null} [quota]  the latest subscription-quota reading (claude's `rate_limit_event`); other agents don't report one
+ * @property {import('./shared/quota.js').QuotaReading|null} [quota]  the latest subscription-quota reading (claude's `rate_limit_event`); other agents don't report one
  */
 
 /** Context for an agent's usage record (everything but the result).
@@ -818,12 +818,12 @@
  * @property {ForgeConfig} [forge]   optional; absent = no forge (no PR awareness)
  * @property {SandboxConfig} [sandbox]  optional; absent = agents run on the host. Set = each run in its own container (src/sandbox/)
  * @property {Record<string, Harness>} [harnesses]  named agent backends, each with its own slot pool; a step's `harness` picks from them
- * @property {{ color?: string, emoji?: string }} [ui]  optional profile identity for the web UI (src/identity.js); unset values derive from the state key
+ * @property {{ color?: string, emoji?: string }} [ui]  optional profile identity for the web UI (src/shared/identity.js); unset values derive from the state key
  * @property {{ soul: string, access?: 'snapshot', model?: string, maxBudgetUsd?: number }} digest  the on-demand Digest (src/digest.js); `soul` is resolved beside the config; unset `model`/`maxBudgetUsd` fall back to `summaries.*`
  * @property {{ model?: string, maxBudgetUsd?: number }} [summaries]  cheap tool-less summaries in the UI language (src/summarize.js); `model` default "claude-haiku-5-5", `maxBudgetUsd` default 0.1 per ticket-summary run
- * @property {Record<string, { input: number, output: number, cacheRead?: number, cacheWrite?: number }>} [pricing]  API-equivalent $/Mtok per model name or glob (src/pricing.js); checked before the built-in Claude rates
- * @property {{ usdPerKwh: number, source: { type: 'hwmon'|'command'|'watts', name?: string, cmd?: string, watts?: number } }} [energy]  local energy basis (src/energy.js): the power source an `energy: true` step's runs are measured with, and the electricity price
- * @property {{ pauseAboveSevenDay?: number, pauseAboveFiveHour?: number }} [quota]  opt-in Claude quota pacer (src/quota.js): pause admission at/above a window's utilization (0–1], resume at its reset
+ * @property {Record<string, { input: number, output: number, cacheRead?: number, cacheWrite?: number }>} [pricing]  API-equivalent $/Mtok per model name or glob (src/shared/pricing.js); checked before the built-in Claude rates
+ * @property {{ usdPerKwh: number, source: { type: 'hwmon'|'command'|'watts', name?: string, cmd?: string, watts?: number } }} [energy]  local energy basis (src/shared/energy.js): the power source an `energy: true` step's runs are measured with, and the electricity price
+ * @property {{ pauseAboveSevenDay?: number, pauseAboveFiveHour?: number }} [quota]  opt-in Claude quota pacer (src/shared/quota.js): pause admission at/above a window's utilization (0–1], resume at its reset
  * @property {number} port
  * @property {string} trigger
  * @property {number} maxConcurrent

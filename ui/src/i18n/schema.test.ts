@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { CONFIG_SCHEMA } from "../../../src/config-schema.js";
+import { CONFIG_SCHEMA } from "../../../src/shared/config-schema.js";
 import { fieldMeta } from "../ConfigForms";
 import { SCHEMA_ES } from "./schema.es";
 
 // #562: the config forms' labels and help are translated by an overlay keyed by schema path, not by
-// editing src/config-schema.js (the CLI and server share it, in English).
+// editing src/shared/config-schema.js (the CLI and server share it, in English).
 describe("schema overlay", () => {
   const paths = CONFIG_SCHEMA.map((e) => e.path.join(".")).sort();
 

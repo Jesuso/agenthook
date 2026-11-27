@@ -5,7 +5,7 @@ import type { FeedEntry } from "./feed";
 import { formatCost, formatSpend, profileLabel } from "./format";
 import { MIN_RUNS_FOR_RATES, progress } from "./zones";
 import { usePageTitle } from "./usePageTitle";
-import { formatEnergy } from "../../src/energy.js";
+import { formatEnergy } from "../../src/shared/energy.js";
 import { HarnessesCard } from "./HarnessesCard";
 import { StatsStrip } from "./StatsStrip";
 import { latestChange, shortDate, statsUrl } from "./stats";

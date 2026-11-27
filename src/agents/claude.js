@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { claudeProjectDir, mangle, sandboxClaudeProjectDir } from "../paths.js";
-import { quotaFromRateLimitEvent } from "../quota.js";
+import { quotaFromRateLimitEvent } from "../shared/quota.js";
 import { urlRule } from "../sandbox/egress.js";
 
 /** Reasoning-effort levels `claude -p --effort` accepts. An out-of-set value is
@@ -182,10 +182,10 @@ export function compactionLine(meta) {
  * assistant **text** content blocks to human-readable log text (non-text blocks and
  * non-JSON lines ignored — never throws), keeps a running token tally, and captures
  * the final `{type:"result"}` event, plus the latest subscription-quota reading from a
- * `rate_limit_event` (src/quota.js; a malformed one leaves it unchanged). Pure (no I/O),
+ * `rate_limit_event` (src/shared/quota.js; a malformed one leaves it unchanged). Pure (no I/O),
  * stateful — feed chunks via push(), flush() any tail at EOF, then read `.tally` / `.result` /
  * `.quota`. Exported for unit tests.
- * @returns {{push:(chunk:string)=>string, flush:()=>string, tally:{input:number,output:number,cacheRead:number,cacheCreate:number,turns?:number,firstContext?:number,peakContext?:number,lastContext?:number,compactions:number}, result:any, quota:import('../quota.js').QuotaReading|null}}
+ * @returns {{push:(chunk:string)=>string, flush:()=>string, tally:{input:number,output:number,cacheRead:number,cacheCreate:number,turns?:number,firstContext?:number,peakContext?:number,lastContext?:number,compactions:number}, result:any, quota:import('../shared/quota.js').QuotaReading|null}}
  */
 export function createStreamParser() {
   let buf = "";
@@ -193,7 +193,7 @@ export function createStreamParser() {
   const tally = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, compactions: 0 };
   /** @type {any} */
   let result = null;
-  /** @type {import('../quota.js').QuotaReading|null} */
+  /** @type {import('../shared/quota.js').QuotaReading|null} */
   let quota = null;
   // The last counted turn's `message.id` (#645): a content block sharing it is the same turn.
   // undefined both at start and after an id-less event — an id-less event always counts as its

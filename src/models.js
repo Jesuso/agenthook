@@ -1,11 +1,11 @@
 // Context-window resolution for the live context gauge (#658): how many tokens a model's prompt
 // window holds, so a running record's `ctx` (lastContext, #645) can be shown against a `ctxMax`.
-// Import-light like src/pricing.js: the one import (readOpencodeConfig) is a file read reused from
+// Import-light like src/shared/pricing.js: the one import (readOpencodeConfig) is a file read reused from
 // the opencode adapter, not a new dependency surface.
 import { readOpencodeConfig } from "./agents/opencode.js";
 
 /**
- * Context windows (tokens) for every Claude family in src/pricing.js's DEFAULT_RATES, plus the
+ * Context windows (tokens) for every Claude family in src/shared/pricing.js's DEFAULT_RATES, plus the
  * CLI aliases the `claude` adapter accepts. Anthropic's published default windows (no beta header),
  * as of 2026-11 (https://platform.claude.com/docs/en/about-claude/models/overview): 1,000,000 for
  * every current model except Claude Haiku 4.5 at 200,000. The aliases track the current generation,
@@ -69,7 +69,7 @@ function lookup(table, s) {
 }
 
 /**
- * The context window for `model`, matched like src/pricing.js's matchRate (case-insensitive,
+ * The context window for `model`, matched like src/shared/pricing.js's matchRate (case-insensitive,
  * exact before glob, full string before the part after its last `/` — OpenCode's `provider/model`).
  * A model ending in `[1m]` (any case) is 1,000,000 regardless of the table. Null when nothing matches.
  * @param {string|undefined|null} model @returns {number|null}

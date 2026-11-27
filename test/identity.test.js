@@ -1,7 +1,7 @@
 import "./_setup.js";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PROFILE_COLORS, PROFILE_EMOJIS, deriveIdentity, identityErrors, isProfileColor, isProfileEmoji, resolveIdentity } from "../src/identity.js";
+import { PROFILE_COLORS, PROFILE_EMOJIS, deriveIdentity, identityErrors, isProfileColor, isProfileEmoji, resolveIdentity } from "../src/shared/identity.js";
 
 test("the palette excludes status hues and the emoji list has unique single entries", () => {
   for (const c of ["red", "amber", "green", "orange", "yellow"]) assert.ok(!PROFILE_COLORS.includes(c), c);

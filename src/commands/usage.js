@@ -6,17 +6,17 @@
 //   usage --week       group by ISO week (--week wins if both given)
 import { loadConfig } from "../config.js";
 import { createStore } from "../store.js";
-import { costOf, sumCosts } from "../pricing.js";
-import { formatEnergy } from "../energy.js";
+import { costOf, sumCosts } from "../shared/pricing.js";
+import { formatEnergy } from "../shared/energy.js";
 
 /**
  * Aggregate an array of UsageRecords into summed totals. Tokens sum every record; `costUsd`
  * sums only priced ones (an `unpriced` local-model run's figure is not real spend). `est` /
- * `unestimated` are src/pricing.js `sumCosts` over the rest (the rate-table estimate, and the
+ * `unestimated` are src/shared/pricing.js `sumCosts` over the rest (the rate-table estimate, and the
  * runs with no rate or no tokens), with the profile's `pricing` overrides. `energyKwh`/`energyUsd`
- * sum the measured runs (`energyRuns` of them, src/energy.js) — apart from both dollar figures.
+ * sum the measured runs (`energyRuns` of them, src/shared/energy.js) — apart from both dollar figures.
  * @param {import('../types.js').UsageRecord[]} recs
- * @param {Record<string, import('../pricing.js').Rate>|null} [pricing]
+ * @param {Record<string, import('../shared/pricing.js').Rate>|null} [pricing]
  * @returns {{ input: number, output: number, cacheRead: number, cacheCreate: number, costUsd: number|undefined, est: number, unestimated: number, energyKwh: number, energyUsd: number, energyRuns: number }}
  */
 export function sumRecords(recs, pricing) {
@@ -39,7 +39,7 @@ export function sumRecords(recs, pricing) {
 }
 
 /** A group/TOTAL `$` cell: reported and estimated side by side, never summed — `$1.2345 + ~$0.0400 est.`
- * (src/pricing.js `formatSpend`'s shape at this table's precision); `—` when neither. Exported for tests.
+ * (src/shared/pricing.js `formatSpend`'s shape at this table's precision); `—` when neither. Exported for tests.
  * @param {{ costUsd: number|undefined, est: number }} t */
 export function spendCell(t) {
   const est = t.est > 0 ? `~${fmtCost(t.est)} est.` : "";
@@ -112,8 +112,8 @@ function fmtCost(usd) {
 /**
  * A per-run cost cell: the reported `$0.1234`, else the rate-table `~$0.0400 est.`, else
  * `unpriced` for a run with no real cost and no estimate (no rate, or no tokens); a measured run
- * appends ` · energy $0.00029 (1.9 Wh)` (src/energy.js). Exported for tests.
- * @param {import('../types.js').UsageRecord} r @param {Record<string, import('../pricing.js').Rate>|null} [pricing]
+ * appends ` · energy $0.00029 (1.9 Wh)` (src/shared/energy.js). Exported for tests.
+ * @param {import('../types.js').UsageRecord} r @param {Record<string, import('../shared/pricing.js').Rate>|null} [pricing]
  */
 export function runCost(r, pricing) {
   const c = costOf(r, pricing);

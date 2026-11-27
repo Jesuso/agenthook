@@ -5,8 +5,8 @@ import path from "node:path";
 import { drainWorktree } from "../worktree.js";
 import { CANCELLED_REASON, reportMoveFailure } from "../events.js";
 import { unionPaths } from "../overlap.js";
-import { costOf } from "../pricing.js";
-import { energyFields } from "../energy.js";
+import { costOf } from "../shared/pricing.js";
+import { energyFields } from "../shared/energy.js";
 import { timeoutReason, NO_VALID_VERDICT, QUESTION_HOLD, ASSUMED_ADVANCE_SUFFIX, endedWithQuestion, guardSandboxVerdict } from "./verdict.js";
 import { harnessesOf, healthTrip } from "./harness.js";
 import { followUpDecision } from "../followup.js";
@@ -44,7 +44,7 @@ import { publishOutbox } from "./publish.js";
  * @property {number} code
  * @property {any} result
  * @property {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}} [turnStats]  the parser's per-turn stats (#645), when it saw at least one turn; compactions (#657) rides along the same guard
- * @property {import('../quota.js').QuotaReading|null} quota
+ * @property {import('../shared/quota.js').QuotaReading|null} quota
  * @property {"max"|"idle"|undefined} timedOut
  * @property {boolean} [sandboxed]  ran in the profile's sandbox, or over ssh on a remote harness (#689) — either way its verdict sits in its own per-run dir and needs the untrusted-writer guard (guardSandboxVerdict)
  * @property {import('../types.js').SandboxReport} [sandboxReport]  what the sandbox reported once the run exited
@@ -161,7 +161,7 @@ export function createFinish(ctx) {
       usage.remoteCwd = remoteCwd;
     }
     const unpriced = !!usage.unpriced;
-    // Stamp the basis (src/pricing.js): a reported run keeps `costUsd` alone; otherwise an
+    // Stamp the basis (src/shared/pricing.js): a reported run keeps `costUsd` alone; otherwise an
     // API-equivalent `estUsd` from the rate table, when the model has a rate and tokens.
     const priced = costOf(usage, cfg.pricing);
     if (priced.estUsd !== undefined) usage.estUsd = priced.estUsd;

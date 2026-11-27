@@ -9,9 +9,9 @@ import { listProfiles } from "../heartbeat.js";
 import { tildify } from "../profile.js";
 import { CANCELLED_REASON } from "../events.js";
 import { isBoardDone } from "../board-done.js";
-import { resolveIdentity } from "../identity.js";
-import { costOf, pricingOf } from "../pricing.js";
-import { normalizeQuota, normalizeTrip } from "../quota.js";
+import { resolveIdentity } from "../shared/identity.js";
+import { costOf, pricingOf } from "../shared/pricing.js";
+import { normalizeQuota, normalizeTrip } from "../shared/quota.js";
 
 /** Only the last N bytes of events.jsonl are read — the file is append-only and unbounded. */
 export const EVENTS_TAIL_BYTES = 256 * 1024;
@@ -209,7 +209,7 @@ export function readProfileState(dir, events) {
 }
 
 /** Which newest `run_end.outcome` a row's `plain` must match per status ("*" = any); unlisted → none.
- * @type {Partial<Record<import('./contract.js').TicketStatus, string>>} */
+ * @type {Partial<Record<import('../shared/contract.js').TicketStatus, string>>} */
 const PLAIN_OUTCOME = { held: "hold", failed: "fail", done: "advance", running: "*", queued: "*" };
 
 /** @param {any} v */
@@ -228,7 +228,7 @@ const cleanRowOptions = (v) => {
  * refmeta.epic → TicketRow.epic: an object with a non-empty string `ref`, else null; `name`
  * falls back to `ref`, `url` survives only as http(s) (like `trackerUrl`).
  * @param {any} e
- * @returns {import('./contract.js').TicketEpic|null}
+ * @returns {import('../shared/contract.js').TicketEpic|null}
  */
 const ticketEpic = (e) => {
   const ref = e && typeof e === "object" ? str(e.ref) : null;
@@ -238,7 +238,7 @@ const ticketEpic = (e) => {
 };
 
 /** `prNeeds` per PR fact on a row whose board is known open (ADR 0008).
- * @type {Record<'ready'|'merged'|'closed', import('./contract.js').PrNeeds>} */
+ * @type {Record<'ready'|'merged'|'closed', import('../shared/contract.js').PrNeeds>} */
 const OPEN_BOARD_PR_NEEDS = { ready: "awaitingMerge", merged: "mergedOpen", closed: "closedUnmerged" };
 
 /**
@@ -269,16 +269,16 @@ export function lastRerunAt(events, ref) {
  * done; where it disagrees with the board it sets `prNeeds` instead — unless a `dismissed` came
  * after the last re-run (the operator acknowledged it; the next re-run brings it back).
  * `costUsd` sums `run_end.costUsd` within the tail only — an approximation for old refs; `estUsd`
- * sums the rate-table estimates of the runs with no reported cost (src/pricing.js `costOf`, the
+ * sums the rate-table estimates of the runs with no reported cost (src/shared/pricing.js `costOf`, the
  * profile's `pricing` overrides from its heartbeat), kept apart; `energyKwh`/`energyUsd` sum the
- * measured runs (src/energy.js), apart from both and absent when none was measured.
+ * measured runs (src/shared/energy.js), apart from both and absent when none was measured.
  * `up` (default true) names whether the owning profile's receiver is live: when it's not,
  * `running` reads as `interrupted` and `queued` reads as `stalled` — the receiver that would
  * resolve those jobs isn't the one that wrote them; recovery happens on its next boot.
  * @param {string} profile
  * @param {ProfileState} state
- * @param {{ repository?: string|null, up?: boolean, pricing?: Record<string, import('../pricing.js').Rate>|null }} [opts]
- * @returns {import('./contract.js').TicketRow[]}
+ * @param {{ repository?: string|null, up?: boolean, pricing?: Record<string, import('../shared/pricing.js').Rate>|null }} [opts]
+ * @returns {import('../shared/contract.js').TicketRow[]}
  */
 export function buildRows(profile, state, { repository = null, up = true, pricing = null } = {}) {
   const repo = typeof repository === "string" && REPOSITORY_RE.test(repository) ? repository : null;
@@ -300,7 +300,7 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
     ...eventsByRef.keys(),
   ]);
 
-  /** @type {import('./contract.js').TicketRow[]} */
+  /** @type {import('../shared/contract.js').TicketRow[]} */
   const rows = [];
   for (const ref of refs) {
     const running = own(state.running, ref);
@@ -377,7 +377,7 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
       lastName = str(e.name) ?? lastName;
     }
 
-    /** @type {import('./contract.js').TicketStatus} */
+    /** @type {import('../shared/contract.js').TicketStatus} */
     const status = run ? (up ? "running" : "interrupted") : queued ? (up ? "queued" : "stalled") : boardDone ? "done" : held ? "held" : terminal ?? "idle";
     const pr = meta.pr;
     const prUrl = repo && Number.isInteger(pr) && pr > 0 ? `https://github.com/${repo}/pull/${pr}` : null;
@@ -390,7 +390,7 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
     // Where code and board disagree (ADR 0008). The board is known open only on an idle row whose
     // last re-run is in the tail; an older idle row's board is unknown (it may have closed long
     // ago), so it gets no reason — old merged tickets never flood Needs you.
-    /** @type {import('./contract.js').PrNeeds|null} */
+    /** @type {import('../shared/contract.js').PrNeeds|null} */
     const prNeeds = !prUrl || !prState || prDismissed ? null : status === "done" ? (prState === "ready" ? "openOnDone" : null) : status === "idle" && rerunSeen ? OPEN_BOARD_PR_NEEDS[prState] : null;
     // The newest run's plain sentence, only while it describes the row's state: an applied
     // outcome that differs from the run's (changes cap, CI bounce, cancel) shows none.
@@ -446,7 +446,7 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
  * @param {{ name: string, label?: string, pid: number, up: boolean, heartbeat: any,
  *   configPath?: string|null, createdAt?: string|null, lastSeenAt?: string|null, ghost?: boolean, configMissing?: boolean,
  *   provider?: string|null, events?: Record<string, any>[], now?: number, quota?: any }} p
- * @returns {import('./contract.js').ProfileView}
+ * @returns {import('../shared/contract.js').ProfileView}
  */
 export function profileView(p) {
   const hb = isObj(p.heartbeat) ? p.heartbeat : null;
@@ -549,14 +549,14 @@ function identityOf(key, ui) {
 /** How far back `recentCosts` reaches: enough for the browser's "today" in any timezone. */
 export const RECENT_COSTS_MS = 48 * 60 * 60 * 1000;
 
-/** `run_end` events with a finite `costUsd` or a rate-table estimate (src/pricing.js `costOf`) and
+/** `run_end` events with a finite `costUsd` or a rate-table estimate (src/shared/pricing.js `costOf`) and
  * a parseable `ts` within RECENT_COSTS_MS of `now`, oldest first (the tail's order). Each carries
  * both figures, kept apart: `costUsd` 0 on an estimated run, `estUsd` 0 on a reported one.
  * @param {Record<string, any>[]} events @param {number} now
- * @param {Record<string, import('../pricing.js').Rate>|null} [pricing]  the heartbeat's `pricing` overrides
- * @returns {import('./contract.js').RecentCost[]} */
+ * @param {Record<string, import('../shared/pricing.js').Rate>|null} [pricing]  the heartbeat's `pricing` overrides
+ * @returns {import('../shared/contract.js').RecentCost[]} */
 export function recentCosts(events, now, pricing = null) {
-  /** @type {import('./contract.js').RecentCost[]} */
+  /** @type {import('../shared/contract.js').RecentCost[]} */
   const out = [];
   for (const e of events) {
     if (e.event !== "run_end") continue;
@@ -573,9 +573,9 @@ export function recentCosts(events, now, pricing = null) {
 /** Every `run_end` within RECENT_COSTS_MS of `now`, oldest first, with its outcome — what the
  * Overview's rework rate counts (a `changes` outcome is a rework loop).
  * @param {Record<string, any>[]} events @param {number} now
- * @returns {import('./contract.js').RecentRun[]} */
+ * @returns {import('../shared/contract.js').RecentRun[]} */
 export function recentRuns(events, now) {
-  /** @type {import('./contract.js').RecentRun[]} */
+  /** @type {import('../shared/contract.js').RecentRun[]} */
   const out = [];
   for (const e of events) {
     if (e.event !== "run_end") continue;
@@ -588,9 +588,9 @@ export function recentRuns(events, now) {
 
 /** Every profile under `registry` plus its merged ticket rows. Read-only.
  * @param {string} [registry]
- * @returns {import('./contract.js').Snapshot} */
+ * @returns {import('../shared/contract.js').Snapshot} */
 export function buildSnapshot(registry = registryDir) {
-  /** @type {import('./contract.js').Snapshot} */
+  /** @type {import('../shared/contract.js').Snapshot} */
   const snap = { profiles: [], tickets: [] };
   for (const p of listProfiles(registry)) {
     const state = readProfileState(p.dir);

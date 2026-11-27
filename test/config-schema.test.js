@@ -2,8 +2,8 @@ import "./_setup.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { CONFIG_SCHEMA, NO_FORM, schemaEntry, stepEntry } from "../src/config-schema.js";
-import { SENSITIVE_FIELDS } from "../src/ui/contract.js";
+import { CONFIG_SCHEMA, NO_FORM, schemaEntry, stepEntry } from "../src/shared/config-schema.js";
+import { SENSITIVE_FIELDS } from "../src/shared/contract.js";
 
 // Drift guard: every key the config typedefs in src/types.js declare must have a schema entry
 // (so the forms can reach it) or a NO_FORM reason. Adding a @property without either fails here.
@@ -113,7 +113,7 @@ test("every typedef config key has a schema entry or a NO_FORM reason", () => {
       if (!schemaPaths.has(dotted) && !Object.hasOwn(NO_FORM, dotted)) missing.push(`${label}.${k} → ${dotted}`);
     }
   }
-  assert.deepEqual(missing, [], `config keys with no schema entry (add one to src/config-schema.js, or a NO_FORM reason):\n${missing.join("\n")}`);
+  assert.deepEqual(missing, [], `config keys with no schema entry (add one to src/shared/config-schema.js, or a NO_FORM reason):\n${missing.join("\n")}`);
 });
 
 test("NO_FORM entries carry a reason and never shadow a schema entry", () => {

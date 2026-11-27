@@ -63,7 +63,7 @@ test("quotaGroupOf: the profile default cfg.agent is honoured", () => {
 // gate, and the one-shot reopen timer.
 // ---------------------------------------------------------------------------
 
-/** A fake clock + one-shot timers fired by hand (src/quota.js test style). */
+/** A fake clock + one-shot timers fired by hand (src/shared/quota.js test style). */
 function clock() {
   let t = T0;
   /** @type {Map<number, {fn: () => void, at: number}>} */

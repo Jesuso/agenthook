@@ -12,10 +12,10 @@ import { spawn } from "node:child_process";
 import { readProfileState, buildRows } from "./ui/rows.js";
 import { readHistory } from "./ui/stats.js";
 import { localEpics, epicStats, isNeedsYou } from "./epics.js";
-import { sumCosts } from "./pricing.js";
+import { sumCosts } from "./shared/pricing.js";
 import { harnessTotals } from "./harness-usage.js";
-import { SUMMARIES_MODEL } from "./digest-config.js";
-export { digestErrors, DIGEST_ACCESS } from "./digest-config.js";
+import { SUMMARIES_MODEL } from "./shared/digest-config.js";
+export { digestErrors, DIGEST_ACCESS } from "./shared/digest-config.js";
 
 const WINDOW_MS = 48 * 3600 * 1000;
 const DAY_MS = 24 * 3600 * 1000;
@@ -46,17 +46,17 @@ const clip = (v, n) => {
  * The profile snapshot the digest agent sees. Pure over the state dir's files. Everything
  * here is data about tickets, never instructions (the prompt says so).
  * @param {string} dir state dir
- * `last24h.costUsd` is reported spend only; `estUsd` is the rate-table estimate of the rest (src/pricing.js,
+ * `last24h.costUsd` is reported spend only; `estUsd` is the rate-table estimate of the rest (src/shared/pricing.js,
  * `pricing` = the profile's overrides) and `unestimatedRuns` the runs with neither. `last24h.harnesses`
  * ({[name]: {runs, input, output, cacheRead, cacheCreate}}) only when a run_end in the window names a harness.
- * @param {{ repository?: string|null, now?: number, epics?: import('./epics.js').EpicStats[]|null, forge?: boolean, pricing?: Record<string, import('./pricing.js').Rate>|null }} [o]
+ * @param {{ repository?: string|null, now?: number, epics?: import('./epics.js').EpicStats[]|null, forge?: boolean, pricing?: Record<string, import('./shared/pricing.js').Rate>|null }} [o]
  */
 export function buildSnapshot(dir, { repository = null, now = Date.now(), epics, forge, pricing = null } = {}) {
   const state = readProfileState(dir);
   const hasForge = typeof forge === "boolean" ? forge : !!repository;
   const recent = state.events.filter((e) => now - Date.parse(e.ts) <= WINDOW_MS);
   const rows = buildRows("digest", { ...state, events: recent }, { repository, up: true });
-  /** @param {import('./ui/contract.js').TicketRow} r */
+  /** @param {import('./shared/contract.js').TicketRow} r */
   const id = (r) => `${r.displayId}${r.title ? ` "${clip(r.title, 80)}"` : ""}`;
   const since = (/** @type {string|null} */ ts) => (ts ? Math.max(0, Math.round((now - Date.parse(ts)) / 60000)) : null);
 
@@ -123,7 +123,7 @@ function localEpicStats(dir, state, { repository, now, forge }) {
  * by needs-you first, keep the top `EPIC_MAX`, and strip anything bulky (`velocity.days`,
  * tickets, url). Pure.
  * @param {import('./epics.js').EpicStats[]} stats
- * @param {import('./ui/contract.js').TicketRow[]} rows
+ * @param {import('./shared/contract.js').TicketRow[]} rows
  */
 export function compactEpics(stats, rows) {
   const rowByRef = new Map(rows.map((r) => [r.ref, r]));
@@ -250,7 +250,7 @@ const isDigest = (v) => !!v && typeof v === "object" && typeof v.text === "strin
  * record (one digest, pre per-language) reads as the `legacyLang` entry (the profile's
  * `language`, else "en").
  * @param {string} dir @param {string} [lang] @param {string} [legacyLang]
- * @returns {import('./ui/contract.js').DigestView|null}
+ * @returns {import('./shared/contract.js').DigestView|null}
  */
 export function readDigest(dir, lang = "en", legacyLang = "en") {
   const v = readJsonObject(path.join(dir, "digest.json"));
@@ -262,7 +262,7 @@ export function readDigest(dir, lang = "en", legacyLang = "en") {
  * Store `rec` as its language's entry (`rec.lang`), keeping the other languages; a legacy flat
  * record is carried over as the `legacyLang` entry. Receiver-owned state file: temp + rename so a
  * reader never sees a torn write.
- * @param {string} dir @param {import('./ui/contract.js').DigestView & { lang: string }} rec @param {string} [legacyLang]
+ * @param {string} dir @param {import('./shared/contract.js').DigestView & { lang: string }} rec @param {string} [legacyLang]
  */
 export function writeDigest(dir, rec, legacyLang = "en") {
   const file = path.join(dir, "digest.json");
@@ -308,7 +308,7 @@ export function runClaudeJson(bin, args, cwd) {
  * }} deps
  */
 export function createDigester({ cfg, emit, run = runClaudeJson, now = Date.now, repository = null, readEpics }) {
-  /** Single-flight per language. @type {Map<string, Promise<import('./ui/contract.js').DigestView>>} */
+  /** Single-flight per language. @type {Map<string, Promise<import('./shared/contract.js').DigestView>>} */
   const inflight = new Map();
   const legacyLang = cfg.language || "en";
   const model = cfg.digest?.model ?? cfg.summaries?.model ?? SUMMARIES_MODEL;
@@ -344,7 +344,7 @@ export function createDigester({ cfg, emit, run = runClaudeJson, now = Date.now,
       if (res?.is_error || typeof res?.result !== "string" || !res.result.trim()) throw new Error(`digest agent failed: ${clip(res?.result ?? res?.subtype ?? "empty result", 200)}`);
       const costUsd = typeof res.total_cost_usd === "number" ? res.total_cost_usd : undefined;
       const { text, spoken } = splitSpoken(res.result);
-      /** @type {import('./ui/contract.js').DigestView & { lang: string }} */
+      /** @type {import('./shared/contract.js').DigestView & { lang: string }} */
       const rec = {
         lang: language,
         text: text.slice(0, RESULT_MAX),

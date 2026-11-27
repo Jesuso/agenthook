@@ -7,7 +7,7 @@ import path from "node:path";
 import { createStore } from "../src/store.js";
 import { createQueue } from "../src/queue.js";
 import { createOps } from "../src/ops.js";
-import { createQuotaPacer } from "../src/quota.js";
+import { createQuotaPacer } from "../src/shared/quota.js";
 import { seedOverrides, overrideEntries, fileOverrideEntries } from "../src/overrides.js";
 import { digest } from "../src/commands/tick.js";
 import { harnessSlotLints } from "../src/commands/doctor.js";

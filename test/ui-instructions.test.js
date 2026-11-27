@@ -95,7 +95,7 @@ prompt("2026-10-08T10-00-00-000Z-step-ship-9.prompt.md", "ship standing\n\n=== T
 fs.symlinkSync(path.join(root, "secret.md"), path.join(logs, "2026-10-08T13-00-00-000Z-step-ship-9.prompt.md"));
 
 test("listInstructions: exactly the heartbeat allowlist, sha256/bytes/mtime/exists, agentsRunning by scope", () => {
-  const v = /** @type {import('../src/ui/contract.js').InstructionsView} */ (listInstructions(registry, "p"));
+  const v = /** @type {import('../src/shared/contract.js').InstructionsView} */ (listInstructions(registry, "p"));
   assert.equal(v.configPath, path.join(repo, "agenthook.config.json"));
   assert.deepEqual(
     v.files.map((f) => f.path),

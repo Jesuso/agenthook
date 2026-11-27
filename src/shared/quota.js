@@ -1,7 +1,7 @@
 // Claude subscription quota (#397): the 5-hour and 7-day windows `claude -p` reports in its
 // `rate_limit_event` stream line, the human readout, and the opt-in pacer that pauses admission
 // above a threshold and resumes by itself at the window reset. Import-free on purpose: config
-// validation, the readers and the browser bundle share it (like src/pricing.js). The file I/O
+// validation, the readers and the browser bundle share it (like src/shared/pricing.js). The file I/O
 // (`<stateDir>/quota.json`) lives in src/quota-file.js.
 
 /** A reading's windows, in display order (weekly first). */

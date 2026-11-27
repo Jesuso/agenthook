@@ -13,7 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { buildToolLessArgs, runClaudeJson } from "./digest.js";
-import { SUMMARIES_MODEL, SUMMARIES_BUDGET_USD } from "./digest-config.js";
+import { SUMMARIES_MODEL, SUMMARIES_BUDGET_USD } from "./shared/digest-config.js";
 import { SUMMARY_MAX } from "./ticket-summary.js";
 
 const FILE = "ticket-summaries.json";

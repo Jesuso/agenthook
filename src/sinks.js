@@ -4,7 +4,7 @@
 // order per sink via a serial per-sink queue (bounded backlog, oldest dropped
 // beyond the cap); no retries.
 
-import { DEFAULT_SINK_EVENTS } from "./sinks-config.js";
+import { DEFAULT_SINK_EVENTS } from "./shared/sinks-config.js";
 
 const TIMEOUT_MS = 5000;
 const MAX_BACKLOG = 100;

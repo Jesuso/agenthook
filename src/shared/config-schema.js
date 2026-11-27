@@ -2,11 +2,11 @@
 // hints a form needs (default, options, min/max). The config editor renders its fields from it and
 // test/config-schema.test.js holds it to src/types.js — a typedef key with no entry here (and no
 // NO_FORM reason) fails CI, so a new key can't silently fall out of the forms.
-// Import-free on purpose: the browser bundles it (like src/identity.js and src/ui/contract.js). Its
+// Import-free on purpose: the browser bundles it (like src/shared/identity.js and src/shared/contract.js). Its
 // imports, src/agents/names.js and src/sandbox/names.js, are themselves import-free (the
 // registries are Node-side).
-import { AGENT_NAMES, DEFAULT_AGENT } from "./agents/names.js";
-import { SANDBOX_NAMES, EGRESS_MODES } from "./sandbox/names.js";
+import { AGENT_NAMES, DEFAULT_AGENT } from "../agents/names.js";
+import { SANDBOX_NAMES, EGRESS_MODES } from "../sandbox/names.js";
 
 /** Step prompt shapes (`Step.kind`). */
 export const STEP_KINDS = /** @type {const} */ (["implement", "change", "review", "triage"]);
@@ -29,7 +29,7 @@ const STATUS_TRACKERS = ["jira", "github-projects", "local", "linear"];
  * @property {'basics'|'pipeline-step'|'tracker'|'forge'|'ingress'|'integrations'|'repos'} section
  * @property {boolean} [advanced]
  * @property {string[]} [scope]   tracker types it applies to (forge.* entries: forge types); omitted = all
- * @property {boolean} [sensitive]  mirrors src/ui/contract.js SENSITIVE_FIELDS (a test keeps them equal)
+ * @property {boolean} [sensitive]  mirrors src/shared/contract.js SENSITIVE_FIELDS (a test keeps them equal)
  * @property {string|number|boolean} [default]
  * @property {readonly string[]} [options]  enum values
  * @property {number} [min]       mirrors src/config.js validateRawConfig; the form never clamps

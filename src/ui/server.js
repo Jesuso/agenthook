@@ -39,13 +39,13 @@
 import { readDigest } from "../digest.js";
 import net from "node:net";
 import os from "node:os";
-import { canonicalLang } from "../digest-config.js";
+import { canonicalLang } from "../shared/digest-config.js";
 import { EPIC_REF_RE } from "../epics.js";
 import { readLocalEpics } from "../agent-api.js";
 import { readStats, READ_CAP_BYTES } from "./stats.js";
 import { runStats } from "../stats.js";
 import { createStore } from "../store.js";
-import { pricingOf } from "../pricing.js";
+import { pricingOf } from "../shared/pricing.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -169,7 +169,7 @@ export function createUiServer({ port, token, distDir, host: listenHost = "127.0
   /** Open `/api/log/stream` responses → their tail's cleanup. @type {Map<http.ServerResponse, () => void>} */
   const tails = new Map();
 
-  /** @param {import('./contract.js').UiEvent} ev */
+  /** @param {import('../shared/contract.js').UiEvent} ev */
   const broadcast = (ev) => {
     const frame = `event: ${ev.type}\ndata: ${JSON.stringify(ev)}\n\n`;
     for (const res of streams) res.write(frame);
@@ -786,7 +786,7 @@ export function createUiServer({ port, token, distDir, host: listenHost = "127.0
           const { name, up, dir } = readProfile(profile, registry);
           const configPath = profileConfigPath(profile);
           const hasHooks = readMarker(dir)?.webhooks !== false;
-          /** @type {import('./contract.js').RemovePreview} */
+          /** @type {import('../shared/contract.js').RemovePreview} */
           const preview = {
             profile,
             label: name,
