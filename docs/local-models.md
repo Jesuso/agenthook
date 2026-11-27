@@ -461,7 +461,8 @@ files via `--append-system-prompt`, the `--offline`/`PI_OFFLINE=1` env, and the 
 `~/.pi/agent` — there a step's `piConfigDir` is ignored (warned, never copied); see
 [Pi on the worker](remote.md#pi-on-the-worker).
 Pi takes no allow/deny policy and its print mode has no permission prompt, so a pi step must run
-sandboxed; see [Agents](agents.md#a-local-model-step-pi--ollama).
+sandboxed **or on a remote worker** (where it is unsandboxed — the worker OS account is the only
+limit); see [Agents](agents.md#a-local-model-step-pi--ollama).
 
 #### Compaction survival (verified)
 

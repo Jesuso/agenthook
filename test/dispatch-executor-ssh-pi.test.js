@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { withFakeSsh, spawnCtx } from "./_ssh-helpers.js";
-import { createSshExecutor } from "../src/dispatch/executor-ssh.js";
+import { createSshExecutor, shQuote } from "../src/dispatch/executor-ssh.js";
 import { pi, buildPiArgs } from "../src/agents/pi.js";
 import { validateRawConfig } from "../src/config.js";
 import { REMOTE_AGENTS } from "../src/agents/names.js";
@@ -44,10 +44,11 @@ for (const bad of ["cursor", "hermes"]) {
 
 // --- end-to-end against the fake ssh transport: argv shape, stdin, env, files, cleanup ---
 
-/** A fake `pi` binary: records its argv (one arg per line), stdin and the interesting env, then —
- * once `goFile` appears, so a test can inspect the per-run dir WHILE the run is in flight — writes
- * the verdict and exits. It prints no pi JSONL at all (the parser is covered in
- * test/agents-pi.test.js), so this test is only about the transport contract.
+/** A fake `pi` binary: records its argv (one arg per line), stdin and the interesting env, emits
+ * real pi JSONL on stdout (a session, two assistant message_ends with per-turn usage, one
+ * compaction — so the worker-stdout path through createPiParser is exercised for real, not just
+ * the transport), then — once `goFile` appears, so a test can inspect the per-run dir WHILE the
+ * run is in flight — writes the verdict and exits.
  * @param {{workDir: string, goFile: string}} o */
 function fakePiScript({ workDir, goFile }) {
   return [
@@ -57,6 +58,10 @@ function fakePiScript({ workDir, goFile }) {
     `env | grep -E '^(PI_|ANTHROPIC_|GITHUB_|GH_TOKEN|AGENTHOOK_|TERM|LANG|CI)' > "${workDir}/env.txt" || true`,
     `touch "${workDir}/started"`,
     `while [ ! -f ${goFile} ]; do sleep 0.02; done`,
+    `echo '{"type":"session","id":"sess-pi-1"}'`,
+    `echo '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"turn one"}],"usage":{"input":120,"output":40,"cacheRead":10,"cacheWrite":5}}}'`,
+    `echo '{"type":"message_end","message":{"role":"assistant","content":[],"usage":{"input":70,"output":30,"cacheRead":20,"cacheWrite":0}}}'`,
+    `echo '{"type":"compaction_end","result":{"usage":{"input":50,"output":20},"tokensBefore":1000,"estimatedTokensAfter":400}}'`,
     `mkdir -p "$(dirname "$AGENTHOOK_VERDICT_FILE")"`,
     `echo '{"outcome":"advance","reason":"ok"}' > "$AGENTHOOK_VERDICT_FILE"`,
     `exit 0`,
@@ -103,7 +108,24 @@ test("ssh executor + pi.remote: worker argv ends at -- (prompt on stdin, never a
     const result = await launchPromise;
     assert.equal(result.code, 0, JSON.stringify(result));
 
-    const argv = fs.readFileSync(path.join(workDir, "argv.txt"), "utf8").trim().split("\n");
+    // Usage/turns/context/compactions come off the worker's own stdout through createPiParser,
+    // exactly like a local pi run: two assistant message_ends = 2 turns (per-turn usage summed,
+    // context = input + cacheRead + cacheWrite), the compaction's spend added but not a turn.
+    assert.equal(result.turnStats?.turns, 2, JSON.stringify(result.turnStats));
+    assert.equal(result.turnStats?.firstContext, 135, "turn 1: 120 input + 10 cacheRead + 5 cacheWrite");
+    assert.equal(result.turnStats?.peakContext, 135, "turn 2's context (90) never exceeds turn 1's");
+    assert.equal(result.turnStats?.lastContext, 90, "turn 2: 70 input + 20 cacheRead + 0 cacheWrite");
+    assert.equal(result.turnStats?.compactions, 1);
+    assert.equal(result.result?.session_id, "sess-pi-1");
+    const t = result.result?.tokens;
+    assert.deepEqual(
+      t && { input: t.input, output: t.output, cacheRead: t.cacheRead, cacheCreate: t.cacheCreate },
+      { input: 240, output: 90, cacheRead: 30, cacheCreate: 5 },
+      "the usage tally must carry the worker JSONL's numbers (turns + compaction spend), same as a local pi run",
+    );
+
+    const argvText = fs.readFileSync(path.join(workDir, "argv.txt"), "utf8");
+    const argv = argvText.trim().split("\n");
     const promptIdx = argv.indexOf(prompt);
     assert.equal(promptIdx, -1, "the prompt must never reach the worker's own argv");
     const sep = argv.lastIndexOf("--");
@@ -125,11 +147,59 @@ test("ssh executor + pi.remote: worker argv ends at -- (prompt on stdin, never a
     assert.ok(!env.includes("PI_MODEL"), "a hub/harness PI_* value unrelated to the hook's return must never cross");
     assert.ok(!env.includes("ANTHROPIC_API_KEY"), "ANTHROPIC_* must never cross");
     assert.ok(!env.includes("GITHUB_TOKEN"), "tracker tokens must never cross");
+    // ...and neither the worker's own argv nor the framed ssh calls may carry the values at all
+    // (not just the agent-visible env): the allowlist is the only thing that crossed.
+    assert.ok(!argvText.includes("must-not-cross"), `the hub-side secret values must not appear in the worker argv: ${argvText}`);
+    assert.ok(!JSON.stringify(ssh.record()).includes("must-not-cross"), "the hub-side secret values must not appear in any ssh call (argv or framed env)");
 
     assert.ok(fs.existsSync(hubVerdictFile), "the verdict must be copied back to the hub");
     assert.deepEqual(JSON.parse(fs.readFileSync(hubVerdictFile, "utf8")), { outcome: "advance", reason: "ok" });
 
     assert.ok(!fs.existsSync(/** @type {string} */ (configDir)), "the per-run dir must be removed after a clean exit");
+  } finally {
+    ssh.restore();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// --- a maxMs timeout also removes the per-run dir ---
+
+test("ssh executor + pi.remote: a maxMs timeout still removes the per-run dir and reports timedOut", async () => {
+  const ssh = withFakeSsh();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-pi-timeout-"));
+  const workDir = path.join(root, "work");
+  fs.mkdirSync(workDir, { recursive: true });
+  try {
+    const pidFile = path.join(root, "agent.pid");
+    const agentScript = path.join(workDir, "sleepy-pi.sh");
+    fs.writeFileSync(
+      agentScript,
+      [`#!/bin/sh`, `echo "$$" > ${shQuote(pidFile)}`, `trap '' TERM`, `cat > /dev/null`, `sleep 30`].join("\n"),
+      { mode: 0o755 },
+    );
+    const remote = { host: "worker.test", workDir, bin: agentScript };
+    const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(root, "hub-verdict.json") } });
+    const { verdictFile, configDir } = executor.paths({ stepId: "code", ref: "9" });
+    const own = pi.remote({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ id: "code" }), dir: /** @type {string} */ (configDir), verdictFile });
+    const { spawnAgent } = spawnCtx({ killGraceMs: 300 });
+    const promise = spawnAgent({
+      agent: { defaults: { bin: "pi" }, buildArgs: ({ prompt }) => buildPiArgs({ prompt }), createParser: pi.createParser },
+      prompt: "do the pi thing",
+      cwd: workDir,
+      logPath: path.join(root, "run.log"),
+      verdictFile,
+      maxMs: 1000,
+      idleMs: 60_000,
+      sandboxed: { ref: "9", stepId: "code", step: {}, mounts: [], files: own.files, env: own.env, args: own.args },
+      executor,
+    });
+    const deadline = Date.now() + 5000;
+    while (!fs.existsSync(pidFile) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    assert.ok(fs.existsSync(pidFile), "the agent never started");
+    assert.ok(fs.existsSync(/** @type {string} */ (configDir)), "the per-run dir must exist while the agent runs");
+    const result = await promise;
+    assert.equal(result.timedOut, "max", JSON.stringify(result));
+    assert.ok(!fs.existsSync(/** @type {string} */ (configDir)), "the per-run dir must be removed after a timeout, same as a clean exit or a kill");
   } finally {
     ssh.restore();
     fs.rmSync(root, { recursive: true, force: true });

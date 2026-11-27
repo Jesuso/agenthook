@@ -63,6 +63,7 @@ test("dispatch: a remote pi run with standing instructions dedupes the worker's 
     });
     const run = createDispatcher(cfg, adapter, undefined, store, () => {}, null, undefined, { killGraceMs: 300 });
     const l = console.log;
+    const w = console.warn;
     const warns = [];
     console.log = () => {};
     console.warn = (m) => warns.push(String(m));
@@ -71,7 +72,7 @@ test("dispatch: a remote pi run with standing instructions dedupes the worker's 
       result = await run({ kind: "pipeline", ref: "78", stepId: "code", dedupKey: "k:78", harness: "worker" });
     } finally {
       console.log = l;
-      console.warn = console.warn;
+      console.warn = w;
     }
     assert.equal(result.code, 0, JSON.stringify(result));
     assert.ok(warns.some((m) => m.includes(`piConfigDir ${piConfigDir}`) && m.includes("ignored on a remote worker")), JSON.stringify(warns));
@@ -112,6 +113,8 @@ test("dispatch: a remote pi step's gate runs via a raw launch, passes, and the a
   try {
     const agentScript = path.join(workDir, "pi.sh");
     const agentArgvFile = path.join(root, "agent-argv.txt");
+    const runsDir = path.join(workDir, ".agenthook", "p", "runs");
+    const gateSnapshot = path.join(root, "gate-runs-snapshot.txt");
     const scriptBody = [
       "#!/bin/sh",
       `printf '%s\\n' "$@" > ${shQuote(agentArgvFile)}`,
@@ -124,7 +127,11 @@ test("dispatch: a remote pi step's gate runs via a raw launch, passes, and the a
     fs.writeFileSync(agentScript, scriptBody, { mode: 0o755 });
     const cfg = /** @type {any} */ ({
       pipeline: [
-        { id: "code", harness: "worker", createsWorktree: true, sourceLabel: "src:code", successLabel: "src:review", verdictRepairs: 0, gate: "true", gateTimeoutMinutes: 1 },
+        // The gate command snapshots the worker's per-run dir WHILE the gate is running: a
+        // raw launch that (buggily) created or wrote the per-run dir would show a
+        // `*-code.opencode` entry in that listing, which a leftover check after the run
+        // could never show (the agent's own run removes the dir either way).
+        { id: "code", harness: "worker", createsWorktree: true, sourceLabel: "src:code", successLabel: "src:review", verdictRepairs: 0, gate: `ls -A ${shQuote(runsDir)} > ${shQuote(gateSnapshot)}`, gateTimeoutMinutes: 1 },
         { id: "review", sourceLabel: "src:review" },
       ],
       repoPath,
@@ -166,13 +173,18 @@ test("dispatch: a remote pi step's gate runs via a raw launch, passes, and the a
     assert.equal(advanced[0].reason, "the agent itself thinks it succeeded", "the agent's own verdict reason must survive the gate run untouched");
     assert.ok(events.some((e) => e.event === "gate_pass"), "gate_pass must have fired");
     // The agent's own run carried the pi argv shape (contract + standing flags before `--`,
-    // nothing after); the gate ran RAW (no pi argv of its own, no per-run files), so no per-run
-    // dir survives after the run.
+    // nothing after); the gate ran RAW (no pi argv of its own, no per-run files).
     const agentArgv = fs.readFileSync(agentArgvFile, "utf8").trim().split("\n");
     assert.equal(agentArgv[agentArgv.length - 1], "--", `the agent's own argv must end at -- (prompt on stdin): ${JSON.stringify(agentArgv)}`);
     const flags = agentArgv.filter((a) => a === "--append-system-prompt");
     assert.equal(flags.length, 2, `the agent run must carry both --append-system-prompt flags: ${JSON.stringify(agentArgv)}`);
-    const runsDir = path.join(workDir, ".agenthook", "p", "runs");
+    // The gate itself executed on the worker and saw no per-run dir while it ran: its snapshot
+    // (taken mid-gate, so a gate that created and cleaned up the dir would still be caught)
+    // holds no `*.opencode` entry — only the gate's own launcher's pgid/pipe files.
+    assert.ok(fs.existsSync(gateSnapshot), "the gate command must have run verbatim on the worker");
+    const snapshot = fs.readFileSync(gateSnapshot, "utf8").trim().split("\n").filter(Boolean);
+    assert.ok(!snapshot.some((f) => f.endsWith(".opencode")), `the gate's raw launch must not create the per-run dir: ${JSON.stringify(snapshot)}`);
+    assert.ok(snapshot.every((f) => f.endsWith(".pgid") || f.endsWith(".pipe")), `only the gate launcher's own pgid/pipe files may be in the runs dir mid-gate: ${JSON.stringify(snapshot)}`);
     const leftovers = fs.existsSync(runsDir) ? fs.readdirSync(runsDir).filter((f) => f.endsWith(".opencode")) : [];
     assert.deepEqual(leftovers, [], `no per-run dir may be left behind after the run (got ${JSON.stringify(leftovers)})`);
   } finally {

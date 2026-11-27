@@ -313,6 +313,12 @@ provider/id` from the step/harness) — but unlike the sandbox, the worker keeps
 config, model endpoint and credentials; the worker user's own `~/.pi/agent` (`models.json`,
 `settings.json`, auth) is used.
 
+**The run is unsandboxed.** Pi's print mode takes no allow/deny policy and has no permission
+prompt, so on a remote worker (unlike the sandbox, where the run is fenced by its mounts and
+egress) the only limits are the worker's OS account, filesystem and network — the worker user's
+own credentials let it do whatever they allow, exactly as with a remote `claude` harness.
+Put a pi harness on a worker you trust with a shell on that machine.
+
 ```jsonc
 {
   "harnesses": {
