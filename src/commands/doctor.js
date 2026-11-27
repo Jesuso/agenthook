@@ -255,7 +255,13 @@ export function remoteTrustLints(cfg) {
     if (s.manual) continue;
     const names = harnessesOf(s);
     if (!names.length || !names.every((n) => remoteNames.has(n))) continue;
-    const user = remotes.map((r) => r.user || `the ssh default user for ${r.host}`).join("/");
+    // The ssh user of THIS step's harness(es) only — not of every remote harness in the config.
+    const user = names
+      .map((n) => {
+        const r = remotes.find((x) => x.name === n);
+        return r?.user || `the ssh default user for ${r?.host ?? n}`;
+      })
+      .join("/");
     out.push({
       level: "warn",
       label: `step "${s.id}" runs only on remote harness ${names.map((n) => `"${n}"`).join(", ")}`,

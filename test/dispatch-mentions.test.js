@@ -43,6 +43,12 @@ test("newlines separate mentions; emails are untouched", () => {
   expect("email a@b.com stays", "octo", "email a@b.com stays", "a word char precedes the @ — not a mention");
 });
 
+test("an UNMATCHED backtick is literal text — it must not swallow the paragraph or smuggle a live mention", () => {
+  expect("a ` stray backtick, then @stranger", "octo", "a ` stray backtick, then `@stranger`");
+  expect("``` a`b\n@stranger", "octo", "``` a`b\n`@stranger`", "a backtick fence with a backtick in its info string is not a fence (CommonMark)");
+  expect("a ` b ` c ` @d", "octo", "a ` b ` c ` `@d`", "the first two runs pair up; a stray third run stays literal");
+});
+
 test("no mentions, no owner, and empty text are identity", () => {
   expect("plain text", "octo", "plain text");
   expect("@bob", undefined, "`@bob`");

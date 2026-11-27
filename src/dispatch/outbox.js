@@ -22,75 +22,96 @@ export const OUTBOX_COPY_CAP_BYTES = 128 * 1024;
 
 /** @typedef {{ pr?: { title: string, body: string }, comment?: string }} Outbox */
 
-/** The fence line of a fenced code block: up to 3 leading spaces + 3-or-more backticks/tildes. */
+/** The fence line of a fenced code block: up to 3 leading spaces + 3-or-more backticks/tildes.
+ * (A BACKTICK fence whose info string contains a backtick never opens a fence — CommonMark —
+ * so a pseudo-fence like `` ``` a`b `` cannot smuggle live mentions past the neutralisation.) */
 const FENCE = /^(\s{0,3})(`{3,}|~{3,})(.*)$/;
-/** A GitHub-style mention target: `@user` or `@org/team` after start-of-text or a non-word,
- * non-backtick char (so `a@b.com` and a backtick-adjacent `@` are never treated as mentions —
- * except at the very start of a segment, where the `^` alternative applies; under-matching is
- * the unsafe direction). The login itself may carry hyphens mid-name (GitHub allows them).
+/** A GitHub-style mention target: `@user` or `@org/team` after start-of-text or a non-word
+ * char (so `a@b.com` is never a mention). Text genuinely inside a code span or fenced block
+ * is skipped by the protected-range check below, not by this regex — an UNMATCHED backtick is
+ * literal text, and a mention after it must still be neutralised (fail closed). The login
+ * itself may carry hyphens mid-name (GitHub allows them).
  */
-const MENTION_START = /(^|[^\w`])@([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\/[A-Za-z0-9._-]+)?)/g;
+const MENTION = /(^|[^\w])@([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\/[A-Za-z0-9._-]+)?)/g;
 
 /**
  * Neutralise worker-written GitHub mentions before the hub publishes them under its own
  * identity (#829): wrap every `@user` / `@org/team` in backticks, which GitHub renders as
  * code and does NOT notify. `ownerLogin` (case-insensitive) is exempt. Text inside fenced
  * code blocks and inline code spans is left alone, as are emails (`a@b.com`). When no owner
- * login is known, EVERY mention is neutralised (fail closed). Pure.
+ * login is known, EVERY mention is neutralised (fail closed). Code is detected CommonMark-
+ * style: a fenced block only when the fence line really is a fence (a backtick fence with a
+ * backtick in its info string is not), and an inline span only when the opening backtick run
+ * is CLOSED by an equal-length run before the next blank line — an unmatched backtick is a
+ * literal character, so a stray one cannot swallow the rest of the paragraph. Pure.
  * @param {string} text  the outbox PR title/body or comment
  * @param {string|undefined|null} [ownerLogin]  our tracker login, e.g. `octocat` (a leading `@` is stripped by the caller)
  * @returns {string}
  */
 export function neutralizeMentions(text, ownerLogin) {
   if (typeof text !== "string") return text;
-  /** @type {string|null} */
-  const owner = ownerLogin && ownerLogin.length > 0 ? ownerLogin.toLowerCase() : null;
-  /** Wrap one plain (non-code) segment: `@x` at the very start counts as a mention, as does one
-   * after any non-word, non-backtick char. */
-  /** @param {string} seg @returns {string} */
-  const plain = (seg) => {
-    /** @param {string} _m @param {string} pre @param {string} who @returns {string} */
-    const wrap = (_m, pre, who) => (owner !== null && who.toLowerCase() === owner ? `${pre}@${who}` : `${pre ?? ""}\`@${who}\``);
-    return seg.replace(MENTION_START, wrap);
-  };
-  /** @type {string[]} */
-  const out = [];
-  /** @type {string} */ let fenceChar = "";
-  /** @type {number} */ let fenceLen = 0;
-  /** Inline code state carried across lines: the length of the backtick run that opened the
-   * current span (0 = none) — CommonMark spans may span lines (``foo\nbar``). */
-  let openLen = 0;
-  for (const line of text.split("\n")) {
-    const m = FENCE.exec(line);
+  const owner = ownerLogin && String(ownerLogin).length > 0 ? String(ownerLogin).toLowerCase() : null;
+  const lines = text.split("\n");
+  /** Per line: "fence" (whole line is code, untouched) or "text". */
+  const kinds = new Array(lines.length).fill("text");
+  let fenceChar = "";
+  let fenceLen = 0;
+  /** A backtick fence needs a backtick-free info string; a tilde fence always opens. */
+  /** @param {RegExpMatchArray} m @returns {boolean} */
+  const opensFence = (m) => !(m[2][0] === "`" && m[3].includes("`"));
+  for (let i = 0; i < lines.length; i++) {
+    const m = FENCE.exec(lines[i]);
     if (!fenceChar) {
-      if (m) {
-        fenceChar = m[2][0]; // opens a fenced block — the line itself is left alone
+      if (m && opensFence(m)) {
+        fenceChar = m[2][0]; // opens a fenced block
         fenceLen = m[2].length;
-        out.push(line);
-      } else {
-        // Inline code spans: pair up equal-length backtick runs and skip their interior.
-        const parts = line.split(/(`+)/);
-        let buf = "";
-        for (let i = 0; i < parts.length; i++) {
-          if (i % 2 === 1) {
-            const run = parts[i];
-            if (openLen === 0) openLen = run.length;
-            else if (run.length === openLen) openLen = 0;
-            buf += run;
-          } else {
-            buf += openLen === 0 ? plain(parts[i]) : parts[i];
-          }
-        }
-        out.push(buf);
+        kinds[i] = "fence";
       }
-    } else if (m && m[2][0] === fenceChar && m[2].length >= fenceLen && m[3].trim() === "") {
-      fenceChar = ""; // closes the fenced block
-      out.push(line);
     } else {
-      out.push(line); // inside a fenced block — untouched
+      kinds[i] = "fence"; // inside the fenced block — untouched
+      if (m && m[2][0] === fenceChar && m[2].length >= fenceLen && m[3].trim() === "") fenceChar = ""; // closes the fenced block
     }
   }
-  return out.join("\n");
+  /** Absolute [start,end) offsets in `text` that are code (fence lines, matched inline spans). */
+  /** @type {Array<[number, number]>} */
+  const protectedRanges = [];
+  const lineOffset = (/** @type {number} */ i) => lines.slice(0, i).reduce((n, l) => n + l.length + 1, 0);
+  for (let i = 0; i < lines.length; i++) if (kinds[i] === "fence") protectedRanges.push([lineOffset(i), lineOffset(i) + lines[i].length]);
+  // Inline code spans, paragraph by paragraph (a span cannot cross a blank line): an equal-
+  // length run closes the opener; a run left UNOPENED-at-paragraph-end is literal text and
+  // protects nothing.
+  for (let i = 0; i < lines.length; i++) {
+    if (kinds[i] === "fence" || lines[i].trim() === "") continue;
+    let j = i;
+    while (j < lines.length && kinds[j] !== "fence" && lines[j].trim() !== "") j++;
+    const para = lines.slice(i, j).join("\n");
+    const at = lineOffset(i);
+    /** @type {Array<[number, number]>} */
+    const runs = [...para.matchAll(/`+/g)].map((m) => [m.index, m[0].length]);
+    /** @type {Array<[number, number]>} */
+    const pairs = [];
+    let open = -1;
+    for (let k = 0; k < runs.length; k++) {
+      if (open === -1) open = k;
+      else if (runs[k][1] === runs[open][1]) {
+        pairs.push([open, k]);
+        open = -1;
+      }
+    } // an unmatched opener (open !== -1) is a literal backtick run — no protected range
+    for (const [a, b] of pairs) protectedRanges.push([at + runs[a][0], at + runs[b][0] + runs[b][1]]);
+  }
+  /** Is the char at `pos` inside a protected (code) range? */
+  const inCode = (/** @type {number} */ pos) => protectedRanges.some(([s, e]) => pos >= s && pos < e);
+  let out = "";
+  let last = 0;
+  for (const m of text.matchAll(MENTION)) {
+    const atM = m.index + m[1].length; // the @ itself
+    if (inCode(atM)) continue; // inside a code span or fence — left alone
+    if (owner !== null && m[2].toLowerCase() === owner) continue; // our own login stays live
+    out += text.slice(last, atM) + "`@" + m[2] + "`";
+    last = atM + 1 + m[2].length; // past the original `@who`
+  }
+  return out + text.slice(last);
 }
 
 /**

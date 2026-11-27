@@ -46,10 +46,12 @@ const pexecFile = promisify(execFile);
 /** A failed git call's error → the reason string a caller reports (#829): a timeout kill
  * (Node's `timeout` sends SIGKILL and normally captures no stderr) says so; anything else is
  * the trimmed stderr (or the error message). Pure.
- * @param {{killed?: boolean, signal?: string|null, stderr?: unknown, message?: string}|null|undefined} e @returns {string} */
-export function describeGitRunError(e) {
+ * @param {{killed?: boolean, signal?: string|null, stderr?: unknown, message?: string}|null|undefined} e
+ * @param {number} [timeoutMs]  the timeout the call ran with (HOST_GIT_TIMEOUT_MS by default)
+ * @returns {string} */
+export function describeGitRunError(e, timeoutMs = HOST_GIT_TIMEOUT_MS) {
   const timedOut = e?.killed === true && e?.signal === "SIGKILL" && !(e?.stderr && String(e.stderr).trim());
-  return timedOut ? `timed out after ${HOST_GIT_TIMEOUT_MS / 1000}s` : String(e?.stderr ?? e?.message ?? "").trim();
+  return timedOut ? `timed out after ${Math.round(timeoutMs / 100) / 10}s` : String(e?.stderr ?? e?.message ?? "").trim();
 }
 
 /** The spawn options of every publish git call (#829): capped like every other hub git call —
@@ -147,7 +149,7 @@ export const GITHUB_FORGE_AGENT_ENV = /** @type {string[]} */ (["GH_TOKEN", "GIT
 export const githubForgeEgressHosts = () => ["github.com", "api.github.com", "uploads.github.com", "*.githubusercontent.com"];
 
 /** @type {import('../types.js').ForgeFactory} */
-export function createGithubForge(cfg, store) {
+export function createGithubForge(cfg, store, /** @type {{publishGitTimeoutMs?: number}|undefined} */ opts = {}) {
   const fc = cfg.forge || /** @type {import('../types.js').ForgeConfig} */ ({ type: "github" });
   const prefix = cfg.branchPrefix || DEFAULT_BRANCH_PREFIX;
   const auth = createGithubAuth(fc); // a token, or a GitHub App's installation token
@@ -384,13 +386,14 @@ export function createGithubForge(cfg, store) {
     const env = publishGitEnv(await auth.token());
     /** Run a git call; non-zero exit resolves as {ok:false} with the trimmed stderr (a fetch
      * of a not-yet-pushed branch failing is expected, not an error). Bounded like every other
-     * hub git call (a stalled fetch/push must fail the step, not hang the slot). */
+     * hub git call (a stalled fetch/push must fail the step, not hang the slot). `opts` carries
+     * a test-only timeout override (the default is HOST_GIT_TIMEOUT_MS, like every hub git call). */
     const run = async (/** @type {string[]} */ args) => {
       try {
-        const out = await pexecFile("git", gitArgv(cfg, worktree, args), { ...PUBLISH_GIT_RUN_OPTS, env });
+        const out = await pexecFile("git", gitArgv(cfg, worktree, args), { ...PUBLISH_GIT_RUN_OPTS, timeout: opts?.publishGitTimeoutMs ?? PUBLISH_GIT_RUN_OPTS.timeout, env });
         return { ok: true, out: String(out.stdout ?? "").trim() };
       } catch (e) {
-        return { ok: false, out: describeGitRunError(e) };
+        return { ok: false, out: describeGitRunError(e, opts?.publishGitTimeoutMs ?? PUBLISH_GIT_RUN_OPTS.timeout) };
       }
     };
     // FETCH_HEAD is this process's transient ref: fetch whichever side of the range we don't
@@ -412,9 +415,12 @@ export function createGithubForge(cfg, store) {
     // the file shows in `-m`, not in the net).
     const logRes = await run(["log", "-m", "--name-only", "--format=", "FETCH_HEAD..HEAD", "--", ".github/workflows/"]);
     if (!logRes.ok) throw new Error(`git log FETCH_HEAD..HEAD: ${logRes.out.split("\n")[0] || "git log failed"}`);
-    // The same list without merge commits: a path missing from this one but present in the
-    // `-m` list came in only through a merge resolution — the hold reason must say so (#829).
-    const logNoMergeRes = await run(["log", "--no-merges", "--name-only", "--format=", "FETCH_HEAD..HEAD", "--", ".github/workflows/"]);
+    // The same list restricted to the run's own commits: `--first-parent --no-merges` keeps only
+    // the run's first-parent commits — so a workflow commit that landed on the DEFAULT branch
+    // and merely got MERGED into the range (the rework case) does NOT count as the run's own
+    // CI change (#829). A path missing from this list but present in the `-m` list came in only
+    // through a merge — the hold reason must say so.
+    const logNoMergeRes = await run(["log", "--first-parent", "--no-merges", "--name-only", "--format=", "FETCH_HEAD..HEAD", "--", ".github/workflows/"]);
     if (!logNoMergeRes.ok) throw new Error(`git log FETCH_HEAD..HEAD: ${logNoMergeRes.out.split("\n")[0] || "git log failed"}`);
     const diffRes = await run(["diff", "--name-only", "FETCH_HEAD...HEAD", "--", ".github/workflows/"]);
     if (!diffRes.ok) throw new Error(`git diff FETCH_HEAD...HEAD: ${diffRes.out.split("\n")[0] || "git diff failed"}`);

@@ -50,6 +50,34 @@ test("default scope with a known identity → one warn naming the harness and th
   assert.match(step.label, /step "code" runs only on remote harness "worker"/);
 });
 
+test("no assigneeLogin configured → the warn names the token's own login (looked up at runtime)", () => {
+  const out = remoteTrustLints(cfg({ providerConfig: { token: "$T" } }));
+  const warn = out.find((f) => f.level === "warn" && f.label.includes('remote harness "worker"'));
+  assert.ok(warn, JSON.stringify(out));
+  assert.match(warn.note, /the tracker token's own login \(looked up at runtime\)/, "the identity is the token's own account, resolved at runtime");
+  assert.ok(!out.some((f) => f.level === "fail"), "token auth with a resolvable identity is a warn, not a fail");
+});
+
+test("the per-step warn names only THAT step's ssh user(s)", () => {
+  const out = remoteTrustLints(
+    cfg({
+      harnesses: {
+        gpu: { remote: { host: "gpu1", user: "cuda", workDir: "/g" } },
+        cpu: { remote: { host: "cpu1", workDir: "/c" } },
+      },
+      pipeline: [{ id: "train", harness: ["gpu"] }, { id: "bake", harness: ["cpu"] }],
+    }),
+  );
+  const train = out.find((f) => f.label.includes('step "train"'));
+  assert.ok(train, JSON.stringify(out));
+  assert.match(train.note, /cuda/, "the gpu harness's configured ssh user");
+  assert.doesNotMatch(train.note, /cpu1/, "the cpu harness is NOT in this step's list — its user is not named");
+  const bake = out.find((f) => f.label.includes('step "bake"'));
+  assert.ok(bake, JSON.stringify(out));
+  assert.match(bake.note, /the ssh default user for cpu1/, "the cpu harness has no configured user — the ssh default is named");
+  assert.doesNotMatch(bake.note, /cuda/);
+});
+
 test("a step with a non-remote fallback is NOT flagged, and its user is named in the remote-only note", () => {
   const out = remoteTrustLints(
     cfg({

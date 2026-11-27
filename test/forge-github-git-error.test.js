@@ -121,3 +121,123 @@ test("a failed publish with quoted git stderr never surfaces the token (the env-
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// --- the timeout is REAL on the wire, not just in the exported opts: a stalled git push must
+// fail the STEP with a "timed out" reason and hold nothing (a revert of the `run` options to
+// `{ env, maxBuffer }` lets the fake sleep to completion and every assertion below goes red).
+import { publishOutbox } from "../src/dispatch/publish.js";
+
+/** @param {any} forge @param {(line: string) => void} log @param {{worktree: string}} o */
+function publishRig(forge, log, o) {
+  /** @type {any[]} */
+  const held = [];
+  const store = { setHeld: (/** @type {any} */ ref, /** @type {any} */ e) => held.push([ref, e]), setRefMeta: () => {}, clearFindings: () => {} };
+  const verdict = { outcome: "advance", reason: "ok" };
+  const adapter = { describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }), postComment: async () => {} };
+  const res = publishOutbox({ forge: /** @type {any} */ (forge), adapter: /** @type {any} */ (adapter), ref: "42", stepId: "code", remote: true, hasWorktree: true, worktree: o.worktree, branch: "agent/42", verdict, store, log });
+  return res.then((/** @type {any} */ r) => ({ res: r, held, verdict }));
+}
+
+test("a stalled git push times out: the step FAILS with a 'timed out' reason, nothing is held", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-stall-git-"));
+  fs.writeFileSync(
+    path.join(dir, "git"),
+    `#!/usr/bin/env node
+import { execFileSync } from "node:child_process";
+const args = process.argv.slice(2);
+const SUBS = ["ls-remote", "fetch", "log", "diff", "rev-list", "push"];
+const sub = args.find((a) => SUBS.includes(a)) || "";
+if (sub === "push") execFileSync("sleep", ["5"]); // a stalled push — the timeout must kill it
+let out = "";
+if (sub === "rev-list") out = "1";
+process.stdout.write(out);
+`,
+    { mode: 0o755 },
+  );
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${dir}${path.delimiter}${savedPath}`;
+  // The fake git is a NODE child: keep its startup warnings out of stderr, or they get quoted
+  // into the push failure instead of the timeout line.
+  const savedNoWarn = process.env.NODE_NO_WARNINGS;
+  process.env.NODE_NO_WARNINGS = "1";
+  const wt = fs.mkdtempSync(path.join(os.tmpdir(), "ah-stall-wt-"));
+  try {
+    const forge = createGithubForge(
+      /** @type {any} */ ({ pipeline: [], forge: { type: "github", token: TOKEN, repository: "o/r" }, harnesses: { worker: { remote: { host: "w1", workDir: "/w" } } } }),
+      /** @type {any} */ (makeStore()),
+      { publishGitTimeoutMs: 400 }, // a small timeout so the test does not wait 60s
+    );
+    /** @type {string[]} */
+    const lines = [];
+    const stub = stubFetch({ "GET /repos/o/r": { json: { default_branch: "main" } } });
+    try {
+      const r = await publishRig(forge, (l) => lines.push(l), { worktree: wt });
+      assert.match(/** @type {string} */ (r.res.failed), /timed out/, `the publish failure names the timeout: ${JSON.stringify(r.res)}`);
+      assert.equal(r.verdict.outcome, "fail", "a timed-out push FAILS the step");
+      assert.match(r.verdict.reason, /publish: push agent\/42: timed out after 0\.4s/, `the held-free fail reason names the timeout: ${r.verdict.reason}`);
+      assert.equal(r.held.length, 0, "the timeout fails the step — it does not HOLD the run slot");
+      for (const line of lines) assert.doesNotMatch(line, new RegExp(TOKEN, "i"), `the token never reaches the run log: ${line}`);
+    } finally {
+      stub.restore();
+    }
+  } finally {
+    process.env.PATH = savedPath;
+    if (savedNoWarn === undefined) delete process.env.NODE_NO_WARNINGS;
+    else process.env.NODE_NO_WARNINGS = savedNoWarn;
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(wt, { recursive: true, force: true });
+  }
+});
+
+test("the token never reaches the run log or the verdict reason, on success or on a git failure", async () => {
+  // Success path: the fake git's full call sequence (rev-list 0 → nothing to push).
+  const git = withFakeGit();
+  try {
+    const forge = createGithubForge(
+      /** @type {any} */ ({ pipeline: [], forge: { type: "github", token: TOKEN, repository: "o/r" }, harnesses: { worker: { remote: { host: "w1", workDir: "/w" } } } }),
+      /** @type {any} */ (makeStore()),
+    );
+    /** @type {string[]} */
+    const lines = [];
+    const stub = stubFetch({ "GET /repos/o/r": { json: { default_branch: "main" } } });
+    try {
+      const r = await publishRig(forge, (l) => lines.push(l), { worktree: fs.mkdtempSync(path.join(os.tmpdir(), "ah-tok-wt-")) });
+      assert.equal(r.verdict.outcome, "advance", "nothing went wrong");
+      assert.ok(lines.length > 0, "the run log got a line");
+      for (const line of lines) assert.doesNotMatch(line, new RegExp(TOKEN, "i"), `the token leaked into the run log: ${line}`);
+      assert.doesNotMatch(String(r.verdict.reason), new RegExp(TOKEN, "i"), "the verdict reason never carries the token");
+    } finally {
+      stub.restore();
+    }
+  } finally {
+    git.restore();
+  }
+  // Failure path: a real git fetch into a not-a-repo origin quotes git's stderr into the reason.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-tok-fail-"));
+  const wt = path.join(dir, "clone");
+  const notARepo = path.join(dir, "not-a-repo");
+  const g = (cwd, args) => execFileSync("git", args, { cwd, stdio: "ignore" });
+  g(dir, ["init", "--quiet", "--bare", "-b", "main", path.join(dir, "origin.git")]);
+  fs.mkdirSync(notARepo);
+  g(dir, ["clone", "--quiet", path.join(dir, "origin.git"), wt]);
+  g(wt, ["remote", "set-url", "origin", notARepo]);
+  try {
+    const forge = createGithubForge(
+      /** @type {any} */ ({ pipeline: [], forge: { type: "github", token: TOKEN, repository: "o/r" }, harnesses: { worker: { remote: { host: "w1", workDir: "/w" } } } }),
+      /** @type {any} */ (makeStore()),
+    );
+    /** @type {string[]} */
+    const lines = [];
+    const stub = stubFetch({ "GET /repos/o/r": { json: { default_branch: "main" } } });
+    try {
+      const r = await publishRig(forge, (l) => lines.push(l), { worktree: wt });
+      assert.match(r.verdict.reason, /publish: fetch main: fatal:/, "the git failure is quoted in the reason");
+      assert.doesNotMatch(r.verdict.reason, new RegExp(TOKEN, "i"), `the token leaked into the fail reason: ${r.verdict.reason}`);
+      for (const line of lines) assert.doesNotMatch(line, new RegExp(TOKEN, "i"), `the token leaked into the run log: ${line}`);
+    } finally {
+      stub.restore();
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

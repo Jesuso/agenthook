@@ -319,3 +319,36 @@ test("publishBranch (real git): a merge whose resolution ADDS a workflow file al
     rg.cleanup();
   }
 });
+
+test("publishBranch (real git): a merge that brings in a DEFAULT-branch CI commit is viaMerge — the run's own commits are clean", async () => {
+  const rg = realGit();
+  try {
+    // The run's commit, already published (a rework run measures from the branch on the remote).
+    fs.writeFileSync(path.join(rg.wt, "README.md"), "base\nwork\n");
+    rg.g(rg.wt, ["commit", "--quiet", "-am", "the run's work"]);
+    rg.g(rg.wt, ["push", "--quiet", "origin", "agent/42"]);
+    // While the branch is out, main picks up a CI commit; the rework run merges it in.
+    rg.g(rg.wt, ["checkout", "--quiet", "main"]);
+    fs.mkdirSync(path.join(rg.wt, ".github", "workflows"), { recursive: true });
+    fs.writeFileSync(path.join(rg.wt, ".github", "workflows", "ci.yml"), "on: [push]\n");
+    rg.g(rg.wt, ["add", ".github"]);
+    rg.g(rg.wt, ["commit", "--quiet", "-m", "a CI change on the default branch"]);
+    rg.g(rg.wt, ["push", "--quiet", "origin", "main"]);
+    rg.g(rg.wt, ["checkout", "--quiet", "agent/42"]);
+    rg.g(rg.wt, ["merge", "--no-ff", "--quiet", "-m", "merge main", "main"]);
+    const stub = stubFetch({ "GET /repos/o/r": { json: { default_branch: "main" } } });
+    try {
+      const before = rg.remoteAgent42();
+      const r = await forge().publishBranch({ worktree: rg.wt, branch: "agent/42" });
+      // The only workflow hit in `origin/agent/42..HEAD` is main's own CI commit, brought in by the
+      // merge: the run's own first-parent commits touch nothing, so `viaMerge` marks it (#829) —
+      // a plain `--no-merges` (no first-parent) would list main's commit and blame the run.
+      assert.deepEqual(r, { workflow: ".github/workflows/ci.yml", viaMerge: true });
+      assert.equal(rg.remoteAgent42(), before, "the guard runs BEFORE any push");
+    } finally {
+      stub.restore();
+    }
+  } finally {
+    rg.cleanup();
+  }
+});
