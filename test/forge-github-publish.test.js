@@ -150,7 +150,7 @@ test("publishBranch: a commit touching .github/workflows/ refuses the push — {
     const wt = fs.mkdtempSync(path.join(os.tmpdir(), "ah-fake-wt-"));
     try {
       const r = await runMode("ci", () => forge().publishBranch({ worktree: wt, branch: "agent/42" }));
-      assert.deepEqual(r, { workflow: ".github/workflows/x.yml" });
+      assert.deepEqual(r, { workflow: ".github/workflows/x.yml", viaMerge: false }); // the fake answers every log alike → not merge-only
       assert.equal(git.calls().find((c) => c.argv.includes("push")), undefined, "the guard runs BEFORE any push");
     } finally {
       fs.rmSync(wt, { recursive: true, force: true });
@@ -273,7 +273,7 @@ test("publishBranch (real git): a plain commit touching .github/workflows/ refus
     const stub = stubFetch({ "GET /repos/o/r": { json: { default_branch: "main" } } });
     try {
       const r = await forge().publishBranch({ worktree: rg.wt, branch: "agent/42" });
-      assert.deepEqual(r, { workflow: ".github/workflows/x.yml" });
+      assert.deepEqual(r, { workflow: ".github/workflows/x.yml", viaMerge: false }); // a PLAIN commit touched it — the held reason won't blame a merge
       assert.equal(rg.remoteAgent42(), "", "the guard runs BEFORE any push");
     } finally {
       stub.restore();
@@ -308,7 +308,9 @@ test("publishBranch (real git): a merge whose resolution ADDS a workflow file al
     const stub = stubFetch({ "GET /repos/o/r": { json: { default_branch: "main" } } });
     try {
       const r = await forge().publishBranch({ worktree: rg.wt, branch: "agent/42" });
-      assert.deepEqual(r, { workflow: ".github/workflows/x.yml" });
+      // The file appears ONLY in the merge commit's `-m` diff — `viaMerge` marks that so the
+      // held reason says "via a merge" instead of blaming a plain commit (#829).
+      assert.deepEqual(r, { workflow: ".github/workflows/x.yml", viaMerge: true });
       assert.equal(rg.remoteAgent42(), "", "the guard runs BEFORE any push");
     } finally {
       stub.restore();

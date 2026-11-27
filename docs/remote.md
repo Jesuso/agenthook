@@ -176,12 +176,16 @@ configured resume trigger — the hub posts it under its OWN identity, so a comm
 **Publishing, with the hub's own credentials, in the order push → PR → comment.**
 
 1. **Push** (only when the run has a branch): the forge's `publishBranch` pushes the branch
-   `--no-force`, the auth token passed only via git's environment (never argv). The GitHub forge
-   first refuses — `{workflow: <path>}` — when any commit in the run touches
-   `.github/workflows/`: the step is held for a human, nothing is pushed, and no PR or comment
-   is posted. An empty range (nothing new since the last publish — a rework run that changed
-   nothing) publishes nothing. A push **rejection fails the step** (nothing else may publish
-   against a branch that never landed).
+   `--no-force`, the auth token passed only via git's environment (never argv). Every git call
+   on the publish path is time-capped (60 s, then killed) so a wedged push cannot hang the run.
+   The GitHub forge first refuses — `{workflow: <path>, viaMerge}` — when any commit in the run
+   touches `.github/workflows/`: the step is held for a human, nothing is pushed, and no PR or
+   comment is posted. The guard is **merge-aware** — a workflow change brought in by a merge of
+   the base branch (not by the run's own commits) is still refused, and the hold reason says so
+   ("include a merge that brings in changes to …") so the human knows the fix is rebasing on the
+   base, not deleting the run's own work. An empty range (nothing new since the last publish —
+   a rework run that changed nothing) publishes nothing. A push **rejection fails the step**
+   (nothing else may publish against a branch that never landed).
 2. **PR** (when `pr.json` survived): the forge's `openPr` opens a **draft** PR against the repo's
    default branch — or **reuses the already-open PR** on the same head (`{created:false}`) when
    this is a rework run, so a rework never opens a second PR or edits the first one's
@@ -189,6 +193,16 @@ configured resume trigger — the hub posts it under its OWN identity, so a comm
    title/body is the reviewable artifact.
 3. **Comment** (when `comment.md` survived): posted on the ticket by the tracker adapter. Best
    effort — a failure is one line in the run log and never fails the step.
+
+**Mention neutralisation.** The published PR title/body and the comment are the agent's own
+untrusted text, and the hub posts them under its own identity. Before anything is published, an
+`@login` (or `@org/team`) mention in that text is replaced with a plain link —
+`[@login](mailto:login)` — which GitHub renders as `@login` but does **not** notify. The one
+exemption is the ticket's own assignee (the tracker's `describe().ownerHint`), whose mentions
+stay active: a "please @assignee" from the agent still reaches the human it names. When no
+owner login is known, **every** mention is neutralised (fail-closed). Code blocks — fenced and
+inline, including an inline span spanning lines — are left untouched, as are lookalikes
+(`@a_b`, emails, `@/path`).
 
 Publishing runs in `finish.js` **after every outcome rewrite has settled** (CI bounce, changes
 review, auto-merge, follow-up) and before the step summary, drain and `adapter.advance` — so the
@@ -209,6 +223,13 @@ connection options the executor itself would) and reports, per harness:
   the worker's `PATH`, plus its `--version` output. A missing `opencode` points at
   <https://opencode.ai> instead of claude's generic install hint.
 - **`workDir` is writable** (created if missing).
+- **remote trust** (config-only lint, no probe): a remote-harness step that has no human on it
+  is a trust risk — the published PR is the only review gate between the agent's untrusted
+  commits and the default branch. doctor fails a remote step whose `assigneeFilter` is OFF
+  (the receiver will spawn on any task), warns when the GitHub forge auth is an App with no
+  `login` (the published PR carries the machine's identity, and its review state may never
+  surface), and falls back to a plain warning when the remote is not in `harnesses` (e.g.
+  `queue.harnesses` names it).
 - **agent credentials** — claude only (an opencode harness's endpoint/credentials are the
   worker's own OpenCode config's business, not doctor's): whether `ANTHROPIC_API_KEY`,
   `ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN` is set, `~/.claude/.credentials.json` is

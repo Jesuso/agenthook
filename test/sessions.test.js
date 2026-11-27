@@ -95,3 +95,26 @@ test("sessionAgents: a harness's agent counts too, so follow/resume find runs it
   assert.deepEqual(names(base), ["claude"]);
   assert.deepEqual(names({ ...base, harnesses: { cur: { agent: "cursor" }, plain: {} } }), ["claude", "cursor"]);
 });
+
+test("listSessions: a remote-harness usage record keeps the host IT RAN on, not today's config value (#829)", async () => {
+  /** @param {any} [rec] */
+  const rig = (rec) => {
+    const cfg = /** @type {any} */ ({
+      repoPath: "/w/acme",
+      repos: [mono],
+      harnesses: { worker: { remote: { host: "w2.example", workDir: "/w" } } },
+      pipeline: [{ id: "code", harness: "worker" }],
+    });
+    const store = { readUsage: () => [rec] };
+    return listSessions(cfg, "42", store);
+  };
+  const withHost = rig({ ref: "42", sessionId: "sh-1", stepId: "code", startedAt: "2026-01-01T00:00:00Z", agent: "claude", harness: "worker", remoteCwd: "/w/42", host: "w1.example" });
+  const entry = withHost.find((s) => s.id === "sh-1");
+  assert.ok(entry?.remote, "the remote entry is listed");
+  assert.equal(entry?.remote?.host, "w1.example", "the host the run happened on — the re-point guard (resume) compares against IT");
+  assert.equal(entry?.remote?.harness, "worker");
+  assert.equal(entry?.remote?.cwd, "/w/42");
+  // an older record without `host` still falls back to the configured one
+  const legacy = rig({ ref: "42", sessionId: "sh-2", stepId: "code", startedAt: "2026-01-01T00:00:00Z", agent: "claude", harness: "worker", remoteCwd: "/w/42" });
+  assert.equal(legacy.find((s) => s.id === "sh-2")?.remote?.host, "w2.example");
+});

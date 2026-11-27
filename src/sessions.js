@@ -210,7 +210,7 @@ export function listSessions(cfg, ref, store) {
     const remote = h ? cfg.harnesses?.[h]?.remote : undefined;
     if (remote && h) {
       seenIds.add(rec.sessionId);
-      out.push({ id: rec.sessionId, step: rec.stepId, at: Date.parse(rec.startedAt), msgs: 0, prompt: "", agent: agent.describe().name, remote: { harness: h, host: remote.host, cwd: rec.remoteCwd } });
+      out.push({ id: rec.sessionId, step: rec.stepId, at: Date.parse(rec.startedAt), msgs: 0, prompt: "", agent: agent.describe().name, remote: { harness: h, host: rec.host ?? remote.host, cwd: rec.remoteCwd } });
       continue;
     }
     if (agent.sessions || !agent.resumeCommand) continue;

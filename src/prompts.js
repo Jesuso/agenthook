@@ -101,29 +101,27 @@ function pathsLines(overlapGuard, hasWorktree) {
   ];
 }
 
-/** One ticket comment as served by an adapter's `fetchComments` (#826), oldest→newest order.
- * @typedef {{author: string|null, body: string, createdAt: string, owner: boolean}} TicketComment
- */
-
 /** Embed a REMOTE run's ticket comments (#826): newest first, capped at ~`maxBytes` (32 KiB
  * default). Each entry is headed `@author <timestamp> OWNER|not owner`; when entries are
- * dropped the result says how many older comments were omitted. Pure.
- * @param {TicketComment[]} comments  oldest→newest, as `fetchComments` returns them
+ * dropped the result says how many older comments were omitted — the adapter's own `omitted`
+ * (comments beyond its 100 cap, #829) PLUS any this function drops for size.
+ * @param {import('./types.js').TicketComment[]} comments  oldest→newest, as `fetchComments` returns them
  * @param {number} [maxBytes]
+ * @param {number} [fetchOmitted]  older comments the adapter left out of its newest-100 window
  * @returns {string}
  */
-export function formatTicketComments(comments, maxBytes = 32 * 1024) {
+export function formatTicketComments(comments, maxBytes = 32 * 1024, fetchOmitted = 0) {
   /** @type {string[]} */
   const parts = [];
   let bytes = 0;
-  let omitted = 0;
+  let omitted = fetchOmitted;
   for (let i = comments.length - 1; i >= 0; i--) {
     const c = comments[i];
     const header = `${c.author ? `@${c.author}` : "(unknown author)"}  ${c.createdAt}  ${c.owner ? "OWNER" : "not owner"}`;
     const text = `${header}\n${c.body}`;
     const size = Buffer.byteLength(text, "utf8") + 2;
     if (bytes + size > maxBytes && parts.length > 0) {
-      omitted = i + 1;
+      omitted += i + 1;
       break;
     }
     parts.push(text);

@@ -39,9 +39,23 @@ import { promisify } from "node:util";
 import { verifyHubSignature } from "../hmac.js";
 import { createGithubAuth, githubFetch } from "../github-auth.js";
 import { githubRunCredentials, originUrl } from "../github-run-token.js";
-import { DEFAULT_BRANCH_PREFIX, gitArgv } from "../worktree.js";
+import { DEFAULT_BRANCH_PREFIX, HOST_GIT_TIMEOUT_MS, gitArgv } from "../worktree.js";
 
 const pexecFile = promisify(execFile);
+
+/** A failed git call's error → the reason string a caller reports (#829): a timeout kill
+ * (Node's `timeout` sends SIGKILL and normally captures no stderr) says so; anything else is
+ * the trimmed stderr (or the error message). Pure.
+ * @param {{killed?: boolean, signal?: string|null, stderr?: unknown, message?: string}|null|undefined} e @returns {string} */
+export function describeGitRunError(e) {
+  const timedOut = e?.killed === true && e?.signal === "SIGKILL" && !(e?.stderr && String(e.stderr).trim());
+  return timedOut ? `timed out after ${HOST_GIT_TIMEOUT_MS / 1000}s` : String(e?.stderr ?? e?.message ?? "").trim();
+}
+
+/** The spawn options of every publish git call (#829): capped like every other hub git call —
+ * a stalled fetch/push must FAIL the step after 60s (killed), never hold the run slot open.
+ * The token rides in the env (publishGitEnv), never in the argv these options apply to. */
+export const PUBLISH_GIT_RUN_OPTS = Object.freeze({ maxBuffer: 32 * 1024 * 1024, timeout: HOST_GIT_TIMEOUT_MS, killSignal: "SIGKILL" });
 
 export const FORGE_PATH = "/forge";
 const SECRET_KEY = "forge:github:webhookSecret";
@@ -359,20 +373,24 @@ export function createGithubForge(cfg, store) {
   // `origin/<branch>..HEAD` when the branch already exists on the remote (a rework run), else
   // `origin/<base>..HEAD` (`base` defaults to the repo's default branch). Any commit in the
   // range touching `.github/workflows/` — including a merge whose resolution adds one, which
-  // only `-m`/the net diff see — → the push is REFUSED and `{workflow: <first touched path>}`
-  // comes back instead (the caller holds the ticket for human review); an empty range
-  // (nothing new) → `{pushed: []}`. A push refusal throws with the first line of git's stderr.
+  // only `-m`/the net diff see — → the push is REFUSED and
+  // `{workflow: <first touched path>, viaMerge?: true}` comes back instead (the caller holds
+  // the ticket for human review; `viaMerge` — #829 — marks a file the range touches ONLY via a
+  // merge, so the held reason doesn't blame a plain commit). An empty range (nothing new) →
+  // `{pushed: []}`. A push refusal or a timed-out fetch/push (60s, like every other hub git
+  // call) throws with the first line of git's stderr or the timeout line.
   /** @param {{worktree: string, branch: string, base?: string}} o */
   async function publishBranch({ worktree, branch, base }) {
     const env = publishGitEnv(await auth.token());
     /** Run a git call; non-zero exit resolves as {ok:false} with the trimmed stderr (a fetch
-     * of a not-yet-pushed branch failing is expected, not an error). */
+     * of a not-yet-pushed branch failing is expected, not an error). Bounded like every other
+     * hub git call (a stalled fetch/push must fail the step, not hang the slot). */
     const run = async (/** @type {string[]} */ args) => {
       try {
-        const out = await pexecFile("git", gitArgv(cfg, worktree, args), { env, maxBuffer: 32 * 1024 * 1024 });
+        const out = await pexecFile("git", gitArgv(cfg, worktree, args), { ...PUBLISH_GIT_RUN_OPTS, env });
         return { ok: true, out: String(out.stdout ?? "").trim() };
       } catch (e) {
-        return { ok: false, out: String(e.stderr ?? e.message ?? "").trim() };
+        return { ok: false, out: describeGitRunError(e) };
       }
     };
     // FETCH_HEAD is this process's transient ref: fetch whichever side of the range we don't
@@ -394,8 +412,18 @@ export function createGithubForge(cfg, store) {
     // the file shows in `-m`, not in the net).
     const logRes = await run(["log", "-m", "--name-only", "--format=", "FETCH_HEAD..HEAD", "--", ".github/workflows/"]);
     if (!logRes.ok) throw new Error(`git log FETCH_HEAD..HEAD: ${logRes.out.split("\n")[0] || "git log failed"}`);
+    // The same list without merge commits: a path missing from this one but present in the
+    // `-m` list came in only through a merge resolution — the hold reason must say so (#829).
+    const logNoMergeRes = await run(["log", "--no-merges", "--name-only", "--format=", "FETCH_HEAD..HEAD", "--", ".github/workflows/"]);
+    if (!logNoMergeRes.ok) throw new Error(`git log FETCH_HEAD..HEAD: ${logNoMergeRes.out.split("\n")[0] || "git log failed"}`);
     const diffRes = await run(["diff", "--name-only", "FETCH_HEAD...HEAD", "--", ".github/workflows/"]);
     if (!diffRes.ok) throw new Error(`git diff FETCH_HEAD...HEAD: ${diffRes.out.split("\n")[0] || "git diff failed"}`);
+    /** @type {string[]} */
+    const nonMerge = [];
+    for (const line of logNoMergeRes.out.split("\n")) {
+      const p = line.trim();
+      if (p && !nonMerge.includes(p)) nonMerge.push(p);
+    }
     /** @type {string[]} */
     const touched = [];
     for (const out of [logRes.out, diffRes.out]) {
@@ -404,7 +432,7 @@ export function createGithubForge(cfg, store) {
         if (p && !touched.includes(p)) touched.push(p);
       }
     }
-    if (touched.length) return { workflow: touched[0] };
+    if (touched.length) return { workflow: touched[0], viaMerge: !nonMerge.includes(touched[0]) };
     const count = await run(["rev-list", "--count", "FETCH_HEAD..HEAD"]);
     if (!count.ok) throw new Error(`git rev-list: ${count.out.split("\n")[0] || "git rev-list failed"}`);
     if (count.out === "0") return { pushed: [] };

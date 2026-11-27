@@ -129,6 +129,24 @@ export function spawnCtx(extra = {}) {
   }));
 }
 
+/** #829 flake: under CI load the test file's event loop can drain while a spawnAgent promise is
+ * still pending (node:test then fails the test with "Promise resolution is still pending but the
+ * event loop has already resolved") — or the reverse, a spawn that genuinely never settles hangs
+ * the process, because stdio keeps the loop alive. `stall(promise)` races the await against a
+ * ref'd timer: the timer keeps the loop open so no spurious drain can fire, and a real stall
+ * becomes a clean test failure instead of a hang. Returns the promise's value or rejects with a
+ * stall error. (The timer must be the thing that keeps the loop alive — an unref'd interval does
+ * not, and a plain setInterval keep-alive with no timeout converts the flake into a hang.) */
+export function stall(p, ms = 20000) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`still pending after ${ms}ms — the spawn never settled`)), ms);
+    p.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); },
+    );
+  });
+}
+
 /** A fake agent whose parser just renders stdout as log text and reports output>0 once it sees
  * any; `buildArgs` mimics claude's own shape (prompt at args[1]) — executor-ssh.js's launch()
  * relies on that position to pull the prompt off argv and onto stdin. */

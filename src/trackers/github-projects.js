@@ -607,29 +607,32 @@ export function createGithubProjectsAdapter(cfg, store) {
   // tracker credentials, so the hub embeds the thread instead of telling the agent to read it
   // with `gh`. Same thread postComment writes to (the card's ISSUE, resolved the same way),
   // the NEWEST up to 100 (`comments(last:100)` — GraphQL still returns them ascending, so no
-  // page walk is needed). `owner` uses the SAME strict rule as the `@agent` resume gate
+  // page walk is needed). `totalCount` reports how many older comments were left out
+  // (#829). `owner` uses the SAME strict rule as the `@agent` resume gate
   // (assigneeLogin under App auth, else the viewer's login; an unresolvable author/identity
-  // fails closed), computed here so dispatch never guesses. Returned oldest→newest (the
-  // prompt reverses to newest-first).
-  /** @param {string} ref @returns {Promise<import('../types.js').TicketComment[]>} */
+  // fails closed), computed here so dispatch never guesses. Returns `{ comments, omitted? }`,
+  // comments oldest→newest.
+  /** @param {string} ref @returns {Promise<{ comments: import('../types.js').TicketComment[], omitted?: number }>} */
   async function fetchComments(ref) {
     const item = await findItem(ref);
     const subjectId = item?.issue?.id || (await issueNodeId(ref));
     const body = await gql(
-      `query($id:ID!){ node(id:$id){ ... on Issue { comments(last:100){ nodes{ author{ login } body createdAt } } } } }`,
+      `query($id:ID!){ node(id:$id){ ... on Issue { comments(last:100){ totalCount nodes{ author{ login } body createdAt } } } } }`,
       { id: subjectId },
     );
     /** @type {import('../types.js').TicketComment[]} */
-    const out = [];
+    const comments = [];
     for (const c of body?.data?.node?.comments?.nodes || []) {
-      out.push({
+      comments.push({
         author: c?.author?.login ?? null,
         body: typeof c?.body === "string" ? c.body : "",
         createdAt: typeof c?.createdAt === "string" ? c.createdAt : "",
         owner: await isOwner(c?.author?.login),
       });
     }
-    return out;
+    const total = body?.data?.node?.comments?.totalCount;
+    const omitted = typeof total === "number" && total > comments.length ? total - comments.length : undefined;
+    return { comments, ...(omitted ? { omitted } : {}) };
   }
 
   return {

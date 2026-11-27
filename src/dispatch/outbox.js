@@ -22,6 +22,77 @@ export const OUTBOX_COPY_CAP_BYTES = 128 * 1024;
 
 /** @typedef {{ pr?: { title: string, body: string }, comment?: string }} Outbox */
 
+/** The fence line of a fenced code block: up to 3 leading spaces + 3-or-more backticks/tildes. */
+const FENCE = /^(\s{0,3})(`{3,}|~{3,})(.*)$/;
+/** A GitHub-style mention target: `@user` or `@org/team` after start-of-text or a non-word,
+ * non-backtick char (so `a@b.com` and a backtick-adjacent `@` are never treated as mentions —
+ * except at the very start of a segment, where the `^` alternative applies; under-matching is
+ * the unsafe direction). The login itself may carry hyphens mid-name (GitHub allows them).
+ */
+const MENTION_START = /(^|[^\w`])@([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\/[A-Za-z0-9._-]+)?)/g;
+
+/**
+ * Neutralise worker-written GitHub mentions before the hub publishes them under its own
+ * identity (#829): wrap every `@user` / `@org/team` in backticks, which GitHub renders as
+ * code and does NOT notify. `ownerLogin` (case-insensitive) is exempt. Text inside fenced
+ * code blocks and inline code spans is left alone, as are emails (`a@b.com`). When no owner
+ * login is known, EVERY mention is neutralised (fail closed). Pure.
+ * @param {string} text  the outbox PR title/body or comment
+ * @param {string|undefined|null} [ownerLogin]  our tracker login, e.g. `octocat` (a leading `@` is stripped by the caller)
+ * @returns {string}
+ */
+export function neutralizeMentions(text, ownerLogin) {
+  if (typeof text !== "string") return text;
+  /** @type {string|null} */
+  const owner = ownerLogin && ownerLogin.length > 0 ? ownerLogin.toLowerCase() : null;
+  /** Wrap one plain (non-code) segment: `@x` at the very start counts as a mention, as does one
+   * after any non-word, non-backtick char. */
+  /** @param {string} seg @returns {string} */
+  const plain = (seg) => {
+    /** @param {string} _m @param {string} pre @param {string} who @returns {string} */
+    const wrap = (_m, pre, who) => (owner !== null && who.toLowerCase() === owner ? `${pre}@${who}` : `${pre ?? ""}\`@${who}\``);
+    return seg.replace(MENTION_START, wrap);
+  };
+  /** @type {string[]} */
+  const out = [];
+  /** @type {string} */ let fenceChar = "";
+  /** @type {number} */ let fenceLen = 0;
+  /** Inline code state carried across lines: the length of the backtick run that opened the
+   * current span (0 = none) — CommonMark spans may span lines (``foo\nbar``). */
+  let openLen = 0;
+  for (const line of text.split("\n")) {
+    const m = FENCE.exec(line);
+    if (!fenceChar) {
+      if (m) {
+        fenceChar = m[2][0]; // opens a fenced block — the line itself is left alone
+        fenceLen = m[2].length;
+        out.push(line);
+      } else {
+        // Inline code spans: pair up equal-length backtick runs and skip their interior.
+        const parts = line.split(/(`+)/);
+        let buf = "";
+        for (let i = 0; i < parts.length; i++) {
+          if (i % 2 === 1) {
+            const run = parts[i];
+            if (openLen === 0) openLen = run.length;
+            else if (run.length === openLen) openLen = 0;
+            buf += run;
+          } else {
+            buf += openLen === 0 ? plain(parts[i]) : parts[i];
+          }
+        }
+        out.push(buf);
+      }
+    } else if (m && m[2][0] === fenceChar && m[2].length >= fenceLen && m[3].trim() === "") {
+      fenceChar = ""; // closes the fenced block
+      out.push(line);
+    } else {
+      out.push(line); // inside a fenced block — untouched
+    }
+  }
+  return out.join("\n");
+}
+
 /**
  * Read and validate `<dir>/outbox/pr.json` and `<dir>/outbox/comment.md`. Pure apart from the fs reads and
  * never throws — every bad case is dropped with exactly ONE log line through `log` naming the

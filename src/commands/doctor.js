@@ -200,6 +200,69 @@ export async function remoteHarnessChecks(cfg, { run }) {
   return out;
 }
 
+/** Trust-model lint for remote (ssh) harnesses under a NON-LOCAL tracker (#829): the worker
+ * runs ticket text with its own model credentials, and the fail-closed assignee scope is the
+ * only gate between a stranger's ticket and code execution on the worker. Pure — config only,
+ * no ssh probes, no network:
+ *  - `tracker.assigneeFilter: false` ⇒ FAIL: any ticket on the tracker runs on the worker;
+ *  - App auth without `tracker.assigneeLogin` ⇒ FAIL: no identity is resolvable from the
+ *    config — the fail-closed scope refuses everything, so the pipeline never runs;
+ *  - otherwise one WARN naming the remote harness(es) and the identity that is the only gate;
+ *  - plus one WARN per step whose harness list is remote-only (no non-remote fallback; no
+ *    isolation on the worker; the agent runs as the worker's ssh user).
+ * `[]` for the local tracker or a config without remote harnesses.
+ * @param {Pick<import('../types.js').Config, 'provider'|'providerConfig'|'harnesses'|'pipeline'>} cfg
+ * @returns {Finding[]} */
+export function remoteTrustLints(cfg) {
+  if (cfg.provider === "local") return [];
+  const pc = cfg.providerConfig ?? {};
+  /** @type {{ name: string, user?: string, host: string }[]} */
+  const remotes = [];
+  for (const [name, h] of Object.entries(cfg.harnesses ?? {})) {
+    if (h.remote) remotes.push({ name, user: h.remote.user, host: h.remote.host });
+  }
+  if (!remotes.length) return [];
+  const who = remotes.map((r) => `"${r.name}"`).join(", ");
+  /** @type {Finding[]} */
+  const out = [];
+  const assigneeLogin = typeof pc.assigneeLogin === "string" && pc.assigneeLogin ? pc.assigneeLogin : null;
+  if (pc.assigneeFilter === false) {
+    out.push({
+      level: "fail",
+      label: `remote harness ${who} under a ${cfg.provider} tracker — assignee filter is OFF`,
+      note: "ANY ticket on the tracker runs on the worker with the worker's own model credentials",
+      fix: { manual: 'set "assigneeFilter": true in the config (or remove it — true is the default)' },
+    });
+  } else if (!assigneeLogin && isAppAuth(pc)) {
+    out.push({
+      level: "fail",
+      label: `remote harness ${who} — no assignee identity resolvable from the config`,
+      note: "App auth without tracker.assigneeLogin: the fail-closed scope has no identity to match, so EVERY ticket is refused and the pipeline never runs",
+      fix: { manual: 'set "assigneeLogin" in the config to the account tickets get assigned to' },
+    });
+  } else {
+    const gate = assigneeLogin ? `tickets assigned to ${JSON.stringify(assigneeLogin)}` : "tickets assigned to the tracker token's own login (looked up at runtime)";
+    out.push({
+      level: "warn",
+      label: `remote harness ${who}: ticket text runs on the worker`,
+      note: `the worker executes ticket text with its own model credentials and no isolation — ${gate} is the only gate on a public tracker (assignee scope)`,
+    });
+  }
+  const remoteNames = new Set(remotes.map((r) => r.name));
+  for (const s of cfg.pipeline ?? []) {
+    if (s.manual) continue;
+    const names = harnessesOf(s);
+    if (!names.length || !names.every((n) => remoteNames.has(n))) continue;
+    const user = remotes.map((r) => r.user || `the ssh default user for ${r.host}`).join("/");
+    out.push({
+      level: "warn",
+      label: `step "${s.id}" runs only on remote harness ${names.map((n) => `"${n}"`).join(", ")}`,
+      note: `no non-remote fallback and no isolation — the agent runs on the worker as ${user}, executing ticket text with its own credentials`,
+    });
+  }
+  return out;
+}
+
 /** The host/port a URL's hostname names, lower-cased and bracket-stripped (IPv6); undefined
  * for an unparseable URL. Port defaults 80 (http) / 443 (https) when the URL names none.
  * @param {string|undefined} url @returns {{host: string, port: number}|undefined} */
@@ -1653,6 +1716,7 @@ export async function runChecks(cfg, io = {}) {
     add(have(bin), `harness "${name}" binary ${JSON.stringify(bin)}`, have(bin) ? "" : "not found", { manual: `install ${bin} or put it on PATH` });
   }
   checks.push(...(await remoteHarnessChecks(cfg, { run })));
+  remoteTrustLints(cfg).forEach(finding);
   for (const l of agentLints(cfg)) warn(l.label, l.note);
   policyLints(cfg).forEach(finding);
   for (const l of agentEnvLints(cfg, { env, platform })) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note, l.fix);
