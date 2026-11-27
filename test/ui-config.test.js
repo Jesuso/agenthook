@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { SECRET_FIELDS } from "../src/config.js";
 import { readConfigFile, sensitiveChanges, writeConfigFile } from "../src/ui/config.js";
-import { SENSITIVE_FIELDS } from "../src/ui/contract.js";
+import { SENSITIVE_FIELDS } from "../src/shared/contract.js";
 import { UI_MAX_BYTES, backupPathFor } from "../src/ui/save.js";
 import { createUiServer } from "../src/ui/server.js";
 

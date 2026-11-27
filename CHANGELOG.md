@@ -930,7 +930,7 @@ not yet against a real worker.
   line, Instructions, the pipeline graph, and every dialog, empty state and error message. Español
   is complete, so Auto picks it on a Spanish browser and the reading panel no longer marks it
   "(partial)". Spanish wording is neutral Latin American ("costo", "espacios", "centavos"). Config
-  labels and help are translated by a UI-side overlay, so `src/config-schema.js` and the CLI stay
+  labels and help are translated by a UI-side overlay, so `src/shared/config-schema.js` and the CLI stay
   English, and a test fails a new config key until it is translated; another test fails any
   hard-coded English text added to a view (#562).
 - Read aloud, in the same panel: with **Read aloud** on (only offered where the browser has

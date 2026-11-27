@@ -76,7 +76,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  *                                          `sourceStatus`, in pipeline order — the "New ticket" starting-step picker; null otherwise
  * @property {string|null} ingress
  * @property {boolean|null} fullAuto
- * @property {string} color               palette id (src/identity.js): the heartbeat's `ui.color` if valid, else derived from `name`
+ * @property {string} color               palette id (src/shared/identity.js): the heartbeat's `ui.color` if valid, else derived from `name`
  * @property {string} emoji               the heartbeat's `ui.emoji` if on the curated list, else derived from `name`
  * @property {number|null} maxConcurrent  configured agent slots (heartbeat.maxConcurrent)
  * @property {string|null} startedAt
@@ -86,7 +86,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {Record<string, {active: number, max: number|null, state?: 'up'|'down'|'probing', until?: string, reason?: string, cause?: 'health'|'quota'}>} [harnesses]  per named harness slots (heartbeat.queue.harnesses; max null = only the global cap, 0 = drained via `set_concurrency`); `state` is the health breaker's (src/queue.js), `until`/`reason`/`cause` set only while down/probing (reason clipped to 200 chars); `cause` `quota` = a closed subscription (reopens at `until`), `health` = a failing backend — absent when down or without harnesses
  * @property {Record<string, number>} [unharnessed]  running pipeline jobs on a harness-less step, keyed by the agent CLI it spawns (heartbeat.queue.unharnessed); absent when down, without harnesses, or no such run
  * @property {boolean|null} paused       operator pause (heartbeat.paused; persisted in overrides.json, so a restart restores it); null when down
- * @property {QuotaTrip|null} quotaPaused  the quota pacer holds new runs (heartbeat.quotaPaused; src/quota.js) — distinct from the
+ * @property {QuotaTrip|null} quotaPaused  the quota pacer holds new runs (heartbeat.quotaPaused; src/shared/quota.js) — distinct from the
  *                                        operator `paused`; null when not paused or down
  * @property {QuotaReading|null} quota   the last Claude subscription-quota reading (quota.json, kept while down; validated
  *                                        numbers only), with `asOf` so stale data shows; null when none
@@ -143,8 +143,8 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {number} [ctxMax]            running.json's context window (tokens, #658); present only while running and known
  * @property {string|null} startedAt
  * @property {number} costUsd             sum of run_end.costUsd within the events tail (approximation)
- * @property {number} estUsd              sum of the tail's rate-table estimates (runs with no reported cost; src/pricing.js), never in costUsd
- * @property {number} [energyKwh]         sum of the tail's measured energy (src/energy.js); absent when no run was measured
+ * @property {number} estUsd              sum of the tail's rate-table estimates (runs with no reported cost; src/shared/pricing.js), never in costUsd
+ * @property {number} [energyKwh]         sum of the tail's measured energy (src/shared/energy.js); absent when no run was measured
  * @property {number} [energyUsd]         its dollars — a third figure beside costUsd/estUsd, never in either
  * @property {string|null} trackerUrl     refmeta.url
  * @property {string|null} prUrl          https://github.com/<repository>/pull/<refmeta.pr>
@@ -216,9 +216,9 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string} [plain]             run_end.plain: the agent's one-sentence summary.plain (agent-authored — untrusted); absent when none
  * @property {number|null} costUsd
  * @property {boolean} unpriced           run_end.unpriced: no real cost (non-Claude agent or local model; costUsd null)
- * @property {number|null} estUsd         rate-table estimate (src/pricing.js `costOf`) when nothing was reported; never in costUsd
+ * @property {number|null} estUsd         rate-table estimate (src/shared/pricing.js `costOf`) when nothing was reported; never in costUsd
  * @property {'reported'|'rate-table'|null} costBasis  which figure stands for the run; null = no cost and no estimate
- * @property {number} [energyKwh]         measured energy (an `energy: true` step, src/energy.js); absent when unmeasured — never in costUsd/estUsd
+ * @property {number} [energyKwh]         measured energy (an `energy: true` step, src/shared/energy.js); absent when unmeasured — never in costUsd/estUsd
  * @property {number} [energyUsd]         its dollars at the profile's `energy.usdPerKwh`
  * @property {number} [turns]             model turns the agent's parser counted (#645); absent when the agent reports no per-turn usage
  * @property {number} [firstContext]      the first turn's prompt size; only when `turns` is set

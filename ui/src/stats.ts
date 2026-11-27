@@ -22,11 +22,11 @@ export type StatsSummary = {
   /** finished per day over the days that had passed (today counts as a day). */
   avgFinished: number;
   costUsd: number;
-  /** Rate-table estimates (src/pricing.js) — beside `costUsd`, never in it. */
+  /** Rate-table estimates (src/shared/pricing.js) — beside `costUsd`, never in it. */
   estUsd: number;
   /** Runs with neither a reported cost nor an estimate. */
   unestimatedRuns: number;
-  /** Measured energy (src/energy.js) — beside both dollar figures, never in them. */
+  /** Measured energy (src/shared/energy.js) — beside both dollar figures, never in them. */
   energyKwh: number;
   energyUsd: number;
   runs: number;

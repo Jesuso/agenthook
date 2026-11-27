@@ -131,9 +131,9 @@ describe("design tokens", () => {
   });
 });
 
-// The profile identity palette (src/identity.js): every id has a token, readable as a non-text
+// The profile identity palette (src/shared/identity.js): every id has a token, readable as a non-text
 // mark on every surface in both schemes, and never mistakable for a status hue.
-import { PROFILE_COLORS } from "../../src/identity.js";
+import { PROFILE_COLORS } from "../../src/shared/identity.js";
 
 function hsv(hex: string): { h: number; s: number } {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);

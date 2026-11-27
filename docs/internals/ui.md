@@ -2,7 +2,8 @@
 
 ## Key files
 
-- `src/ui/*.js` — `ah ui` server (docs/web-ui.md): `contract.js` (JSDoc view-model typedefs),
+- `src/ui/*.js` — `ah ui` server (docs/web-ui.md), plus `src/shared/contract.js` (JSDoc
+  view-model typedefs, also bundled by the browser):
   `rows.js` (pure `buildRows`/`buildSnapshot` over state dirs; events tail-read, last 256 KB),
   `server.js` (Host guard → token/cookie auth → `/api/snapshot` + `/api/stream` SSE + traversal-safe
   `ui/dist` static), `stats.js` (`dailyStats` pure day buckets + `readStats`: the whole `events.jsonl` history read incrementally by byte offset → `GET /api/stats`: finished/merged/runs/outcomes/cost per day, spend per step, per-ticket cost quantiles; no rollup file), `watch.js` (lazy on first stream: `fs.watch` on registry + state dirs, 50 ms
@@ -19,8 +20,8 @@
   the server `noteWrite`s the watcher and broadcasts `source:'ui'`), and `config.js` (v3 config
   editor: `GET /api/config` = the raw file at `heartbeat.configPath` + `validateRawConfig` errors +
   `literalSecrets`; `PUT /api/config` = same guards, 422 on invalid (nothing written), backup in
-  `config-bak/`, audit `sensitive` = changed `contract.js` `SENSITIVE_FIELDS` via the import-free `sensitive.js` the browser
-  also bundles; SSE `config`) are the
+  `config-bak/`, audit `sensitive` = changed `src/shared/contract.js` `SENSITIVE_FIELDS` via the import-free `src/shared/sensitive.js`
+  the browser also bundles; SSE `config`) are the
   **only** UI file writes — both go through `save.js` (`atomicSave`), and `test/ui-server.test.js`
   confines write calls to it. `src/control/client.js` (shared infrastructure, not a `src/ui/`
   module — it's the client half of `src/control/server.js`) provides `controlRequest` (one NDJSON request over a
@@ -47,15 +48,24 @@
   `save.js`, made from `server.js` (a live pid behind a dead socket → 409, never an archive).
   Otherwise a blind **reader**: never writes any state dir, never loads a config; PR links come
   from the heartbeat's `repository`.
-- `src/identity.js` — a profile's colour + emoji (`ui: {color, emoji}` in config). Import-free so config validation (`identityErrors`),
+- `src/shared/identity.js` — a profile's colour + emoji (`ui: {color, emoji}` in config). Import-free so config validation (`identityErrors`),
   the heartbeat (`ui`), `ui/rows.js` `profileView` (resolved `color`/`emoji`, validated — foreign values never reach the browser) and the
   browser bundle share one palette (`PROFILE_COLORS`, tokens `--color-profile-<id>` in `ui/src/index.css`) and one curated emoji list.
   Unset → `deriveIdentity(stateKey)` (FNV-1a), so every profile is distinct with no config.
-- `src/config-schema.js` — the one definition of every user config key (epic #344): `CONFIG_SCHEMA` entries
+- `src/shared/config-schema.js` — the one definition of every user config key (epic #344): `CONFIG_SCHEMA` entries
   (`path` with `"*"` for any index/record key, `type`, `label`, one-line `help` ≤120 chars, `section`, `default`,
   `options`, `min`/`max`, `scope`, `sensitive`, `editor:"pending"` = no form yet) + `NO_FORM` (load-derived keys,
   each with a reason). Import-free; the config editor renders its fields from it (label, raw key, `HelpTip`,
   placeholder). `test/config-schema.test.js` parses `src/types.js` and fails when a config `@property` has neither
   an entry nor a `NO_FORM` reason, and holds the `sensitive` set equal to `SENSITIVE_FIELDS`.
+
+**The `src/shared/` rule.** Anything the browser bundle imports at runtime lives in `src/shared/`
+(currently `config-schema.js`, `identity.js`, `quota.js`, `pricing.js`, `energy.js`,
+`sinks-config.js`, `repos-config.js`, `digest-config.js`, `contract.js`, `sensitive.js`). Those
+modules import only each other, or `src/agents/names.js` / `src/sandbox/names.js` (also
+import-free), and never a `node:` built-in or a bare package — a server-side change can't
+accidentally pull Node code into the panel bundle. `test/shared-boundary.test.js` enforces both
+sides: every `src/shared/*.js` import stays inside that allowlist, and no `ui/src/` file imports
+runtime code from `src/` outside `src/shared/`.
 
 See [digest.md](digest.md) for the on-demand Digest feature this UI also surfaces.

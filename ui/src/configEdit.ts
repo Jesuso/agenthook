@@ -1,13 +1,13 @@
 import { applyEdits, findNodeAtLocation, modify, parseTree } from "jsonc-parser";
 import type { Edit, FormattingOptions, JSONPath } from "jsonc-parser";
-import { CONFIG_SCHEMA, stepEntry } from "../../src/config-schema.js";
-import type { SchemaEntry } from "../../src/config-schema.js";
-import { isEnvRef } from "../../src/ui/sensitive.js";
-import { DEFAULT_SINK_EVENTS, SINK_REQUIRED, sinkErrors } from "../../src/sinks-config.js";
-import { digestErrors } from "../../src/digest-config.js";
-import { reposErrors } from "../../src/repos-config.js";
-import { pricingErrors } from "../../src/pricing.js";
-import { quotaErrors } from "../../src/quota.js";
+import { CONFIG_SCHEMA, stepEntry } from "../../src/shared/config-schema.js";
+import type { SchemaEntry } from "../../src/shared/config-schema.js";
+import { isEnvRef } from "../../src/shared/sensitive.js";
+import { DEFAULT_SINK_EVENTS, SINK_REQUIRED, sinkErrors } from "../../src/shared/sinks-config.js";
+import { digestErrors } from "../../src/shared/digest-config.js";
+import { reposErrors } from "../../src/shared/repos-config.js";
+import { pricingErrors } from "../../src/shared/pricing.js";
+import { quotaErrors } from "../../src/shared/quota.js";
 import { translate } from "./i18n";
 
 /**
@@ -24,7 +24,7 @@ export type Discover = { tracker: string; stageKeys: StageKeys | null; stages: S
 
 export const STAGE_ROLES = ["source", "success", "failure", "hold", "queue"] as const;
 // The enum options live in the config schema (one definition the forms and the drift test share).
-export { STEP_KINDS, STEP_EFFORTS } from "../../src/config-schema.js";
+export { STEP_KINDS, STEP_EFFORTS } from "../../src/shared/config-schema.js";
 export const KNOWN_MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-5-5"] as const;
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);

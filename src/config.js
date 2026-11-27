@@ -17,19 +17,19 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import util from "node:util";
 import { controlSockPath } from "./paths.js";
-import { identityErrors } from "./identity.js";
-import { digestErrors, summariesErrors } from "./digest-config.js";
-import { pricingErrors } from "./pricing.js";
-import { energyErrors } from "./energy.js";
-import { quotaErrors } from "./quota.js";
-import { sinkErrors } from "./sinks-config.js";
-import { reposErrors } from "./repos-config.js";
+import { identityErrors } from "./shared/identity.js";
+import { digestErrors, summariesErrors } from "./shared/digest-config.js";
+import { pricingErrors } from "./shared/pricing.js";
+import { energyErrors } from "./shared/energy.js";
+import { quotaErrors } from "./shared/quota.js";
+import { sinkErrors } from "./shared/sinks-config.js";
+import { reposErrors } from "./shared/repos-config.js";
 import { autoMergeErrors } from "./auto-merge.js";
 import { AGENT_NAMES, AGENT_DEFAULT_BINS, DEFAULT_AGENT, REMOTE_AGENTS } from "./agents/names.js";
 import { SANDBOX_NAMES, EGRESS_MODES, EGRESS_PROXY_ENV_KEYS, isSandboxed } from "./sandbox/names.js";
-import { HARNESS_ROUTINGS } from "./config-schema.js";
+import { HARNESS_ROUTINGS } from "./shared/config-schema.js";
 import { egressEntryProblem } from "./sandbox/egress.js";
-import { SECRET_FIELDS, isEnvRef } from "./ui/sensitive.js";
+import { SECRET_FIELDS, isEnvRef } from "./shared/sensitive.js";
 import { harnessesOf } from "./dispatch/harness.js";
 
 // The installed package root (this file is src/config.js). Used only to read
@@ -263,8 +263,8 @@ const STATE_ID_ERROR = `config: "stateId" must match [A-Za-z0-9._-]+ (it keys th
  * a profile; everything else stays loadConfig's job.
  * @param {{ configPath?: string }} [opts]
  * `agentBins` = the agent binaries the file names (see `rawAgentBins`), for `agents`' ps match.
- * `pricing` = the file's valid `pricing` block (src/pricing.js), for `status` with the receiver down.
- * @returns {{ name: string, stateKey: string, configPath: string, configDir: string, stateDir: string, logDir: string, agentBins: string[], pricing?: Record<string, import('./pricing.js').Rate> }}
+ * `pricing` = the file's valid `pricing` block (src/shared/pricing.js), for `status` with the receiver down.
+ * @returns {{ name: string, stateKey: string, configPath: string, configDir: string, stateDir: string, logDir: string, agentBins: string[], pricing?: Record<string, import('./shared/pricing.js').Rate> }}
  */
 export function peekConfig(opts = {}) {
   const { configPath, configDir, raw } = readRawConfig(opts.configPath);
@@ -1090,7 +1090,7 @@ function githubAuthErrors(auth, at) {
   return out;
 }
 
-/** The list lives in src/ui/sensitive.js (the config editor bundles it); re-exported for the server side. */
+/** The list lives in src/shared/sensitive.js (the config editor bundles it); re-exported for the server side. */
 export { SECRET_FIELDS };
 
 /**

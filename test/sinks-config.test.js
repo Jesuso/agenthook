@@ -1,7 +1,7 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_SINK_EVENTS, SINK_REQUIRED, SINK_TYPES, sinkErrors } from "../src/sinks-config.js";
+import { DEFAULT_SINK_EVENTS, SINK_REQUIRED, SINK_TYPES, sinkErrors } from "../src/shared/sinks-config.js";
 
 test("SINK_TYPES / SINK_REQUIRED / DEFAULT_SINK_EVENTS", () => {
   assert.deepEqual(SINK_TYPES, ["slack", "webhook", "telegram"]);

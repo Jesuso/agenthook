@@ -12,7 +12,7 @@ import { listProfiles } from "../heartbeat.js";
 import { profileDir } from "./logs.js";
 import { isObj, readJson, sha256 } from "./rows.js";
 import { UI_MAX_BYTES, atomicSave, readCurrent } from "./save.js";
-import { sensitiveChanges } from "./sensitive.js";
+import { sensitiveChanges } from "../shared/sensitive.js";
 
 // Re-exported so existing importers keep working; the implementation lives in sensitive.js.
 export { sensitiveChanges };
@@ -62,7 +62,7 @@ function errorsOf(r) {
  * warnings. The size cap is re-checked on the bytes actually read. Null on any resolve or read
  * failure.
  * @param {string} registry @param {string} profile
- * @returns {import('./contract.js').ConfigView|null}
+ * @returns {import('../shared/contract.js').ConfigView|null}
  */
 export function readConfigFile(registry, profile) {
   const file = resolveConfigFile(registry, profile);

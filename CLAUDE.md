@@ -79,7 +79,7 @@ dedupKey, comment? }`. Adapters produce jobs; the engine only ever sees jobs. `s
   source of truth).
 - The only UI file writes go through `src/ui/save.js` (`atomicSave`) — never write a state dir
   from elsewhere in `src/ui/*`.
-- A new config key needs a `src/config-schema.js` entry (a test enforces it).
+- A new config key needs a `src/shared/config-schema.js` entry (a test enforces it).
 - Update `docs/agent-guide.md` when an MCP tool, event, or error message changes.
 - Never `pkill -f` a pattern that matches the calling shell; `stop` kills by the pidfile
   (`cfg.pidFile` = `~/.agenthook/<stateKey>/server.pid`).
@@ -126,7 +126,7 @@ area; don't read all of them for every ticket.
 - [docs/internals/adapters.md](docs/internals/adapters.md) — tracker/ingress/forge adapter interfaces + registries, pipeline + worktree + queue-stage pull, multi-repo routing.
 - [docs/internals/trackers.md](docs/internals/trackers.md) — Asana, Jira, GitHub, GitHub Projects v2 provider specifics.
 - [docs/internals/state.md](docs/internals/state.md) — `store.js` state files, `state-move.js`, `archive.js`.
-- [docs/internals/ui.md](docs/internals/ui.md) — the `ah ui` server, `identity.js`, `config-schema.js`.
+- [docs/internals/ui.md](docs/internals/ui.md) — the `ah ui` server, `src/shared/identity.js`, `src/shared/config-schema.js`, the `src/shared/` boundary.
 - [docs/internals/agent-api-mcp.md](docs/internals/agent-api-mcp.md) — `agent-api.js`, `src/mcp/*`, `ops.js` (control ops, audit, caching).
 - [docs/internals/epics.md](docs/internals/epics.md) — `epics.js`, `epic-changed.js`, the cross-provider epic model.
-- [docs/internals/digest.md](docs/internals/digest.md) — `digest.js`, `digest-config.js`, `ticket-summary.js`.
+- [docs/internals/digest.md](docs/internals/digest.md) — `digest.js`, `src/shared/digest-config.js`, `ticket-summary.js`.

@@ -29,7 +29,7 @@ function setup(dirs = ["p"]) {
   const registry = path.join(root, `r${n++}`);
   fs.mkdirSync(registry);
   for (const d of dirs) fs.mkdirSync(path.join(registry, d), { recursive: true });
-  /** @type {import('../src/ui/contract.js').UiEvent[]} */
+  /** @type {import('../src/shared/contract.js').UiEvent[]} */
   const events = [];
   const w = createWatcher(registry, (ev) => events.push(ev));
   cleanups.push(() => w.close());

@@ -78,7 +78,7 @@ export type Progress = {
   finishedYesterday: number;
   costToday: number;
   costYesterday: number;
-  /** Rate-table estimates (src/pricing.js) for runs with no reported cost — never in costToday/costYesterday. */
+  /** Rate-table estimates (src/shared/pricing.js) for runs with no reported cost — never in costToday/costYesterday. */
   estToday: number;
   estYesterday: number;
   /** `run_end`s in the events tail's window (≈48 h). */

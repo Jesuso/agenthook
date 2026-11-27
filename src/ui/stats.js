@@ -4,11 +4,11 @@
 // fields stats need are kept per event, appended incrementally by byte offset (the file is
 // append-only; a shrink restarts the read). Days are cut at the *caller's* midnight
 // (`tzOffset` = `Date.getTimezoneOffset()` minutes), so they match the browser's "today".
-// Reported (`costUsd`) and rate-table estimated (`estUsd`, src/pricing.js) spend are summed apart,
-// and measured energy (`energyKwh`/`energyUsd`, src/energy.js) apart from both.
+// Reported (`costUsd`) and rate-table estimated (`estUsd`, src/shared/pricing.js) spend are summed apart,
+// and measured energy (`energyKwh`/`energyUsd`, src/shared/energy.js) apart from both.
 import fs from "node:fs";
 import path from "node:path";
-import { costOf } from "../pricing.js";
+import { costOf } from "../shared/pricing.js";
 import { isBoardDone } from "../board-done.js";
 import { quantile } from "../stats.js";
 
@@ -61,7 +61,7 @@ const dayKey = (ts, tzOffset) => new Date(ts - tzOffset * 60000).toISOString().s
  * Bucket events (oldest first) into the last `days` local days. Pure. `pricing` = the profile's
  * rate overrides (heartbeat `pricing`), for run_ends not already stamped with an estimate.
  * @param {Record<string, any>[]} events
- * @param {{ now?: number, days?: number, tzOffset?: number, pricing?: Record<string, import('../pricing.js').Rate>|null }} [o]
+ * @param {{ now?: number, days?: number, tzOffset?: number, pricing?: Record<string, import('../shared/pricing.js').Rate>|null }} [o]
  * @returns {DayStats[]}
  */
 export function dailyStats(events, { now = Date.now(), days = 14, tzOffset = 0, pricing = null } = {}) {
@@ -303,7 +303,7 @@ export function readHistory(file) {
 /**
  * The profile's day stats from `file` (its events.jsonl), reading only what was appended since
  * the last call. A missing file reads as an empty history.
- * @param {string} file @param {{ now?: number, days?: number, tzOffset?: number, pricing?: Record<string, import('../pricing.js').Rate>|null }} [o]
+ * @param {string} file @param {{ now?: number, days?: number, tzOffset?: number, pricing?: Record<string, import('../shared/pricing.js').Rate>|null }} [o]
  * @returns {StatsView}
  */
 export function readStats(file, o = {}) {

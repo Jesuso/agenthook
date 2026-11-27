@@ -79,7 +79,7 @@
 
   --animate-status-pulse: status-pulse 1.6s ease-in-out infinite;
 
-  /* Profile identity palette (src/identity.js PROFILE_COLORS; ids are the config's `ui.color`).
+  /* Profile identity palette (src/shared/identity.js PROFILE_COLORS; ids are the config's `ui.color`).
    * Identity only — a top bar, a tinted emoji tile, a chip — never a status or a button. Red,
    * amber and green hues are deliberately absent so a profile's colour never reads as state;
    * tokens.test.ts holds each to 3:1 on every surface and off the status hues. */

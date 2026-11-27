@@ -9,7 +9,7 @@ import { StringDecoder } from "node:string_decoder";
 import { listProfiles } from "../heartbeat.js";
 import { DEBOUNCE_MS } from "./watch.js";
 import { isObj, readStateFile } from "./rows.js";
-import { costOf } from "../pricing.js";
+import { costOf } from "../shared/pricing.js";
 
 /** The `init` frame carries at most this much of the log's tail. */
 export const LOG_TAIL_BYTES = 64 * 1024;
@@ -59,7 +59,7 @@ const stampOf = (name) => {
   return m ? `${m[1]}T${m[2]}:${m[3]}:${m[4]}.${m[5]}Z` : null;
 };
 
-/** A run_end's measured energy (src/energy.js), when it has a finite one; else `{}`.
+/** A run_end's measured energy (src/shared/energy.js), when it has a finite one; else `{}`.
  * @param {Record<string, any>|null} end @returns {{ energyKwh?: number, energyUsd?: number }} */
 function energyOf(end) {
   const kWh = end?.energyKwh;
@@ -85,15 +85,15 @@ function turnStatsOf(end) {
  * (ref, step) at or after the log's stamp and before that step's next run; null when it isn't
  * in `events` (still running, or older than the events tail). `running` = no outcome yet, it's
  * the ref's newest run, and running.json has the ref on that step. `estUsd`/`costBasis` follow
- * src/pricing.js `costOf` (the run_end's stamp, else the profile's rates); `energyKwh`/`energyUsd`
- * ride along when the run was measured (src/energy.js). `model`/`harness` come from the matching
+ * src/shared/pricing.js `costOf` (the run_end's stamp, else the profile's rates); `energyKwh`/`energyUsd`
+ * ride along when the run was measured (src/shared/energy.js). `model`/`harness` come from the matching
  * `run_end` when it names them, else the matching `run_start` (found the same way as the end: same
  * step, at/after this run's stamp, before the step's next run) — so a running run, or one whose
  * run_end carries no model, still shows what it started with.
  * @param {string} registry @param {string} profile @param {string} ref
  * @param {Record<string, any>[]} events  the profile's events tail, oldest first
- * @param {Record<string, import('../pricing.js').Rate>|null} [pricing]  the heartbeat's `pricing` overrides
- * @returns {import('./contract.js').RunView[]}
+ * @param {Record<string, import('../shared/pricing.js').Rate>|null} [pricing]  the heartbeat's `pricing` overrides
+ * @returns {import('../shared/contract.js').RunView[]}
  */
 export function listRuns(registry, profile, ref, events, pricing = null) {
   const dir = profileDir(registry, profile);
@@ -137,7 +137,7 @@ export function listRuns(registry, profile, ref, events, pricing = null) {
   const ends = events.filter((e) => e.event === "run_end" && e.ref === ref && typeof e.ts === "string");
   const starts = events.filter((e) => e.event === "run_start" && e.ref === ref && typeof e.ts === "string");
   const cur = Object.hasOwn(running, ref) && isObj(running[ref]) ? running[ref] : null;
-  /** @type {import('./contract.js').RunView[]} */
+  /** @type {import('../shared/contract.js').RunView[]} */
   const out = [];
   found.forEach((r, i) => {
     const next = found.slice(i + 1).find((n) => n.step === r.step)?.startedAt ?? null;
@@ -261,7 +261,7 @@ export function readTail(file, st, maxBytes = LOG_TAIL_BYTES) {
  * the log's directory filtered to its name (~DEBOUNCE_MS), never by polling. Text is decoded
  * with a StringDecoder so a multibyte char split across reads arrives whole.
  * @param {string} file  a path from resolveRunLog
- * @param {(f: import('./contract.js').LogFrame) => void} onFrame
+ * @param {(f: import('../shared/contract.js').LogFrame) => void} onFrame
  * @returns {{ close(): void }}
  */
 export function createLogTail(file, onFrame) {
@@ -275,7 +275,7 @@ export function createLogTail(file, onFrame) {
   let fsw = null;
   let closed = false;
 
-  /** @param {import('./contract.js').LogFrame} f */
+  /** @param {import('../shared/contract.js').LogFrame} f */
   const emit = (f) => {
     if (closed) return;
     try {

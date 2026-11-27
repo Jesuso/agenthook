@@ -3,7 +3,7 @@
 import { listProfiles } from "../heartbeat.js";
 import { tildify } from "../profile.js";
 import { createStore } from "../store.js";
-import { formatSpend, pricingOf, sumCosts } from "../pricing.js";
+import { formatSpend, pricingOf, sumCosts } from "../shared/pricing.js";
 import { claimedPorts } from "../port.js";
 
 /** Humanize an ISO timestamp as a relative age. @param {string|null} iso */
@@ -54,7 +54,7 @@ function fmtTokens(n) {
 
 /**
  * Total tokens + spend from a profile's usage.jsonl — reported and rate-table estimated kept
- * apart (src/pricing.js `formatSpend`), priced with the heartbeat's `pricing` overrides; blanks
+ * apart (src/shared/pricing.js `formatSpend`), priced with the heartbeat's `pricing` overrides; blanks
  * when absent/unreadable.
  * @param {string} dir @param {any} [heartbeat]
  */

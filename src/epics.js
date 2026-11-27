@@ -34,7 +34,7 @@ export const EPIC_REF_RE = /^[A-Za-z0-9._-]{1,64}$/;
 /**
  * The one Needs-you predicate: held, failed, or a PR reason (`prNeeds`, where code and board
  * disagree — ADR 0008) on a forge profile. Mirrors ui/src/summary.ts isNeedsYou — keep the two in sync.
- * @param {Pick<import('./ui/contract.js').TicketRow, 'status'|'prNeeds'>} row
+ * @param {Pick<import('./shared/contract.js').TicketRow, 'status'|'prNeeds'>} row
  * @param {boolean} forge
  */
 export function isNeedsYou(row, forge) {
@@ -61,7 +61,7 @@ function groupByRef(events) {
  * local row the board made `done`, or — with no row or an idle one — a history that ends
  * board-done. The pipeline's terminal stage is a handoff, never done.
  * @param {import('./types.js').EpicTicket} ticket
- * @param {import('./ui/contract.js').TicketRow|null} row
+ * @param {import('./shared/contract.js').TicketRow|null} row
  * @param {Record<string, any>[]|undefined} refEvents
  */
 function boardDone(ticket, row, refEvents) {
@@ -72,7 +72,7 @@ function boardDone(ticket, row, refEvents) {
  * The bucket one epic ticket counts in: Needs you while the board is open, else live work, else
  * done when the board says so, else the tracker stage decides. A merged PR is never done.
  * @param {import('./types.js').EpicTicket} ticket
- * @param {import('./ui/contract.js').TicketRow|null} row  the ref's local row, or null
+ * @param {import('./shared/contract.js').TicketRow|null} row  the ref's local row, or null
  * @param {Record<string, any>[]|undefined} refEvents  the ref's events, in order
  * @param {boolean} forge
  * @returns {EpicBucket}
@@ -90,7 +90,7 @@ export function ticketBucket(ticket, row, refEvents, forge) {
  * Whether a ticket is listed in the epic's `needsYou`: its bucket is, or it is done with a PR
  * still open where the row knows it (ADR 0008's "done + needs you: open PR on a done ticket").
  * @param {EpicBucket} bucket
- * @param {import('./ui/contract.js').TicketRow|null} row
+ * @param {import('./shared/contract.js').TicketRow|null} row
  * @param {boolean} forge
  */
 function listedNeedsYou(bucket, row, forge) {
@@ -100,7 +100,7 @@ function listedNeedsYou(bucket, row, forge) {
 /**
  * @param {import('./types.js').Epic} epic
  * @param {import('./types.js').EpicTicket[]} tickets
- * @param {{ rows: import('./ui/contract.js').TicketRow[], events: Record<string, any>[], forge: boolean, now?: number, tzOffset?: number, live?: boolean }} o
+ * @param {{ rows: import('./shared/contract.js').TicketRow[], events: Record<string, any>[], forge: boolean, now?: number, tzOffset?: number, live?: boolean }} o
  * @returns {EpicStats}
  */
 export function epicStats(epic, tickets, { rows, events, forge, now = Date.now(), tzOffset = 0, live = false }) {
@@ -178,7 +178,7 @@ function historicallyDone(refEvents) {
 }
 
 /**
- * @typedef {import('./types.js').EpicTicket & { bucket: EpicBucket, status: import('./ui/contract.js').TicketStatus|null }} EpicDetailTicket
+ * @typedef {import('./types.js').EpicTicket & { bucket: EpicBucket, status: import('./shared/contract.js').TicketStatus|null }} EpicDetailTicket
  * @typedef {EpicStats & { tickets: EpicDetailTicket[] }} EpicDetail
  */
 

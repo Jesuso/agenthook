@@ -104,7 +104,7 @@ export function HarnessesCard({ profile }: { profile: ProfileView }) {
 }
 
 function HarnessRow({ name, g, lang, slotText, slotTitle }: { name: string; g: StatsGroup | null; lang: string; slotText: string; slotTitle: string | null }) {
-  // Reported and estimated cost are shown apart, never summed (formatSpend, src/pricing.js).
+  // Reported and estimated cost are shown apart, never summed (formatSpend, src/shared/pricing.js).
   const spend = g ? formatSpend({ reported: g.costUsd, est: g.estUsd }) || formatCost(0, lang) : "—";
   return (
     <tr>

@@ -1,7 +1,7 @@
 // The engine's pause controllers: the control-socket `restart` / `decommission` requesters
 // (pause, wait for 0 active agents, fire) and the opt-in quota pacer wiring.
 import { appendControlAudit } from "../ops.js";
-import { createQuotaPacer, evaluateQuota } from "../quota.js";
+import { createQuotaPacer, evaluateQuota } from "../shared/quota.js";
 import { writeQuota } from "../quota-file.js";
 import { quotaGroupOf } from "../dispatch/harness.js";
 import { diffConfig } from "../config-reload.js";
@@ -143,7 +143,7 @@ export function createDecommissionRequester({ queue, isDraining, isRestartPendin
 }
 
 /**
- * The engine's quota pacer (src/quota.js `createQuotaPacer`, `cfg.quota`; no thresholds → never
+ * The engine's quota pacer (src/shared/quota.js `createQuotaPacer`, `cfg.quota`; no thresholds → never
  * pauses): a trip pauses the queue, a release resumes it (+ a backlog pull) only when no operator
  * pause or lock holds it. Each transition is logged, set on the heartbeat (`quotaPaused`), emitted
  * (`quota_pause` / `quota_resume`) and audited to control-audit.jsonl as actor `quota`. The reset
@@ -214,7 +214,7 @@ export function createHarnessQuota({ cfg, queue, heartbeat, now }) {
   // The shared group, independent of any run: a claude, no-env step is the "default login".
   const sharedGroup = () => quotaGroupOf(cfg, null, { agent: "claude" });
 
-  /** @param {import('../quota.js').QuotaReading|null} q @param {{harness: string|null, stepId: string}|undefined} [meta] */
+  /** @param {import('../shared/quota.js').QuotaReading|null} q @param {{harness: string|null, stepId: string}|undefined} [meta] */
   function reading(q, meta) {
     const group = meta === undefined ? sharedGroup() : quotaGroupOf(cfg, meta.harness ?? null, stepById(meta.stepId));
     // The profile's readout follows the shared group only — an own-credential reading never overwrites it.
@@ -261,7 +261,7 @@ export function createHarnessQuota({ cfg, queue, heartbeat, now }) {
  *   isLocked: () => boolean,
  *   store: { getOverrides(): import('../types.js').Overrides, setOverrides(o: import('../types.js').Overrides): void },
  *   queue: { reconfigure(next: import('./harnessing.js').HarnessingShape & {max?: number}, overrides: {maxConcurrent?: number, harnesses?: Record<string, number>}): void, state(): {active: number, queued: number} },
- *   quotaPacer?: { setThresholds(t: import('../quota.js').QuotaConfig | null | undefined): void },
+ *   quotaPacer?: { setThresholds(t: import('../shared/quota.js').QuotaConfig | null | undefined): void },
  *   heartbeat: { update(p: Record<string, unknown>): void },
  *   emit: (event: string, ref: string, step: string, extra?: Record<string, unknown>) => void,
  * }} deps  loadConfig throws on an invalid config (apply nothing); checkImages verifies a newly

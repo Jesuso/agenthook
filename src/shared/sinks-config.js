@@ -1,4 +1,4 @@
-// Import-free rules for the optional `sinks` config block (like src/digest-config.js): config.js
+// Import-free rules for the optional `sinks` config block (like src/shared/digest-config.js): config.js
 // validates with them, src/sinks.js reads the default events, and the browser bundles all three.
 
 /** The required keys per sink type; the keys of this record are the valid types. */

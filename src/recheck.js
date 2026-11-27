@@ -48,7 +48,7 @@ export function recordBoardDone({ store, emit }, ref, events) {
  * A failed PR lookup is reported (`prError`) and changes no PR fact.
  * @param {{store: import('./types.js').Store, adapter: import('./types.js').Adapter, forge: import('./types.js').Forge|null|undefined, emit: Emit}} deps
  * @param {string} ref
- * @param {{row: import('./ui/contract.js').TicketRow|undefined, events: Record<string, any>[]}} local
+ * @param {{row: import('./shared/contract.js').TicketRow|undefined, events: Record<string, any>[]}} local
  * @returns {Promise<{ref: string, changed: string[], unchanged: boolean, prError?: string}>}
  */
 export async function recheckRef({ store, adapter, forge, emit }, ref, { row, events }) {

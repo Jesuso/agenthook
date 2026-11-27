@@ -30,7 +30,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Collect frames until `until(frames)` holds (or time out). @param {string} file */
 function tail(file) {
-  /** @type {import('../src/ui/contract.js').LogFrame[]} */
+  /** @type {import('../src/shared/contract.js').LogFrame[]} */
   const frames = [];
   /** @type {(() => void)|null} */
   let wake = null;

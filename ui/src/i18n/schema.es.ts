@@ -1,7 +1,7 @@
 import type { SchemaOverlay } from "./types";
 
 // Spanish labels and help for every config key (#562), keyed by the schema entry's path
-// (`entry.path.join(".")`). src/config-schema.js stays English: the CLI and the server share it.
+// (`entry.path.join(".")`). src/shared/config-schema.js stays English: the CLI and the server share it.
 // The overlay test (schema.test.ts) holds this file's keys to CONFIG_SCHEMA exactly, so a new
 // config key fails until it is translated here.
 

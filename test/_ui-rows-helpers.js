@@ -19,7 +19,7 @@ export function writeState(dir, files) {
 /** @param {Partial<import('../src/ui/rows.js').ProfileState>} s */
 export const state = (s) => ({ running: {}, queue: [], held: {}, refmeta: {}, events: [], ...s });
 
-/** @param {import('../src/ui/contract.js').TicketRow[]} rows @param {string} ref */
+/** @param {import('../src/shared/contract.js').TicketRow[]} rows @param {string} ref */
 export const row = (rows, ref) => {
   const r = rows.find((x) => x.ref === ref);
   assert.ok(r, `row for ${ref}`);

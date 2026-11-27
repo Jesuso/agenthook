@@ -1,11 +1,11 @@
-// src/pricing.js — rate matching, the costOf basis rule, sums, formatting and config validation.
+// src/shared/pricing.js — rate matching, the costOf basis rule, sums, formatting and config validation.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { DEFAULT_RATES, costOf, estimate, formatSpend, matchRate, pricingErrors, pricingOf, sumCosts } from "../src/pricing.js";
+import { DEFAULT_RATES, costOf, estimate, formatSpend, matchRate, pricingErrors, pricingOf, sumCosts } from "../src/shared/pricing.js";
 
 test("pricing.js is import-free (the browser may bundle it)", () => {
-  const src = fs.readFileSync(new URL("../src/pricing.js", import.meta.url), "utf8");
+  const src = fs.readFileSync(new URL("../src/shared/pricing.js", import.meta.url), "utf8");
   assert.doesNotMatch(src, /^\s*import\s/m);
 });
 

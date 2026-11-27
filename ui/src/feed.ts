@@ -1,6 +1,6 @@
 import type { TicketStatus, UiEvent } from "./contract";
 import { shortRef } from "./format";
-import { formatEnergy } from "../../src/energy.js";
+import { formatEnergy } from "../../src/shared/energy.js";
 import { translate } from "./i18n";
 import type { MessageKey, Vars } from "./i18n";
 

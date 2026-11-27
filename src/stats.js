@@ -8,7 +8,7 @@
 // run_end.ts| <= JOIN_MS`, nearest wins, each usage row consumed once (the same pattern as
 // src/ui/stats.js's `joinUsage`, which can't be reused here — it keys off a single ref+step pair
 // read lazily, this walks the whole set up front so every usage row is claimed at most once).
-import { costOf } from "./pricing.js";
+import { costOf } from "./shared/pricing.js";
 
 /** How far a run_end's `ts` may sit from its usage record's `endedAt` (both written in the same dispatch tick). */
 export const JOIN_MS = 5000;
@@ -243,7 +243,7 @@ function mean(xs) {
  * besides the passed-in `now`.
  * @param {Record<string, any>[]} usage      usage.jsonl records
  * @param {Record<string, any>[]} events     events.jsonl records (run_end + failed are read; the rest are ignored)
- * @param {{ by?: string, sinceMs?: number|null, now?: number, step?: string, harness?: string, steps?: {id: string, agent?: string}[], defaultAgent?: string, pricing?: Record<string, import('./pricing.js').Rate>|null }} [o]
+ * @param {{ by?: string, sinceMs?: number|null, now?: number, step?: string, harness?: string, steps?: {id: string, agent?: string}[], defaultAgent?: string, pricing?: Record<string, import('./shared/pricing.js').Rate>|null }} [o]
  * @returns {StatsResult}
  */
 export function runStats(usage, events, o = {}) {

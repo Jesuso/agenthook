@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { buildSnapshot, buildDigestPrompt, buildDigestArgs, buildToolLessArgs, createDigester, readDigest, writeDigest, readSoul, DEFAULT_SOUL, digestErrors, compactEpics, splitSpoken, SPOKEN_MARKER } from "../src/digest.js";
-import { summariesErrors } from "../src/digest-config.js";
+import { summariesErrors } from "../src/shared/digest-config.js";
 import { instructionTargets } from "../src/heartbeat.js";
 
 const NOW = Date.parse("2026-10-15T12:00:00Z");

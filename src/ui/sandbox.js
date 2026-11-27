@@ -17,7 +17,7 @@ import { resolveConfigFile } from "./config.js";
 import { isObj } from "./rows.js";
 import { UI_MAX_BYTES } from "./save.js";
 
-/** @typedef {import('./contract.js').SandboxReadiness} SandboxReadiness */
+/** @typedef {import('../shared/contract.js').SandboxReadiness} SandboxReadiness */
 /** @typedef {SandboxReadiness['rows'][number]} ReadinessRow */
 
 /** doctor's fix as a CLI remedy: a manual one as-is, the image build as `doctor --fix`.

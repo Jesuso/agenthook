@@ -83,13 +83,13 @@ import {
 import type { SandboxReadiness } from "./contract";
 import type { CardList, Discover, PricingRow, StageKeys, StageOption, StageSource } from "./configEdit";
 import { PROFILE_COLORS, PROFILE_EMOJIS, accentStyle } from "./identity";
-import { resolveIdentity } from "../../src/identity.js";
-import { schemaEntry } from "../../src/config-schema.js";
-import type { SchemaEntry } from "../../src/config-schema.js";
-import { SECRET_FIELDS } from "../../src/ui/sensitive.js";
-import { sinkErrors } from "../../src/sinks-config.js";
-import { digestErrors } from "../../src/digest-config.js";
-import { energyErrors } from "../../src/energy.js";
+import { resolveIdentity } from "../../src/shared/identity.js";
+import { schemaEntry } from "../../src/shared/config-schema.js";
+import type { SchemaEntry } from "../../src/shared/config-schema.js";
+import { SECRET_FIELDS } from "../../src/shared/sensitive.js";
+import { sinkErrors } from "../../src/shared/sinks-config.js";
+import { digestErrors } from "../../src/shared/digest-config.js";
+import { energyErrors } from "../../src/shared/energy.js";
 import { HelpTip, ProfileMark } from "./components";
 import { ConfirmContext } from "./Modal";
 import { translate } from "./i18n";
@@ -139,7 +139,7 @@ const ROLE_LABEL: Record<(typeof STAGE_ROLES)[number], MessageKey> = {
 const SCHEMA_OVERLAYS: Record<string, SchemaOverlay> = { es: SCHEMA_ES };
 
 /**
- * Pure: a form field's display, from its config-schema entry (src/config-schema.js) — label, help,
+ * Pure: a form field's display, from its config-schema entry (src/shared/config-schema.js) — label, help,
  * the raw key shown in monospace (people search the docs by key), and a placeholder from the
  * entry's `default` ("3 (default)"). A path with no entry falls back to its raw key. Label and help
  * come from the language's overlay (i18n/schema.<lang>.ts, #562) when it has the entry; the schema

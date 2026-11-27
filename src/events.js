@@ -42,13 +42,13 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *             re-run of the ref's last pipeline step;
  *           run_end: `outcome`, `costUsd?`; a local-model run — step `bin` or a non-Claude model — has
  *             `unpriced: true` and no `costUsd`, so it adds nothing to any reported spend sum. `costBasis?` =
- *             reported | rate-table; `estUsd?` = an API-equivalent rate-table estimate (src/pricing.js), never
+ *             reported | rate-table; `estUsd?` = an API-equivalent rate-table estimate (src/shared/pricing.js), never
  *             summed into `costUsd`; when the agent returned a result, also `model?`, `input`, `output`,
  *             `cacheRead`, `cacheCreate` so readers can price it, plus `turns?`, `firstContext?`,
  *             `peakContext?`, `lastContext?` (#645) when the agent's parser saw at least one turn
  *             (claude/opencode today; absent on cursor/hermes), plus `compactions?` (#657) under
  *             the same guard — context compactions the parser saw; a step with `energy: true` adds
- *             `energyKwh?`, `energyUsd?`, `energySource?` — measured electricity (src/energy.js), never
+ *             `energyKwh?`, `energyUsd?`, `energySource?` — measured electricity (src/shared/energy.js), never
  *             summed into `costUsd`/`estUsd`; `repaired?: true|false` only when a verdict-repair turn ran
  *             (#677, see `verdict_repair` below) — the sums above already include every repair turn's usage;
  *             `gate?: "pass"|"fail"` only when the step's `gate` ran at least once (#710, see `gate_pass`/
@@ -81,7 +81,7 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *           | epic_skipped (a pipeline job reached an item that is an epic; no agent ran, nothing moved; `name`, `url`)
  *           | epic_changed (the tracker delivered an epic-structure change — GitHub: a sub-issue added/removed, an issue
  *             typed/untyped; Jira: a child's parent changed, an issue created/deleted under an epic, an epic created/retyped; `ref` = the epic, step ""; signal only, src/epic-changed.js; hidden by default, not in the sinks' default set)
- *           | quota_pause | quota_resume (the opt-in Claude quota pacer, src/quota.js; ref/step ""; `quota_pause` has
+ *           | quota_pause | quota_resume (the opt-in Claude quota pacer, src/shared/quota.js; ref/step ""; `quota_pause` has
  *             `window`, `utilization`, `threshold`, `resetsAt`, `quota_resume` has `window`, `reason` reset|below|operator;
  *             not in the sinks' default set)
  *           | restart_requested | restarting (control-socket restart; ref/step ""; not in the sinks' default set)

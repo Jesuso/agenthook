@@ -55,7 +55,7 @@ cost at API prices. It is a separate figure (`estUsd`, `costBasis: "rate-table"`
 added to `costUsd`, which always means "reported by the agent". Everywhere a total is shown, the
 two stay apart: `$12.40 + ~$3.10 est.`, and a run's cost cell reads `~$0.42 est.`
 
-- **Built-in rates** (`src/pricing.js`, `PRICING_VERSION` 2026-10-06): the Claude family at
+- **Built-in rates** (`src/shared/pricing.js`, `PRICING_VERSION` 2026-10-06): the Claude family at
   Anthropic's first-party API prices (5-minute cache writes). A Cursor or OpenCode run on a Claude
   model is therefore estimated with no config.
 - **Any other model** gets no estimate until you map it in the `pricing` config

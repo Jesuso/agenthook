@@ -1,8 +1,8 @@
 import type { ProfileView, TicketRow } from "./contract";
 
-import { formatSpend } from "../../src/pricing.js";
-import { formatEnergy } from "../../src/energy.js";
-import { formatQuota } from "../../src/quota.js";
+import { formatSpend } from "../../src/shared/pricing.js";
+import { formatEnergy } from "../../src/shared/energy.js";
+import { formatQuota } from "../../src/shared/quota.js";
 import type { QuotaTrip } from "./contract";
 import { translate } from "./i18n";
 import type { MessageKey } from "./i18n";
@@ -11,7 +11,7 @@ import type { MessageKey } from "./i18n";
 // tests are unchanged. English keeps its hand-built path verbatim (never ICU-dependent); other languages
 // use Intl and the dictionaries. The re-exported src/ formatters are shared with the CLI and stay English.
 
-/** "$12.40 + ~$3.10 est." — reported and estimated spend side by side, never summed (src/pricing.js). */
+/** "$12.40 + ~$3.10 est." — reported and estimated spend side by side, never summed (src/shared/pricing.js). */
 export { formatSpend };
 
 /** "up" / "down" — the profile row's liveness cell; pid and port only in its tooltip. */
@@ -117,7 +117,7 @@ export function formatCost(n: number, lang = "en"): string {
 
 /**
  * A ticket's spend cell: "$1.20", "~$0.40 est.", "$1.20 + ~$0.40 est.", "—" when neither; a ticket
- * with measured runs (src/energy.js) appends " · energy $0.00029 (1.9 Wh)" — beside, never added.
+ * with measured runs (src/shared/energy.js) appends " · energy $0.00029 (1.9 Wh)" — beside, never added.
  */
 export function formatTicketSpend(t: Pick<TicketRow, "costUsd"> & Partial<Pick<TicketRow, "estUsd" | "energyKwh" | "energyUsd">>): string {
   const spend = formatSpend({ reported: Number.isFinite(t.costUsd) ? t.costUsd : 0, est: t.estUsd ?? 0 });
@@ -185,7 +185,7 @@ export function relativeTickMs(elapsed: number): number {
   return step - (elapsed % step);
 }
 
-/** The Claude quota readout, e.g. `weekly 65% · resets in 2d 4h · 5h 8% (as of 3m ago)` (src/quota.js). */
+/** The Claude quota readout, e.g. `weekly 65% · resets in 2d 4h · 5h 8% (as of 3m ago)` (src/shared/quota.js). */
 export { formatQuota };
 
 /** The "quota paused" badge's tooltip. */

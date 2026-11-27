@@ -60,7 +60,7 @@ const hash = (v) => JSON.stringify(v);
  * @property {number} deadPid                 the pid whose socket closed — never "up" via the pid fallback
  * @property {boolean} retry                  a socket change arrived mid-connection: reconnect once it settles
  * @property {string} viewHash
- * @property {Map<string, { hash: string, row: import('./contract.js').TicketRow }>} rows
+ * @property {Map<string, { hash: string, row: import('../shared/contract.js').TicketRow }>} rows
  * @property {string|null} configPath              heartbeat.configPath
  * @property {Map<string, fs.FSWatcher>} instrDirs   parent dir of an allowlisted file (or the config) → its watcher
  * @property {Map<string, string|null>} instrHashes  allowlisted path (and configPath) → last seen content hash
@@ -70,8 +70,8 @@ const hash = (v) => JSON.stringify(v);
 
 /**
  * @param {string} registry  ~/.agenthook (overridable for tests)
- * @param {(ev: import('./contract.js').UiEvent) => void} onEvent
- * @returns {{ snapshot(): import('./contract.js').Snapshot, noteWrite(profile: string, file: string, hash: string): void, close(): void }}
+ * @param {(ev: import('../shared/contract.js').UiEvent) => void} onEvent
+ * @returns {{ snapshot(): import('../shared/contract.js').Snapshot, noteWrite(profile: string, file: string, hash: string): void, close(): void }}
  */
 export function createWatcher(registry, onEvent) {
   const posix = process.platform !== "win32";
@@ -83,7 +83,7 @@ export function createWatcher(registry, onEvent) {
   let regTimer = null;
   let closed = false;
 
-  /** @param {import('./contract.js').UiEvent} ev */
+  /** @param {import('../shared/contract.js').UiEvent} ev */
   const emit = (ev) => {
     if (closed) return;
     try {
@@ -518,7 +518,7 @@ export function createWatcher(registry, onEvent) {
 
   return {
     snapshot() {
-      /** @type {import('./contract.js').Snapshot} */
+      /** @type {import('../shared/contract.js').Snapshot} */
       const snap = { profiles: [], tickets: [] };
       for (const name of [...profiles.keys()].sort()) {
         const p = /** @type {Prof} */ (profiles.get(name));

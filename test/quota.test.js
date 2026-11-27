@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { claude, createStreamParser } from "../src/agents/claude.js";
-import { createQuotaPacer, evaluateQuota, formatDuration, formatQuota, normalizeQuota, normalizeTrip, quotaErrors, quotaFromRateLimitEvent } from "../src/quota.js";
+import { createQuotaPacer, evaluateQuota, formatDuration, formatQuota, normalizeQuota, normalizeTrip, quotaErrors, quotaFromRateLimitEvent } from "../src/shared/quota.js";
 import { readQuota, writeQuota } from "../src/quota-file.js";
 import { createQueue } from "../src/queue.js";
 import { createOps } from "../src/ops.js";

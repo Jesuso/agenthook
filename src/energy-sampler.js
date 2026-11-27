@@ -1,16 +1,16 @@
 // The energy sampler (#396): reads machine power from the profile's `energy.source` at ~1 Hz while
 // at least one opted-in run is active, and splits each window's energy across those runs by time
-// share (src/energy.js `splitTick`). Owned by the dispatcher; never samples idle (the interval is
+// share (src/shared/energy.js `splitTick`). Owned by the dispatcher; never samples idle (the interval is
 // cleared when the last run stops), never throws into a run, never touches a verdict.
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { DEFAULT_HWMON_NAME, joulesToKwh, splitTick } from "./energy.js";
+import { DEFAULT_HWMON_NAME, joulesToKwh, splitTick } from "./shared/energy.js";
 
 /** A `command` source's per-reading budget. */
 export const COMMAND_TIMEOUT_MS = 2000;
 
-/** A validated `energy.source` (src/energy.js `energyErrors`): `hwmon` + `name?`, `command` + `cmd`, `watts` + `watts`.
+/** A validated `energy.source` (src/shared/energy.js `energyErrors`): `hwmon` + `name?`, `command` + `cmd`, `watts` + `watts`.
  * @typedef {{ type: "hwmon"|"command"|"watts", name?: string, cmd?: string, watts?: number }} EnergySource */
 
 /**

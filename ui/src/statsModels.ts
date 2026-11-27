@@ -41,7 +41,7 @@ export function nearestDay(m: { centers: number[]; plot: { left: number; right: 
 
 // --------------------------------------------------------------------------- 1. spend by step (stacked bars)
 
-/** `est` = the rate-table estimate part of a step's spend (src/pricing.js) — its own series, never summed into the reported one. */
+/** `est` = the rate-table estimate part of a step's spend (src/shared/pricing.js) — its own series, never summed into the reported one. */
 export type Segment = { date: string; series: string; est: boolean; x: number; y: number; w: number; h: number; value: number };
 export type StackedModel = Frame & {
   segments: Segment[];

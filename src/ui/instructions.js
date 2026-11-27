@@ -28,14 +28,14 @@ const heartbeatOf = (dir) => readJson(path.join(dir, "heartbeat.json"), null, is
  * agents are running on a step that reads them (`repo` scope: every running agent — its ids
  * are repo ids). Null for an unknown profile.
  * @param {string} registry @param {string} profile
- * @returns {import('./contract.js').InstructionsView|null}
+ * @returns {import('../shared/contract.js').InstructionsView|null}
  */
 export function listInstructions(registry, profile) {
   const dir = profileDir(registry, profile);
   if (!dir) return null;
   const hb = heartbeatOf(dir);
   const running = Object.values(readStateFile(dir, "running")).filter(isObj);
-  /** @type {import('./contract.js').InstructionFileView[]} */
+  /** @type {import('../shared/contract.js').InstructionFileView[]} */
   const files = [];
   for (const e of instructionEntries(hb)) {
     let hash = null;
@@ -128,7 +128,7 @@ export function writeInstructionFile(registry, profile, p, baseHash, content) {
  * prompt whose remainder also starts with a longer known step (`code-review-` for `code`)
  * belongs to that step, not this one.
  * @param {string} registry @param {string} profile @param {string} step
- * @returns {import('./contract.js').PromptPreview|null}
+ * @returns {import('../shared/contract.js').PromptPreview|null}
  */
 export function promptPreview(registry, profile, step) {
   const dir = profileDir(registry, profile);

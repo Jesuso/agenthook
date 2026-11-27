@@ -10,7 +10,7 @@ import path from "node:path";
 import { loadConfig } from "../config.js";
 import { neverStarted } from "../profile.js";
 import { HIDDEN_BY_DEFAULT } from "../events.js";
-import { formatEnergy } from "../energy.js";
+import { formatEnergy } from "../shared/energy.js";
 
 // Every event the receiver writes (src/events.js) plus the watch-only `daemon_down`;
 // test/events-cmd.test.js scans src/ for emit("…") calls and fails when one is missing here.

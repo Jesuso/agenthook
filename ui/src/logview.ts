@@ -1,7 +1,7 @@
 import type { LogFrame, RunView, TicketStatus, UiEvent } from "./contract";
 import { formatCost } from "./format";
 import { translate } from "./i18n";
-import { formatEnergy } from "../../src/energy.js";
+import { formatEnergy } from "../../src/shared/energy.js";
 
 /** Retained-line cap: the oldest lines drop past this so a huge log can't exhaust memory. */
 export const MAX_LINES = 50_000;
@@ -99,9 +99,9 @@ export function formatOutcome(r: Pick<RunView, "outcome" | "running">, lang = "e
 }
 
 /**
- * A run's cost cell: the reported cost; else "~$x est." — a rate-table estimate (src/pricing.js),
+ * A run's cost cell: the reported cost; else "~$x est." — a rate-table estimate (src/shared/pricing.js),
  * for a non-Claude agent or a local model; else "unpriced" (no real cost and no rate), "—" when none.
- * A measured run (src/energy.js) appends " · energy $0.00029 (1.9 Wh)" — beside, never added.
+ * A measured run (src/shared/energy.js) appends " · energy $0.00029 (1.9 Wh)" — beside, never added.
  */
 export function formatRunCost(r: Pick<RunView, "costUsd" | "unpriced"> & Partial<Pick<RunView, "estUsd" | "energyKwh" | "energyUsd">>, lang = "en"): string {
   const cost =

@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { deriveIdentity } from "../src/identity.js";
+import { deriveIdentity } from "../src/shared/identity.js";
 import { buildSnapshot, profileView, RECENT_COSTS_MS } from "../src/ui/rows.js";
 import { profileDir } from "../src/ui/logs.js";
 import { repositoryOf } from "../src/heartbeat.js";

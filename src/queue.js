@@ -125,7 +125,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
     }
   };
   // The quota reopen timer: one unref'd one-shot at the earliest quota `until` (a deadline, never a
-  // poll), clamped like src/quota.js MAX_TIMER_MS and re-armed when it fires before the deadline.
+  // poll), clamped like src/shared/quota.js MAX_TIMER_MS and re-armed when it fires before the deadline.
   const MAX_TIMER_MS = 2 ** 31 - 1;
   /** @type {NodeJS.Timeout|undefined} */
   let quotaTimer;
