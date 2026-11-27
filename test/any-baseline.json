@@ -86,6 +86,9 @@
       "src/ops.js": 20,
       "src/profile.js": 1,
       "src/pull.js": 1,
+      "src/reader/rows.js": 38,
+      "src/reader/run-logs.js": 3,
+      "src/reader/stats.js": 8,
       "src/recheck.js": 3,
       "src/sandbox/container.js": 2,
       "src/sessions.js": 1,
@@ -111,12 +114,9 @@
       "src/trackers/local.js": 3,
       "src/types.js": 6,
       "src/ui/config.js": 2,
-      "src/ui/logs.js": 3,
-      "src/ui/rows.js": 38,
       "src/ui/sandbox.js": 1,
       "src/ui/save.js": 2,
       "src/ui/server.js": 7,
-      "src/ui/stats.js": 8,
       "src/ui/watch.js": 6,
       "src/wizard.js": 14
     }

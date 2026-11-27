@@ -9,8 +9,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { readProfileState, buildRows } from "./ui/rows.js";
-import { readHistory } from "./ui/stats.js";
+import { readProfileState, buildRows } from "./reader/rows.js";
+import { readHistory } from "./reader/stats.js";
 import { localEpics, epicStats, isNeedsYou } from "./epics.js";
 import { sumCosts } from "./shared/pricing.js";
 import { harnessTotals } from "./harness-usage.js";
@@ -107,7 +107,7 @@ export function buildSnapshot(dir, { repository = null, now = Date.now(), epics,
 /**
  * The receiver-down epic fallback (mirrors `ui/server.js` `localEpicsView`): `refmeta.epic`
  * groups joined with the full local rows + event history, no tracker read.
- * @param {string} dir @param {import('./ui/rows.js').ProfileState} state
+ * @param {string} dir @param {import('./reader/rows.js').ProfileState} state
  * @param {{ repository: string|null, now: number, forge?: boolean }} o
  */
 function localEpicStats(dir, state, { repository, now, forge }) {

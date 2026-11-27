@@ -101,7 +101,7 @@ moves), from two places:
 Receivers between #585 and the flag-only decision also wrote `board_done` `via: "stage"` on every
 manual-step entry; `isBoardDone` (`src/board-done.js`) ignores them. One ticket can produce two
 flag signals (a stage entry after a close, then the close webhook); readers dedup per ref. The
-dashboard never makes a row from a `board_done` alone (`src/ui/rows.js`): a flag signal can name an
+dashboard never makes a row from a `board_done` alone (`src/reader/rows.js`): a flag signal can name an
 owned ticket the pipeline never touched.
 
 | Tracker | Native done flag | `fetchTask().completed` | Webhook when the flag flips → job | Flag read at manual-step entry |

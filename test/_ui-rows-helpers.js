@@ -16,7 +16,7 @@ export function writeState(dir, files) {
   }
 }
 
-/** @param {Partial<import('../src/ui/rows.js').ProfileState>} s */
+/** @param {Partial<import('../src/reader/rows.js').ProfileState>} s */
 export const state = (s) => ({ running: {}, queue: [], held: {}, refmeta: {}, events: [], ...s });
 
 /** @param {import('../src/shared/contract.js').TicketRow[]} rows @param {string} ref */

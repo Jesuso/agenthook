@@ -1,5 +1,5 @@
 // Import-free validation for the optional `digest` and `summaries` config blocks (kept apart from src/digest.js,
-// which reads state through src/ui/rows.js -> config.js; config.js needs only this).
+// which reads state through src/reader/rows.js -> config.js; config.js needs only this).
 
 export const DIGEST_ACCESS = ["snapshot"];
 

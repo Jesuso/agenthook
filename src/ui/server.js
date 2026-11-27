@@ -3,7 +3,8 @@
 // the per-launch token, exchanged once via `/?token=` for an HttpOnly SameSite=Strict cookie.
 // Static assets (the public frontend bundle) need no cookie — only `/api/*` exposes state.
 // `/api/stream` pushes UiEvent deltas over SSE from a dir watcher started on the first
-// stream connection. `/api/runs` + `/api/log/stream` back the run-log viewer (src/ui/logs.js).
+// stream connection. `/api/runs` + `/api/log/stream` back the run-log viewer (src/reader/run-logs.js,
+// src/ui/logs.js).
 // `GET /api/harness-stats` (#646) is src/stats.js's `runStats` fixed to `by:"harness"` + the
 // last 7 days, read straight from usage.jsonl/events.jsonl — the Overview Harnesses table.
 // `/api/instructions*` + `/api/prompt-preview` are the instructions editor's read side
@@ -42,7 +43,7 @@ import os from "node:os";
 import { canonicalLang } from "../shared/digest-config.js";
 import { EPIC_REF_RE } from "../epics.js";
 import { readLocalEpics } from "../agent-api.js";
-import { readStats, READ_CAP_BYTES } from "./stats.js";
+import { readStats, READ_CAP_BYTES } from "../reader/stats.js";
 import { runStats } from "../stats.js";
 import { createStore } from "../store/index.js";
 import { pricingOf } from "../shared/pricing.js";
@@ -59,8 +60,9 @@ import { readMarker, tildify } from "../profile.js";
 import { readConfigFile, writeConfigFile } from "./config.js";
 import { controlRequest, resolveProfileSock } from "../control/client.js";
 import { listInstructions, promptPreview, readInstructionFile, writeInstructionFile } from "./instructions.js";
-import { createLogTail, listRuns, profileDir, resolveRunLog } from "./logs.js";
-import { buildSnapshot, readEventsTail } from "./rows.js";
+import { createLogTail } from "./logs.js";
+import { listRuns, profileDir, resolveRunLog } from "../reader/run-logs.js";
+import { buildSnapshot, readEventsTail } from "../reader/rows.js";
 import { sandboxReadiness } from "./sandbox.js";
 import { appendAudit, UI_MAX_BYTES } from "./save.js";
 import { SANDBOX_NAMES } from "../sandbox/names.js";

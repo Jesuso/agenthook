@@ -148,7 +148,7 @@ test("queue.hasRef / whenRefFree: track queued + active jobs per ref; removing w
 });
 
 // ── boot's restoreQueued (src/engine/boot.js): must tag the re-enqueued `enqueued` with
-// the job's kind, or src/ui/rows.js buildRows can't tell a CI/merge re-enqueue apart from
+// the job's kind, or src/reader/rows.js buildRows can't tell a CI/merge re-enqueue apart from
 // a real pipeline re-run (issue #577) ──
 
 test("boot restoreQueued: a queued CI job re-enqueued at boot emits `enqueued` tagged with its kind", async () => {

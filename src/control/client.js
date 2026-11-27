@@ -65,7 +65,7 @@ export function controlRequest(sockPath, cmd, args, { timeoutMs = 5000 } = {}) {
 }
 
 /** A known profile's state dir + control socket path, or null. Only state keys `listProfiles`
- * returns are accepted — mirrors src/ui/logs.js's `profileDir`.
+ * returns are accepted — mirrors src/reader/run-logs.js's `profileDir`.
  * @param {string} registry @param {string} profile
  * @returns {{ dir: string, sockPath: string } | null}
  */

@@ -3,7 +3,7 @@ import "./_setup.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EPIC_REF_RE, epicDetail, epicStats, isNeedsYou, localEpics, ticketBucket } from "../src/epics.js";
-import { buildRows } from "../src/ui/rows.js";
+import { buildRows } from "../src/reader/rows.js";
 
 const NOW = Date.parse("2026-10-15T18:00:00Z"); // UTC, tzOffset 0 unless noted
 

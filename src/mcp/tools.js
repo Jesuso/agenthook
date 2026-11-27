@@ -24,7 +24,7 @@ import {
   live,
   readEpics,
 } from "../agent-api.js";
-import { readEventsTail } from "../ui/rows.js";
+import { readEventsTail } from "../reader/rows.js";
 import { validateArgs } from "./schema.js";
 import { listProfiles } from "../heartbeat.js";
 import path from "node:path";

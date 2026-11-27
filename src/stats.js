@@ -6,14 +6,14 @@
 // aggregator only walked usage.jsonl it would silently drop exactly the failures this exists to
 // surface). A `run_end` joins to at most one usage row: same ref + step, `|usage.endedAt -
 // run_end.ts| <= JOIN_MS`, nearest wins, each usage row consumed once (the same pattern as
-// src/ui/stats.js's `joinUsage`, which can't be reused here — it keys off a single ref+step pair
+// src/reader/stats.js's `joinUsage`, which can't be reused here — it keys off a single ref+step pair
 // read lazily, this walks the whole set up front so every usage row is claimed at most once).
 import { costOf } from "./shared/pricing.js";
 
 /** How far a run_end's `ts` may sit from its usage record's `endedAt` (both written in the same dispatch tick). */
 export const JOIN_MS = 5000;
 
-/** Run outcomes this module reports (a superset of src/ui/stats.js's four — adds `hold`, `timeout`, `requeued`, `unknown`). */
+/** Run outcomes this module reports (a superset of src/reader/stats.js's four — adds `hold`, `timeout`, `requeued`, `unknown`). */
 export const OUTCOMES = ["advance", "changes", "hold", "fail", "timeout", "requeued", "unknown"];
 
 /** Group-by dimensions `runStats`/`ah stats`/the MCP tool accept. */

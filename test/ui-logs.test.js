@@ -7,7 +7,8 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { LOG_TAIL_BYTES, createLogTail, listRuns, readAppended, resolveRunLog } from "../src/ui/logs.js";
+import { LOG_TAIL_BYTES, createLogTail, readAppended } from "../src/ui/logs.js";
+import { listRuns, resolveRunLog } from "../src/reader/run-logs.js";
 import { createUiServer } from "../src/ui/server.js";
 
 const TOKEN = "t0k3n-abcdefghijklmnopqrstuvwxyz0123456789";

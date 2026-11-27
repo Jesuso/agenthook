@@ -40,7 +40,7 @@ export type HarnessAttentionItem = {
 };
 
 /**
- * Every harness of `profile` whose breaker is down or probing (src/ui/rows.js harnessSlots already
+ * Every harness of `profile` whose breaker is down or probing (src/reader/rows.js harnessSlots already
  * carries `state`/`until`/`reason`); [] for an all-`up` profile or one with no named harnesses.
  */
 export function harnessAttention(profile: Pick<ProfileView, "harnesses">): HarnessAttentionItem[] {

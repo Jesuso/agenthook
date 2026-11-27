@@ -39,7 +39,7 @@ function fmtUsd(usd) {
 
 /**
  * The whole of `file`'s lines, parsed, torn/invalid lines skipped. Pure reader, no cursor —
- * the CLI is a one-shot snapshot, unlike the UI's incremental `ui/stats.js` reader.
+ * the CLI is a one-shot snapshot, unlike the UI's incremental `reader/stats.js` reader.
  * @param {string} file
  * @returns {Record<string, any>[]}
  */
