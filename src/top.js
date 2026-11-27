@@ -285,6 +285,32 @@ export function helpLines() {
   return ["  j/k ↑/↓ move · Enter follow (running) / hint · ? help · q quit"];
 }
 
+/**
+ * The full-mode single-profile frame (#797): `renderTop`'s fallback lines when the profile is
+ * down or nothing is selected; otherwise the header, the row window scrolled just enough to
+ * keep the selection on screen, and the always-visible bottom (queued, detail, hint, help) —
+ * sliced to `rows`. Pure: no I/O, no clock of its own (`now` is passed in).
+ * @param {TopTick} t a tick payload
+ * @param {{selected?: number, hint?: string|null, showHelp?: boolean, width?: number, rows: number, now?: number, color?: boolean}} o `selected` index over `selectable(t)` (-1: none); `rows` the terminal height
+ * @returns {string[]}
+ */
+export function singleFrame(t, { selected = -1, hint, showHelp = false, width = 80, rows, now, color = false }) {
+  if (!t.up || selected < 0) return renderTop(t, { width, now, color }).slice(0, rows);
+  const { header, needs, running } = build(t, { width, now, color, selected });
+  const rowLines = [...needs, ...running];
+  /** @type {string[]} the always-visible bottom: queued line, detail, hint, help. */
+  const bottom = [];
+  const queued = t.slots?.queued ?? 0;
+  if (queued > 0) bottom.push(color ? `  \u001b[1m${queued} queued\u001b[0m` : `  ${queued} queued`);
+  bottom.push(detailLine(t, selected, { width }));
+  if (hint) bottom.push(hint);
+  if (showHelp) for (const l of helpLines()) bottom.push(l);
+  const avail = Math.max(0, rows - 1 - bottom.length); // the header's line + the bottom
+  let top = 0;
+  if (rowLines.length > avail) top = Math.max(0, Math.min(selected - avail + 1, rowLines.length - avail));
+  return [header, ...rowLines.slice(top, top + avail), ...bottom].slice(0, rows);
+}
+
 // ---------------------------------------------------------------- multi-profile view (--all, #798)
 
 /** One profile's block in the `renderAll` fit computation: its tick, state key, whether it is
@@ -435,4 +461,40 @@ export function detailAll(layout, selected, { width = 80 } = {}) {
   const sel = selectableAll(layout)[selected];
   if (!sel) return "";
   return cut(`  ${[sel.profile, ...detailParts({ kind: sel.kind, entry: sel.entry })].join(" · ")}`, width);
+}
+
+/**
+ * The strip-mode frame (#796): the strip render — `renderAll` in multi mode, `renderStrip`
+ * otherwise — padded with blank lines to exactly `height` lines. Pure: no I/O, no own clock.
+ * @param {TopTick | TopTick[]} data a single tick (single mode) or one tick per profile (multi mode)
+ * @param {{multi?: boolean, height: number, width?: number, now?: number, color?: boolean}} o
+ * @returns {string[]}
+ */
+export function stripFrame(data, { multi = false, height, width = 80, now, color = false }) {
+  const frame = multi
+    ? renderAll(/** @type {TopTick[]} */ (data), { strip: true, height, width, now, color })
+    : renderStrip(/** @type {TopTick} */ (data), { lines: height, width, now, color });
+  while (frame.length < height) frame.push("");
+  return frame;
+}
+
+/**
+ * The full-mode multi-profile frame (#798): with no selection, every block at its full fit
+ * height (`renderAll` at `rows`); with a selection, the blocks at `rows` minus the bottom lines
+ * (detail + hint + help) with that bottom appended. `layout` must be the `allLayout` result
+ * sized to that same blocks height (the caller's `frameLayout()`) so the detail line can never
+ * point at a row the blocks don't show. Sliced to `rows`. Pure: no I/O, no own clock.
+ * @param {TopTick[]} ticks one tick per profile
+ * @param {{selected?: number, layout?: {blocks: AllBlock[]}, hint?: string|null, showHelp?: boolean, width?: number, rows: number, now?: number, color?: boolean}} o `selected` index over `selectableAll(layout)` (-1: none); `rows` the terminal height
+ * @returns {string[]}
+ */
+export function multiFrame(ticks, { selected = -1, layout, hint, showHelp = false, width = 80, rows, now, color = false }) {
+  if (selected < 0) return renderAll(ticks, { width, now, color, height: rows }).slice(0, rows);
+  const bottomCount = 1 + (hint ? 1 : 0) + (showHelp ? helpLines().length : 0); // detail + hint + help
+  const blocks = renderAll(ticks, { width, now, color, height: Math.max(0, rows - bottomCount), selected });
+  /** @type {string[]} */
+  const bottom = [detailAll(/** @type {{blocks: AllBlock[]}} */ (layout), selected, { width })];
+  if (hint) bottom.push(hint);
+  if (showHelp) for (const l of helpLines()) bottom.push(l);
+  return [...blocks, ...bottom].slice(0, rows);
 }
