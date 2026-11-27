@@ -39,7 +39,7 @@ function parseLine(line) {
 }
 
 /** Read the profile's refmeta.json (ref -> {displayId,title,pr,url}); {} if absent/garbage.
- * @param {string} dataDir @returns {Record<string, import('../types/index.js').RefMeta>} */
+ * @param {string} dataDir @returns {Record<string, import('../types/state.js').RefMeta>} */
 function readRefMeta(dataDir) {
   try {
     return JSON.parse(fs.readFileSync(path.join(dataDir, "refmeta.json"), "utf8"));
@@ -54,7 +54,7 @@ function readRefMeta(dataDir) {
  * against refmeta's cached `pr`. No match → `{q}` (a ref that may yet appear under
  * --follow). So on GitHub `94` is issue 94, `#94` its display id, never PR 94. Pure.
  * @param {string} q
- * @param {Record<string, import('../types/index.js').RefMeta>} refmeta
+ * @param {Record<string, import('../types/state.js').RefMeta>} refmeta
  * @param {Iterable<string>} [knownRefs]  refs present in the event log
  * @returns {Set<string>}
  */
@@ -76,7 +76,7 @@ export function resolveRefFilter(q, refmeta, knownRefs = []) {
  * Human-readable rendering of one event object. The human id (the event's own
  * `displayId`, else refmeta's) prefixes `ref=` when known.
  * @param {Record<string,any>} ev
- * @param {import('../types/index.js').RefMeta} [meta]  refmeta record for ev.ref
+ * @param {import('../types/state.js').RefMeta} [meta]  refmeta record for ev.ref
  * @returns {string}
  */
 export function renderEvent(ev, meta) {

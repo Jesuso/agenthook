@@ -18,12 +18,12 @@ import { envNameMatches } from "../agent-env.js";
  * function closing over ~15 of runStep's own. Built right after the sandbox/remote wrap
  * (run-wrap.js), so `prompt` and `sandboxedRun` are the final, post-wrap values.
  * @typedef {object} RunContext
- * @property {import('../types/index.js').Step} step
- * @property {import('../types/index.js').Step} spawnStep
- * @property {import('../types/index.js').Job} job
- * @property {import('../types/index.js').Config} cfg
- * @property {import('../types/index.js').AgentAdapter} agent
- * @property {import('../types/index.js').Executor} executor
+ * @property {import('../types/pipeline.js').Step} step
+ * @property {import('../types/pipeline.js').Step} spawnStep
+ * @property {import('../types/pipeline.js').Job} job
+ * @property {import('../types/config.js').Config} cfg
+ * @property {import('../types/agents.js').AgentAdapter} agent
+ * @property {import('../types/sandbox.js').Executor} executor
  * @property {boolean} sandboxed
  * @property {Parameters<import('./spawn.js').Spawn['spawnAgent']>[0]['sandboxed']} sandboxedRun
  * @property {string} localVerdictFile
@@ -38,21 +38,21 @@ import { envNameMatches } from "../agent-env.js";
  * @property {string|undefined} effort
  * @property {string|undefined} provider
  * @property {Record<string, string>|undefined} agentEnv
- * @property {import('../types/index.js').RunCredentials|null} creds
+ * @property {import('../types/tracker.js').RunCredentials|null} creds
  * @property {number} maxMinutes
  * @property {string} startedAt
  * @property {string} prompt
  * @property {(p: number|undefined) => void} onPid
  * @property {(tally: {input: number, output: number, cacheRead: number, cacheCreate: number, lastContext?: number}) => void} onTally
- * @property {import('../types/index.js').AdapterMeta} meta
- * @property {import('../types/index.js').Forge|null|undefined} forge
- * @property {import('../types/index.js').Store|undefined} store
+ * @property {import('../types/tracker.js').AdapterMeta} meta
+ * @property {import('../types/forge.js').Forge|null|undefined} forge
+ * @property {import('../types/state.js').Store|undefined} store
  * @property {import('./context.js').DispatchState['emit']} emit
  * @property {Set<string>} cancelled
  * @property {import('./verdict.js').VerdictOps['readVerdict']} readVerdict
  * @property {import('./spawn.js').Spawn['spawnAgent']} spawnAgent
  * @property {Map<string, number>} pids
- * @property {Map<string, import('../types/index.js').ExecutorRun>} executorRuns
+ * @property {Map<string, import('../types/sandbox.js').ExecutorRun>} executorRuns
  * @property {import('./spawn.js').Spawn['logLine']} logLine
  */
 

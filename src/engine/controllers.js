@@ -150,7 +150,7 @@ export function createDecommissionRequester({ queue, isDraining, isRestartPendin
  * wait is one one-shot timer at the window's `resetsAt` — a deadline, not a poll. Running agents
  * are never touched.
  * @param {{
- *   cfg: import('../types/index.js').Config,
+ *   cfg: import('../types/config.js').Config,
  *   queue: {pause(): void, resume(): void},
  *   heartbeat: {update(p: Record<string, any>): void},
  *   emit: (event: string, ref: string, step: string, extra?: Record<string, any>) => void,
@@ -200,7 +200,7 @@ export function createQuotaControl({ cfg, queue, heartbeat, emit, pull, isLocked
  * `suppress` (from `harness_reset`) keeps a harness from re-closing by quota until its trip's
  * `resetsAt`, mirroring `createQuotaPacer`'s operator resume override.
  * @param {{
- *   cfg: import('../types/index.js').Config,
+ *   cfg: import('../types/config.js').Config,
  *   queue: {closeForQuota(names: string[], opts: {until: number, reason: string, unharnessed?: boolean, window?: 'sevenDay'|'fiveHour', utilization?: number, threshold?: number}): void},
  *   heartbeat: {update(p: object): void},
  *   now?: () => number,
@@ -255,11 +255,11 @@ export function createHarnessQuota({ cfg, queue, heartbeat, now }) {
  * error names every restart-required key). On success emits exactly one `config_reloaded` with the
  * dotted `changed` keys; a no-op emits none. `.env` values already in the process are not re-read.
  * @param {{
- *   cfg: import('../types/index.js').Config,
- *   loadConfig: () => import('../types/index.js').Config,
- *   checkImages?: (next: import('../types/index.js').Config) => Promise<{ok: boolean, reason?: string}>,
+ *   cfg: import('../types/config.js').Config,
+ *   loadConfig: () => import('../types/config.js').Config,
+ *   checkImages?: (next: import('../types/config.js').Config) => Promise<{ok: boolean, reason?: string}>,
  *   isLocked: () => boolean,
- *   store: { getOverrides(): import('../types/index.js').Overrides, setOverrides(o: import('../types/index.js').Overrides): void },
+ *   store: { getOverrides(): import('../types/config.js').Overrides, setOverrides(o: import('../types/config.js').Overrides): void },
  *   queue: { reconfigure(next: import('./harnessing.js').HarnessingShape & {max?: number}, overrides: {maxConcurrent?: number, harnesses?: Record<string, number>}): void, state(): {active: number, queued: number} },
  *   quotaPacer?: { setThresholds(t: import('../shared/quota.js').QuotaConfig | null | undefined): void },
  *   heartbeat: { update(p: Record<string, unknown>): void },
@@ -288,7 +288,7 @@ export function createReloadRequester({ cfg, loadConfig, checkImages, isLocked, 
     cfg.quota = next.quota;
     cfg.harnesses = next.harnesses;
     cfg.pipeline = next.pipeline;
-    cfg.tracker.pipeline = /** @type {import('../types/index.js').Step[]} */ (next.pipeline);
+    cfg.tracker.pipeline = /** @type {import('../types/pipeline.js').Step[]} */ (next.pipeline);
     if (cfg.sandbox && next.sandbox) cfg.sandbox = { ...cfg.sandbox, egress: next.sandbox.egress };
 
     quotaPacer?.setThresholds(next.quota ?? null); // the no-harness pacer re-checks its last reading

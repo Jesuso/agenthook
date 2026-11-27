@@ -68,7 +68,7 @@ const num = (n) => (typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0
  * itself. A zero-context step_finish (e.g. an errored step) neither counts nor updates
  * `prevCtx`. If a future OpenCode version streams a real compaction event, handle that too
  * (count once, don't double-count against this heuristic).
- * @returns {import('../types/index.js').AgentParser}
+ * @returns {import('../types/agents.js').AgentParser}
  */
 export function createOpencodeParser() {
   let buf = "";
@@ -172,7 +172,7 @@ export function createOpencodeParser() {
  * `unpriced: true` with no `costUsd`, so no invented dollars. `bin` is tagged only when the
  * step's `bin` overrides the `opencode` default.
  * @param {{ref:string, stepId:string, model?:string, bin?:string, startedAt:string, endedAt:string, result:any}} o
- * @returns {import('../types/index.js').UsageRecord}
+ * @returns {import('../types/state.js').UsageRecord}
  */
 export function buildOpencodeUsageRecord({ ref, stepId, model, bin, startedAt, endedAt, result }) {
   const t = (result && result.tokens) || {};
@@ -260,7 +260,7 @@ to ask a question in this run.
  * The contract + standing-instructions files, and the `instructions` list that wires them in,
  * shared by the sandbox `files` write (into a per-run HOME) and the remote `files` write (into a
  * per-run worker dir, #739) — only the destination paths and the base config differ.
- * @param {{step: import('../types/index.js').Step, verdictFile: string, standing?: string, contractDst: string, standingDst: string, rawConfig: string|null}} o
+ * @param {{step: import('../types/pipeline.js').Step, verdictFile: string, standing?: string, contractDst: string, standingDst: string, rawConfig: string|null}} o
  */
 function opencodeInstructionFiles({ step, verdictFile, standing, contractDst, standingDst, rawConfig }) {
   /** @type {{dst: string, content: string, mode?: number}[]} */
@@ -288,7 +288,7 @@ function opencodeInstructionFiles({ step, verdictFile, standing, contractDst, st
   return { files, config, standingInInstructions };
 }
 
-/** @type {import('../types/index.js').AgentAdapter} */
+/** @type {import('../types/agents.js').AgentAdapter} */
 export const opencode = {
   // sandboxResume: false — a sandboxed run's session database lives in the per-run sandbox
   // HOME (sandbox() below writes no transcripts, has no mounts), which is deleted at teardown,

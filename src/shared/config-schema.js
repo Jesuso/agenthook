@@ -1,6 +1,6 @@
 // The one definition of every user config key (epic #344): label, one-line help, section, and the
 // hints a form needs (default, options, min/max). The config editor renders its fields from it and
-// test/config-schema.test.js holds it to src/types/index.js — a typedef key with no entry here (and no
+// test/config-schema.test.js holds it to src/types/ — a typedef key with no entry here (and no
 // NO_FORM reason) fails CI, so a new key can't silently fall out of the forms.
 // Import-free on purpose: the browser bundles it (like src/shared/identity.js and src/shared/contract.js). Its
 // imports, src/agents/names.js and src/sandbox/names.js, are themselves import-free (the
@@ -15,7 +15,7 @@ export const STEP_EFFORTS = /** @type {const} */ (["low", "medium", "high", "xhi
 /** How a step picks among its `harness` list (`Step.routing`; the first is the default). */
 export const HARNESS_ROUTINGS = /** @type {const} */ (["first-free", "round-robin"]);
 
-/** The tracker types whose steps bind stage keys of each family (src/types/index.js `Step`). */
+/** The tracker types whose steps bind stage keys of each family (src/types/pipeline.js `Step`). */
 const STATUS_TRACKERS = ["jira", "github-projects", "local", "linear"];
 
 /**

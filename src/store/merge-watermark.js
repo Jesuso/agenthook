@@ -7,7 +7,7 @@ import { readJson } from "./read-json.js";
  * agent PR the explicit merge catch-up (`runMergeCatchup`) listed, so the next one only
  * asks the forge for later merges.
  * @param {string} dataDir
- * @returns {Pick<import('../types/index.js').Store, 'getMergeWatermark'|'setMergeWatermark'>}
+ * @returns {Pick<import('../types/state.js').Store, 'getMergeWatermark'|'setMergeWatermark'>}
  */
 export function mergeWatermarkSlice(dataDir) {
   const mergeWatermarkFile = path.join(dataDir, "merge-watermark.json");

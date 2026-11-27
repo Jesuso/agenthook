@@ -13,20 +13,20 @@ import { trustedGitDirs, gitSandboxEnv, mergeGitConfigEnv, hostGitFacts, inferre
  * @param {object} wc
  * @param {boolean} wc.sandboxed
  * @param {boolean} wc.remote
- * @param {import('../types/index.js').Config} wc.cfg
- * @param {import('../types/index.js').Step} wc.step
- * @param {import('../types/index.js').Step} wc.spawnStep
- * @param {import('../types/index.js').Sandbox|null} wc.sandbox
- * @param {import('../types/index.js').AgentAdapter} wc.agent
+ * @param {import('../types/config.js').Config} wc.cfg
+ * @param {import('../types/pipeline.js').Step} wc.step
+ * @param {import('../types/pipeline.js').Step} wc.spawnStep
+ * @param {import('../types/sandbox.js').Sandbox|null} wc.sandbox
+ * @param {import('../types/agents.js').AgentAdapter} wc.agent
  * @param {string} wc.cwd
  * @param {boolean} wc.hasWorktree
  * @param {string} wc.verdictFile
  * @param {string} wc.standing
- * @param {import('../types/index.js').RunCredentials|null} wc.creds
- * @param {import('../types/index.js').RepoConfig} wc.repo
+ * @param {import('../types/tracker.js').RunCredentials|null} wc.creds
+ * @param {import('../types/config.js').RepoConfig} wc.repo
  * @param {string|undefined} wc.sandboxImage
- * @param {import('../types/index.js').Forge|null|undefined} wc.forge
- * @param {import('../types/index.js').AdapterMeta} wc.meta
+ * @param {import('../types/forge.js').Forge|null|undefined} wc.forge
+ * @param {import('../types/tracker.js').AdapterMeta} wc.meta
  * @param {Record<string, string>} wc.spawnEnv
  * @param {string|undefined} wc.remoteConfigDir
  * @param {string} wc.base  the ticket half of the prompt, below the `=== TICKET ===` marker

@@ -42,7 +42,7 @@ export function readMarker(dir) {
  * an unparsable one gets a fresh `createdAt`. `extra` merges in on top (e.g. `webhooks`); when it
  * doesn't set a field, a prior marker's value for that field carries over. `provider` is the
  * tracker's (`cfg.provider`) or, when the caller has no config (a rename), the previous marker's.
- * @param {import('./types/index.js').Config} cfg
+ * @param {import('./types/config.js').Config} cfg
  * @param {Record<string, unknown>} [extra]
  */
 export function writeProfileMarker(cfg, extra = {}) {
@@ -86,7 +86,7 @@ export function isFreshStateDir(dir) {
 /**
  * The sibling state dir this config already owns, when this one is fresh — i.e. the profile was
  * renamed without a stateId. Only dirs carrying a `profile.json` are considered; null = no conflict.
- * @param {import('./types/index.js').Config} cfg
+ * @param {import('./types/config.js').Config} cfg
  * @param {string} [registry]
  * @returns {string|null}
  */
@@ -115,7 +115,7 @@ export function findRenameConflict(cfg, registry = registryDir) {
  * Boot gate: refuse to start on an empty state dir whose config already owns another one (removing
  * the empty dir again — only if still empty, never recursively), else create the state dir (0700)
  * + `logs/` and stamp the marker. The one place a booting profile's state dir is born.
- * @param {import('./types/index.js').Config} cfg
+ * @param {import('./types/config.js').Config} cfg
  * @param {string} [registry]
  */
 export function claimStateDir(cfg, registry = registryDir) {
@@ -142,14 +142,14 @@ export function claimStateDir(cfg, registry = registryDir) {
  * Guard for commands that write into the state dir but must not *create* it (catchup, reconcile,
  * register, unregister): a profile that was never started has nothing for them to act on, and
  * creating the dir here would leave a ghost profile behind.
- * @param {import('./types/index.js').Config} cfg
+ * @param {import('./types/config.js').Config} cfg
  */
 export function requireStarted(cfg) {
   if (fs.existsSync(cfg.stateDir)) return;
   throw new Error(`${neverStarted(cfg)} — run \`agenthook start\` first`);
 }
 
-/** The "never started" line read-only commands print for a missing state dir. @param {import('./types/index.js').Config} cfg */
+/** The "never started" line read-only commands print for a missing state dir. @param {import('./types/config.js').Config} cfg */
 export function neverStarted(cfg) {
   return `profile "${cfg.name}" has never been started (no state at ${tildify(cfg.stateDir)}/)`;
 }

@@ -16,11 +16,11 @@ import { publishOutbox } from "./publish.js";
 /**
  * runStep's locals the post-exit phase reads, handed over as one object.
  * @typedef {object} StepRun
- * @property {import('../types/index.js').Step} step
- * @property {import('../types/index.js').Step} spawnStep  `step` with its harness's spawn knobs filled in (src/dispatch/harness.js) — what the agent ran with
+ * @property {import('../types/pipeline.js').Step} step
+ * @property {import('../types/pipeline.js').Step} spawnStep  `step` with its harness's spawn knobs filled in (src/dispatch/harness.js) — what the agent ran with
  * @property {{harness?: string|null}} harnessField  run_end's `harness` (set only for a profile with harnesses)
- * @property {import('../types/index.js').Task} task
- * @property {import('../types/index.js').RepoConfig} repo
+ * @property {import('../types/tracker.js').Task} task
+ * @property {import('../types/config.js').RepoConfig} repo
  * @property {boolean} hasWorktree
  * @property {string|undefined} [cwd]  the worker launch cwd, for a remote-harness run (#830) — where the agent's transcript and a future `resume` live
  * @property {string} verdictFile
@@ -29,7 +29,7 @@ import { publishOutbox } from "./publish.js";
  * @property {string|undefined} model
  * @property {string} startedAt
  * @property {number} maxMinutes
- * @property {import('../types/index.js').AgentAdapter} agent
+ * @property {import('../types/agents.js').AgentAdapter} agent
  * @property {string|undefined} refused
  * @property {string} [preflightDown]  the agent's own preflight refused (`refused` holds the same reason) — a harness health signal
  * @property {string} [spawnError]  the spawn itself errored (e.g. ENOENT: the bin is missing)
@@ -46,7 +46,7 @@ import { publishOutbox } from "./publish.js";
  * @property {import('../shared/quota.js').QuotaReading|null} quota
  * @property {"max"|"idle"|undefined} timedOut
  * @property {boolean} [sandboxed]  ran in the profile's sandbox, or over ssh on a remote harness (#689) — either way its verdict sits in its own per-run dir and needs the untrusted-writer guard (guardSandboxVerdict)
- * @property {import('../types/index.js').SandboxReport} [sandboxReport]  what the sandbox reported once the run exited
+ * @property {import('../types/sandbox.js').SandboxReport} [sandboxReport]  what the sandbox reported once the run exited
  * @property {string|null} [headSha]  forge.autoMerge tier step: the PR head when the run started
  * @property {string} [lastText]  the run's last output (its final result text, else rendered-stdout tail) for the question-hold detector
  * @property {{turns: number, repaired: boolean, results: any[], turnStats: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}[]}} [repair]  the receiver-driven verdict-repair turns (#677) this run took, when any did: `turns` = how many ran, `repaired` = the last one wrote a valid verdict, `results`/`turnStats` = each repair spawnAgent() result / its turnStats, oldest first — absent when no repair was attempted
@@ -62,7 +62,7 @@ export function createFinish(ctx) {
   const { cfg, adapter, store, emit, forge, opts, pids, cancelled, killTimers } = ctx;
   const { stepIndex, leavePipeline, recordPr, finalizeUsage, stopEnergy, readVerdict, guardChanges } = ctx;
 
-  /** @param {import('../types/index.js').Job} job @param {StepRun} run */
+  /** @param {import('../types/pipeline.js').Job} job @param {StepRun} run */
   async function finishStep(job, run) {
     const { step, spawnStep, harnessField, task, repo, hasWorktree, cwd: remoteCwd, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, unreachable, sshConfigFailure, noOutput, apiDown, errorLine, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, lastText, repair, deduced, gate, remote, hubWorktree, branch } = run;
     store?.clearRunning(job.ref);
@@ -164,7 +164,7 @@ export function createFinish(ctx) {
     if (sandboxed) guardSandboxVerdict(verdictFile);
     // Resolve the verdict from the exit code + the file the agent wrote. A killed run
     // always fails — a verdict file it half-wrote before the kill is not trusted.
-    /** @type {import('../types/index.js').Verdict} */
+    /** @type {import('../types/pipeline.js').Verdict} */
     const verdict = refused
       ? { outcome: "fail", reason: refused }
       : spawnError

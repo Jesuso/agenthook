@@ -12,10 +12,6 @@ import { fileURLToPath } from 'node:url';
 const __dirname = join(fileURLToPath(import.meta.url), '..');
 const ROOT = join(__dirname, '..');
 
-// src/types/index.js is JSDoc types only (no runtime code); whether it should stay a barrel is
-// the owner's separate decision (see issue #875), not this guard's.
-const ALLOWED = new Set(['src/types/index.js']);
-
 function walk(dir, exts) {
   const entries = readdirSync(dir, { withFileTypes: true });
   const files = [];
@@ -125,7 +121,6 @@ describe('no-barrels', () => {
 
   for (const f of files) {
     const rel = relative(ROOT, f).split(sep).join('/');
-    if (ALLOWED.has(rel)) continue;
     test(`${rel}: not a barrel`, () => {
       const content = readFileSync(f, 'utf8');
       const reduced = stripComments(content);

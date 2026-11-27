@@ -18,8 +18,8 @@ export function createRouting(ctx) {
    * Route a ref to its repo: the sticky one if it has been routed before (route keys may
    * change mid-flow; the worktree/branch must not), else resolve its route keys and stick
    * it. Single-repo profiles never persist (every ref resolves to the one repo anyway).
-   * @param {string} ref @param {import('../types/index.js').Task} task
-   * @returns {{ repo: import('../types/index.js').RepoConfig } | { error: string, message: string }}
+   * @param {string} ref @param {import('../types/tracker.js').Task} task
+   * @returns {{ repo: import('../types/config.js').RepoConfig } | { error: string, message: string }}
    */
   function resolveRoute(ref, task) {
     const stuck = store?.getRepo(ref);
@@ -44,7 +44,7 @@ export function createRouting(ctx) {
 
   /** Cache the ref's PR number in refmeta once one exists. Receiver-side only (the CLIs
    * never write state); skipped for PR-less trackers and once a PR is known.
-   * @param {string} ref @param {import('../types/index.js').RepoConfig} [repo]  the checkout `gh` runs in */
+   * @param {string} ref @param {import('../types/config.js').RepoConfig} [repo]  the checkout `gh` runs in */
   async function recordPr(ref, repo = stickyRepo(ref)) {
     if (!store || meta.usesPR === false || store.getRefMeta(ref)?.pr) return;
     const pr = await lookupPr(repo.path, ref, undefined, cfg.branchPrefix);

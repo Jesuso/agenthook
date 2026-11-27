@@ -26,7 +26,7 @@ import { neutralizeMentions, breakAllMentions } from "./outbox.js";
  * Make one piece of worker-written text safe to publish under the hub's identity (#829).
  * @param {string} text
  * @param {object} o
- * @param {import('../types/index.js').Forge} o.forge
+ * @param {import('../types/forge.js').Forge} o.forge
  * @param {string|undefined} o.owner
  * @param {(line: string) => void} o.say
  * @param {string} o.label  for the run-log line, e.g. "pr body" / "comment"
@@ -63,8 +63,8 @@ async function safeMentions(text, { forge, owner, say, label }) {
 
 /**
  * @param {object} o
- * @param {import('../types/index.js').Forge|null|undefined} o.forge
- * @param {import('../types/index.js').Adapter} o.adapter
+ * @param {import('../types/forge.js').Forge|null|undefined} o.forge
+ * @param {import('../types/tracker.js').Adapter} o.adapter
  * @param {string} o.ref
  * @param {string} o.stepId
  * @param {boolean} o.remote      executor.name === "ssh"
@@ -72,8 +72,8 @@ async function safeMentions(text, { forge, owner, say, label }) {
  * @param {string} [o.worktree]   its path (only when hasWorktree)
  * @param {string} [o.branch]     the step's branch (only when hasWorktree)
  * @param {import('./outbox.js').Outbox|undefined} o.outbox  parsed by finish.js BEFORE the per-run dir rmSync
- * @param {import('../types/index.js').Verdict} o.verdict
- * @param {import('../types/index.js').Store} [o.store]
+ * @param {import('../types/pipeline.js').Verdict} o.verdict
+ * @param {import('../types/state.js').Store} [o.store]
  * @param {(line: string) => void} [o.log]  one run-log line per skip/failure (finish.js's run log)
  * @param {string} [o.reasonHarness]  remote harness id, recorded on the held entry when one is created
  * @param {string|undefined} [o.ownerLogin]  our tracker login, the only one exempt when mentions are made safe; when omitted, `adapter.describe().ownerHint` is read (a leading `@` is stripped); with no owner known at all, every mention is broken

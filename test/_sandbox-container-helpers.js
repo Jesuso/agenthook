@@ -22,7 +22,7 @@ export const argsFor = (o = {}) =>
 export function stubRun(/** @type {Record<string, {code: number, stdout?: string, stderr?: string}>} */ answers) {
   /** @type {string[][]} */
   const calls = [];
-  /** @type {import('../src/types/index.js').IngressRun} */
+  /** @type {import('../src/types/ingress.js').IngressRun} */
   const run = async (bin, args) => {
     calls.push([bin, ...args]);
     const a = answers[args.slice(0, 2).join(" ")] ?? answers[args[0]] ?? { code: 0 };
@@ -37,7 +37,7 @@ export const tmpCfg = (/** @type {any} */ sandbox = { type: "docker" }) =>
 /** A stub runner whose proxy `run -d` writes `ready` (and optional denials) into its /egress mount. */
 export function egressRun(/** @type {{ready?: boolean, denied?: string, answers?: Record<string, {code: number, stdout?: string, stderr?: string}>}} */ { ready = true, denied, answers = {} } = {}) {
   const s = stubRun(answers);
-  /** @type {import('../src/types/index.js').IngressRun} */
+  /** @type {import('../src/types/ingress.js').IngressRun} */
   const run = async (bin, args, o) => {
     const r = await s.run(bin, args, o);
     if (args[0] === "run" && args[1] === "-d") {

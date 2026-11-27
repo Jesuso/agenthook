@@ -55,7 +55,7 @@ function verdictFooter(verdictFile, outcomeLines, pathsLines = []) {
  * The owner's reply that resumed a held step (an `@agent …` comment on the item),
  * as a delimited block. Empty when this run wasn't a resume, so the prompt is unchanged.
  * @param {string|undefined} comment
- * @param {import('./types/index.js').AdapterMeta} meta
+ * @param {import('./types/tracker.js').AdapterMeta} meta
  * @param {string} nonce
  * @returns {string[]}
  */
@@ -105,7 +105,7 @@ function pathsLines(overlapGuard, hasWorktree) {
  * default). Each entry is headed `@author <timestamp> OWNER|not owner`; when entries are
  * dropped the result says how many older comments were omitted — the adapter's own `omitted`
  * (comments beyond its 100 cap, #829) PLUS any this function drops for size.
- * @param {import('./types/index.js').TicketComment[]} comments  oldest→newest, as `fetchComments` returns them
+ * @param {import('./types/tracker.js').TicketComment[]} comments  oldest→newest, as `fetchComments` returns them
  * @param {number} [maxBytes]
  * @param {number} [fetchOmitted]  older comments the adapter left out of its newest-100 window
  * @returns {string}
@@ -134,7 +134,7 @@ export function formatTicketComments(comments, maxBytes = 32 * 1024, fetchOmitte
 /** The TICKET COMMENTS section of a REMOTE run's prompt (#826): the hub embedded the thread
  * because the worker holds no tracker credentials.
  * @param {{outboxDir: string, comments: string, base?: {sha: string, ref: string}}} remote
- * @param {import('./types/index.js').AdapterMeta} meta @param {string} nonce @returns {string[]}
+ * @param {import('./types/tracker.js').AdapterMeta} meta @param {string} nonce @returns {string[]}
  */
 function remoteCommentsBlock(remote, meta, nonce) {
   return [
@@ -151,7 +151,7 @@ function remoteCommentsBlock(remote, meta, nonce) {
  * outbox paths. Placed after the ticket content, before the verdict footer.
  * @param {"triage"|"implement"|"change"|"review"} kind
  * @param {{outboxDir: string, comments: string, base?: {sha: string, ref: string}}} remote
- * @param {import('./types/index.js').AdapterMeta} meta @param {string} url @returns {string[]}
+ * @param {import('./types/tracker.js').AdapterMeta} meta @param {string} url @returns {string[]}
  */
 function runConstraints(kind, remote, meta, url) {
   /** @type {string[]} */
@@ -180,9 +180,9 @@ function runConstraints(kind, remote, meta, url) {
  * branch the system handed it. The step's own instructionsFile is prepended by the
  * dispatcher (standing instructions), so this only states the per-run specifics.
  *
- * @param {import('./types/index.js').Task} task
- * @param {import('./types/index.js').AdapterMeta} meta
- * @param {import('./types/index.js').Step} step
+ * @param {import('./types/tracker.js').Task} task
+ * @param {import('./types/tracker.js').AdapterMeta} meta
+ * @param {import('./types/pipeline.js').Step} step
  * @param {{ worktree?: string, branch?: string, verdictFile?: string, findings?: { text: string, fromStep: string }, resumeComment?: string, overlapGuard?: boolean, repo?: { id: string, path: string }, nonce?: string, language?: string, remote?: { outboxDir: string, comments: string, base?: { sha: string, ref: string } } }} ctx
  *   `repo` is passed only for multi-repo profiles — it names the routed checkout so the agent can report a mis-route.
  *   `remote` is set ONLY for a remote (ssh) run under a non-local tracker (#826): the worker holds no tracker

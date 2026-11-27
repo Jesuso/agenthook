@@ -5,7 +5,7 @@ import { readJson } from "./read-json.js";
 /**
  * operator runtime overrides (overrides.json): {paused?, maxConcurrent?, harnesses?}
  * @param {string} dataDir
- * @returns {Pick<import('../types/index.js').Store, 'getOverrides'|'setOverrides'>}
+ * @returns {Pick<import('../types/state.js').Store, 'getOverrides'|'setOverrides'>}
  */
 export function overridesSlice(dataDir) {
   const overridesFile = path.join(dataDir, "overrides.json");

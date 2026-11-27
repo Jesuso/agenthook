@@ -60,7 +60,7 @@ function groupByRef(events) {
  * Is the ticket done on the board (ADR 0008): the tracker's done flag (`ticket.completed`), a
  * local row the board made `done`, or — with no row or an idle one — a history that ends
  * board-done. The pipeline's terminal stage is a handoff, never done.
- * @param {import('./types/index.js').EpicTicket} ticket
+ * @param {import('./types/tracker.js').EpicTicket} ticket
  * @param {import('./shared/contract.js').TicketRow|null} row
  * @param {Record<string, any>[]|undefined} refEvents
  */
@@ -71,7 +71,7 @@ function boardDone(ticket, row, refEvents) {
 /**
  * The bucket one epic ticket counts in: Needs you while the board is open, else live work, else
  * done when the board says so, else the tracker stage decides. A merged PR is never done.
- * @param {import('./types/index.js').EpicTicket} ticket
+ * @param {import('./types/tracker.js').EpicTicket} ticket
  * @param {import('./shared/contract.js').TicketRow|null} row  the ref's local row, or null
  * @param {Record<string, any>[]|undefined} refEvents  the ref's events, in order
  * @param {boolean} forge
@@ -98,8 +98,8 @@ function listedNeedsYou(bucket, row, forge) {
 }
 
 /**
- * @param {import('./types/index.js').Epic} epic
- * @param {import('./types/index.js').EpicTicket[]} tickets
+ * @param {import('./types/tracker.js').Epic} epic
+ * @param {import('./types/tracker.js').EpicTicket[]} tickets
  * @param {{ rows: import('./shared/contract.js').TicketRow[], events: Record<string, any>[], forge: boolean, now?: number, tzOffset?: number, live?: boolean }} o
  * @returns {EpicStats}
  */
@@ -178,14 +178,14 @@ function historicallyDone(refEvents) {
 }
 
 /**
- * @typedef {import('./types/index.js').EpicTicket & { bucket: EpicBucket, status: import('./shared/contract.js').TicketStatus|null }} EpicDetailTicket
+ * @typedef {import('./types/tracker.js').EpicTicket & { bucket: EpicBucket, status: import('./shared/contract.js').TicketStatus|null }} EpicDetailTicket
  * @typedef {EpicStats & { tickets: EpicDetailTicket[] }} EpicDetail
  */
 
 /**
  * One epic's stats plus each ticket with its bucket and local row status (null: never ran here).
- * @param {import('./types/index.js').Epic} epic
- * @param {import('./types/index.js').EpicTicket[]} tickets
+ * @param {import('./types/tracker.js').Epic} epic
+ * @param {import('./types/tracker.js').EpicTicket[]} tickets
  * @param {Parameters<typeof epicStats>[2]} o
  * @returns {EpicDetail}
  */
@@ -206,10 +206,10 @@ export function epicDetail(epic, tickets, o) {
  * The epics a profile can see without its tracker: refmeta entries grouped by their `epic.ref`
  * (dispatch records it per run). Each epic's status is unknown and its tickets carry no stage.
  * @param {Record<string, any>} refmeta  refmeta.json
- * @returns {{ epic: import('./types/index.js').Epic, tickets: import('./types/index.js').EpicTicket[] }[]}
+ * @returns {{ epic: import('./types/tracker.js').Epic, tickets: import('./types/tracker.js').EpicTicket[] }[]}
  */
 export function localEpics(refmeta) {
-  /** @type {Map<string, { epic: import('./types/index.js').Epic, tickets: import('./types/index.js').EpicTicket[] }>} */
+  /** @type {Map<string, { epic: import('./types/tracker.js').Epic, tickets: import('./types/tracker.js').EpicTicket[] }>} */
   const byEpic = new Map();
   for (const [ref, m] of Object.entries(refmeta)) {
     const e = m && typeof m === "object" ? m.epic : null;

@@ -17,7 +17,7 @@ export function createMerge(ctx) {
    * completed) is not bridged: only the local cleanup runs. Fail-closed on the assignee:
    * a task we can't confirm is ours is never touched on the tracker. Wherever the bridge
    * didn't deliver, the local `prState: merged` still lands for Needs-you.
-   * @param {import('../types/index.js').Job} job
+   * @param {import('../types/pipeline.js').Job} job
    */
   async function runMerge(job) {
     const skip = { kind: job.kind, ref: job.ref, name: job.ref, url: "", code: 0 };

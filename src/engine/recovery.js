@@ -25,11 +25,11 @@ export function crashRecord(kind, err, runningRefs) {
 /**
  * Wrap a job runner so a `step:` dedup key is released when the job settles
  * (resolve or reject). Other keys stay in `seen`.
- * @param {(job: import('../types/index.js').Job) => Promise<any>} run
+ * @param {(job: import('../types/pipeline.js').Job) => Promise<any>} run
  * @param {{reloadSeen: () => void, unmarkSeen: (key: string) => void}} store
  */
 export function releaseOnSettle(run, store) {
-  return async (/** @type {import('../types/index.js').Job} */ job) => {
+  return async (/** @type {import('../types/pipeline.js').Job} */ job) => {
     try {
       return await run(job);
     } finally {
@@ -47,8 +47,8 @@ export function releaseOnSettle(run, store) {
  * intake is forced because the overlap.json entry — cleared just before — is the one-shot
  * guard (the same pair can wait again after a later lock). A released job re-runs the gate
  * and may be re-held behind a different lock.
- * @param {import('../types/index.js').Store} store
- * @param {(jobs: import('../types/index.js').Job[], opts?: {force?: boolean}) => void} intake
+ * @param {import('../types/state.js').Store} store
+ * @param {(jobs: import('../types/pipeline.js').Job[], opts?: {force?: boolean}) => void} intake
  * @param {(event: string, ref: string, step: string, extra?: Record<string, any>) => void} [emit]
  * @returns {(blocker: string) => void}
  */
@@ -74,11 +74,11 @@ export function createOverlapReleaser(store, intake, emit) {
  * a failed run (implement isn't idempotent, so re-running blind is unsafe) → the
  * adapter moves it to its failure lane for a human. Catching tasks that *arrived*
  * during downtime is the explicit `reconcile` command's job, not boot's.
- * @param {import('../types/index.js').Store} store
- * @param {import('../types/index.js').Adapter} adapter
+ * @param {import('../types/state.js').Store} store
+ * @param {import('../types/tracker.js').Adapter} adapter
  * @param {(event: string, ref: string, step: string, extra?: Record<string, any>) => void} emit
  * @param {(blocker: string) => void} [releaseOverlap]  overlapGuard: a fail frees the ref's lock
- * @param {{cfg?: import('../types/index.js').Config, forge?: import('../types/index.js').Forge|null}} [am]  forge.autoMerge: a fail turns it off
+ * @param {{cfg?: import('../types/config.js').Config, forge?: import('../types/forge.js').Forge|null}} [am]  forge.autoMerge: a fail turns it off
  */
 export async function recoverInterrupted(store, adapter, emit, releaseOverlap, am = {}) {
   const running = store.listRunning();

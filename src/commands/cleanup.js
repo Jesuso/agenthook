@@ -21,7 +21,7 @@ function run(cmd, args, cwd) {
 }
 
 /** Best-effort: is this tracker item completed? "unknown" never blocks on API error.
- * @param {import('../types/index.js').Adapter} adapter @param {string} ref */
+ * @param {import('../types/tracker.js').Adapter} adapter @param {string} ref */
 async function itemDone(adapter, ref) {
   if (!ref) return "unknown";
   try {

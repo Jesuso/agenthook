@@ -28,19 +28,19 @@ import fs from "node:fs";
 import path from "node:path";
 import { findStep } from "../pipeline.js";
 
-/** The board file backing a local profile. @param {import('../types/index.js').Config} cfg */
+/** The board file backing a local profile. @param {import('../types/config.js').Config} cfg */
 export function localBoardPath(cfg) {
   return path.join(cfg.dataDir, "local-board.json");
 }
 
 /** The move-counter file. Apart from the board on purpose: seedBoard overwrites the board,
  * and a counter reset with it would reuse `secmove:` keys already in seen.json (dropped moves).
- * @param {import('../types/index.js').Config} cfg */
+ * @param {import('../types/config.js').Config} cfg */
 export function localSeqPath(cfg) {
   return path.join(cfg.dataDir, "local-seq.json");
 }
 
-/** Bump and persist the move counter; returns the new value. @param {import('../types/index.js').Config} cfg */
+/** Bump and persist the move counter; returns the new value. @param {import('../types/config.js').Config} cfg */
 function nextSeq(cfg) {
   let n = 0;
   try {
@@ -52,7 +52,7 @@ function nextSeq(cfg) {
   return n;
 }
 
-/** The step (manual included) whose sourceStatus is `stage`. @param {import('../types/index.js').Config} cfg @param {string|undefined} stage */
+/** The step (manual included) whose sourceStatus is `stage`. @param {import('../types/config.js').Config} cfg @param {string|undefined} stage */
 const stepSourcing = (cfg, stage) => (stage ? cfg.pipeline?.find((s) => s.sourceStatus === stage) : undefined);
 
 /** Receiver env vars an agent of this tracker gets (#470): none — a local run posts no comments. */
@@ -62,8 +62,8 @@ export const LOCAL_AGENT_ENV = /** @type {string[]} */ ([]);
  * The job a task CREATED in `stage` carries (the "add ticket" path), keyed `step:<id>:<ref>`
  * like a webhook tracker's created-in-section event — or null when no step sources `stage`.
  * Push it through the adapter's onJobs sink; a refused enqueue un-marks the state key.
- * @param {import('../types/index.js').Config} cfg @param {string} ref @param {string} stage
- * @returns {import('../types/index.js').Job | null}
+ * @param {import('../types/config.js').Config} cfg @param {string} ref @param {string} stage
+ * @returns {import('../types/pipeline.js').Job | null}
  */
 export function createdJob(cfg, ref, stage) {
   const step = stepSourcing(cfg, stage);
@@ -88,7 +88,7 @@ export function extractRouteKeys(item, routeField) {
 
 /** Is `stage` done — the source stage of a manual (terminal) step? A local board has no native
  * done flag, so this is it. Failure, hold and unbound stages (e.g. `backlog`) are not done.
- * @param {import('../types/index.js').Config} cfg @param {string|undefined} stage */
+ * @param {import('../types/config.js').Config} cfg @param {string|undefined} stage */
 export const isDoneStage = (cfg, stage) => !!stage && !!cfg.pipeline?.some((s) => s.manual && s.sourceStatus === stage);
 
 /**
@@ -112,7 +112,7 @@ export function normalizeBlockedBy(v) {
  * The refs that still block `ref`: its `blockedBy` entries whose item is on the board and not in
  * a done stage. A blocker missing from the board (reseeded, hand-edited) no longer blocks — this
  * is a workflow gate, not a security boundary (fail-open, like github.js). Pure.
- * @param {import('../types/index.js').Config} cfg @param {Record<string, LocalItem>} board @param {string} ref
+ * @param {import('../types/config.js').Config} cfg @param {Record<string, LocalItem>} board @param {string} ref
  * @returns {string[]}
  */
 export function openBlockersOf(cfg, board, ref) {
@@ -120,7 +120,7 @@ export function openBlockersOf(cfg, board, ref) {
   return normalizeBlockedBy(it?.blockedBy).filter((b) => board[b] && !isDoneStage(cfg, board[b].stage));
 }
 
-/** Read the board (missing file → empty). @param {import('../types/index.js').Config} cfg
+/** Read the board (missing file → empty). @param {import('../types/config.js').Config} cfg
  * @returns {Record<string, LocalItem>} */
 function readBoard(cfg) {
   try {
@@ -129,7 +129,7 @@ function readBoard(cfg) {
     return {};
   }
 }
-/** @param {import('../types/index.js').Config} cfg @param {Record<string, LocalItem>} board */
+/** @param {import('../types/config.js').Config} cfg @param {Record<string, LocalItem>} board */
 function writeBoard(cfg, board) {
   fs.mkdirSync(cfg.dataDir, { recursive: true });
   fs.writeFileSync(localBoardPath(cfg), JSON.stringify(board, null, 2) + "\n");
@@ -138,7 +138,7 @@ function writeBoard(cfg, board) {
 /**
  * Seed (or reset) the board: place each task at a starting stage. Used by the offline
  * driver to inject a corpus. Overwrites any existing board.
- * @param {import('../types/index.js').Config} cfg
+ * @param {import('../types/config.js').Config} cfg
  * @param {Array<{ref: string, name: string, description?: string, url?: string, [key: string]: any}>} tasks
  * @param {string} stage  the stage to place every task in (a step's sourceStatus)
  */
@@ -152,7 +152,7 @@ export function seedBoard(cfg, tasks, stage) {
   return board;
 }
 
-/** @type {import('../types/index.js').AdapterFactory} */
+/** @type {import('../types/tracker.js').AdapterFactory} */
 export function createLocalAdapter(cfg, store) {
   const pipeline = cfg.pipeline;
 
@@ -182,7 +182,7 @@ export function createLocalAdapter(cfg, store) {
   }
 
   // The engine's intake sink (onJobs); unset → moves push nothing (offline driver, tests).
-  /** @type {((jobs: import('../types/index.js').Job[]) => void) | null} */
+  /** @type {((jobs: import('../types/pipeline.js').Job[]) => void) | null} */
   let sink = null;
   /**
    * Move `ref` to `stage`, then — once the write has landed — push one job when a step
@@ -193,7 +193,7 @@ export function createLocalAdapter(cfg, store) {
     const step = sink ? stepSourcing(cfg, stage) : undefined;
     /** @type {number|undefined} */
     let seq;
-    /** @type {import('../types/index.js').Job[]} the close-release of dependents, decided inside the write */
+    /** @type {import('../types/pipeline.js').Job[]} the close-release of dependents, decided inside the write */
     const released = [];
     await update((board) => {
       const it = board[String(ref)];
@@ -230,7 +230,7 @@ export function createLocalAdapter(cfg, store) {
   const boundStages = () => {
     /** @type {Set<string>} */
     const stages = new Set();
-    /** @type {Array<keyof import('../types/index.js').Step>} */
+    /** @type {Array<keyof import('../types/pipeline.js').Step>} */
     const keys = ["sourceStatus", "successStatus", "failureStatus", "holdStatus", "queueStatus"];
     for (const step of pipeline || [])
       for (const key of keys) {
@@ -267,7 +267,7 @@ export function createLocalAdapter(cfg, store) {
     // the onJobs sink instead (or, unwired, the driver polls listResting()).
     processEvents: async () => [],
 
-    /** @param {(jobs: import('../types/index.js').Job[]) => void} emit */
+    /** @param {(jobs: import('../types/pipeline.js').Job[]) => void} emit */
     onJobs(emit) {
       sink = emit;
     },
@@ -375,7 +375,7 @@ export function createLocalAdapter(cfg, store) {
     async listResting() {
       if (!pipeline) return [];
       const board = readBoard(cfg);
-      /** @type {import('../types/index.js').Job[]} */
+      /** @type {import('../types/pipeline.js').Job[]} */
       const jobs = [];
       for (const [ref, it] of Object.entries(board)) {
         const step = stepBySourceStage(it.stage);

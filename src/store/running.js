@@ -7,7 +7,7 @@ import { readJson } from "./read-json.js";
  * `running` is OUR OWN crash-recovery state, never a poll: on boot the engine reads
  * it (a file, no network) to find jobs interrupted by a restart.
  * @param {string} dataDir
- * @returns {Pick<import('../types/index.js').Store, 'setRunning'|'clearRunning'|'listRunning'>}
+ * @returns {Pick<import('../types/state.js').Store, 'setRunning'|'clearRunning'|'listRunning'>}
  */
 export function runningSlice(dataDir) {
   const runningFile = path.join(dataDir, "running.json");

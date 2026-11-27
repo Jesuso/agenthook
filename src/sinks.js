@@ -9,7 +9,7 @@ import { DEFAULT_SINK_EVENTS } from "./shared/sinks-config.js";
 const TIMEOUT_MS = 5000;
 const MAX_BACKLOG = 100;
 
-/** @param {import('./types/index.js').Config} cfg @param {Record<string, any>} ev */
+/** @param {import('./types/config.js').Config} cfg @param {Record<string, any>} ev */
 function formatText(cfg, ev) {
   let text = `[agenthook:${cfg.name}] ${ev.event} ${ev.ref}`;
   if (ev.name) text += ` "${ev.name}"`;
@@ -20,7 +20,7 @@ function formatText(cfg, ev) {
 }
 
 /**
- * @param {import('./types/index.js').Config} cfg
+ * @param {import('./types/config.js').Config} cfg
  * @param {{ timeoutMs?: number, maxBacklog?: number }} [opts]
  * @returns {(ev: Record<string, any>) => void}
  */
@@ -30,7 +30,7 @@ export function createSinks(cfg, opts = {}) {
   const maxBacklog = opts.maxBacklog ?? MAX_BACKLOG;
   const states = sinks.map(() => ({ pending: /** @type {Array<{url: string, body: any, warn: (why: string) => void}>} */ ([]), busy: false, warnedFull: false }));
 
-  /** @param {import('./types/index.js').SinkConfig} s @param {Record<string, any>} ev */
+  /** @param {import('./types/config.js').SinkConfig} s @param {Record<string, any>} ev */
   function request(s, ev) {
     if (s.type === "slack") return { url: s.url, body: { text: formatText(cfg, ev) } };
     if (s.type === "telegram") {

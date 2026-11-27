@@ -24,7 +24,7 @@ import { createExecutors, reapAll } from "../dispatch/executor.js";
  * refs that were in running.json at boot (`runningRefs`, captured before recovery
  * clears them) went to the failure lane and are dropped. Entries stay in queue.json
  * (addQueued dedups) until they start. Local reads only.
- * @param {{cfg: import('../types/index.js').Config, store: import('../types/index.js').Store, queue: ReturnType<typeof import('../queue.js').createQueue>, emit: (event: string, ref: string, step: string, extra?: Record<string, any>) => void}} deps
+ * @param {{cfg: import('../types/config.js').Config, store: import('../types/state.js').Store, queue: ReturnType<typeof import('../queue.js').createQueue>, emit: (event: string, ref: string, step: string, extra?: Record<string, any>) => void}} deps
  * @param {string[]} runningRefs
  */
 function restoreQueued({ cfg, store, queue, emit }, runningRefs) {
@@ -39,20 +39,20 @@ function restoreQueued({ cfg, store, queue, emit }, runningRefs) {
 
 /**
  * @param {{
- *   cfg: import('../types/index.js').Config,
+ *   cfg: import('../types/config.js').Config,
  *   state: import('./context.js').EngineState,
- *   store: import('../types/index.js').Store,
- *   adapter: import('../types/index.js').Adapter,
- *   forge: import('../types/index.js').Forge | null,
- *   ingress: import('../types/index.js').Ingress,
- *   sandbox: import('../types/index.js').Sandbox | null,
- *   executors?: {host: import('../types/index.js').Executor, sandbox?: import('../types/index.js').Executor, ssh?: Record<string, import('../types/index.js').Executor>},
+ *   store: import('../types/state.js').Store,
+ *   adapter: import('../types/tracker.js').Adapter,
+ *   forge: import('../types/forge.js').Forge | null,
+ *   ingress: import('../types/ingress.js').Ingress,
+ *   sandbox: import('../types/sandbox.js').Sandbox | null,
+ *   executors?: {host: import('../types/sandbox.js').Executor, sandbox?: import('../types/sandbox.js').Executor, ssh?: Record<string, import('../types/sandbox.js').Executor>},
  *   heartbeat: ReturnType<typeof import('../heartbeat.js').createHeartbeat>,
  *   queue: ReturnType<typeof import('../queue.js').createQueue>,
  *   puller: ReturnType<typeof import('../pull.js').createPuller>,
  *   quotaPacer: {reading(q: any): void},
  *   emit: (event: string, ref: string, step: string, extra?: Record<string, any>) => void,
- *   intake: (jobs: import('../types/index.js').Job[], opts?: {force?: boolean}) => number,
+ *   intake: (jobs: import('../types/pipeline.js').Job[], opts?: {force?: boolean}) => number,
  *   releaseOverlap?: (blocker: string) => void,
  *   startedAt: string,
  *   restart: (args: any) => Promise<any>,

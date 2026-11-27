@@ -7,7 +7,7 @@ const HARNESS_KNOBS = /** @type {const} */ (["agent", "model", "effort", "bin", 
 /**
  * The harness names a step routes through, in order (a string is a one-element list); [] when
  * the step names none. An object entry (`{name, model?, effort?}`) contributes its `name`.
- * @param {Pick<import('../types/index.js').Step, 'harness'>} step
+ * @param {Pick<import('../types/pipeline.js').Step, 'harness'>} step
  * @returns {string[]}
  */
 export function harnessesOf(step) {
@@ -20,14 +20,14 @@ export function harnessesOf(step) {
 /**
  * The object entry a step's `harness` list carries for `name`, or undefined (a string step
  * `harness` has none). Pure.
- * @param {Pick<import('../types/index.js').Step, 'harness'>} step
+ * @param {Pick<import('../types/pipeline.js').Step, 'harness'>} step
  * @param {string} name
- * @returns {import('../types/index.js').HarnessEntry|undefined}
+ * @returns {import('../types/pipeline.js').HarnessEntry|undefined}
  */
 export function harnessEntryOf(step, name) {
   const h = step.harness;
   if (h == null || typeof h === "string") return undefined;
-  return /** @type {import('../types/index.js').HarnessEntry|undefined} */ (h.find((e) => typeof e === "object" && e !== null && e.name === name));
+  return /** @type {import('../types/pipeline.js').HarnessEntry|undefined} */ (h.find((e) => typeof e === "object" && e !== null && e.name === name));
 }
 
 /**
@@ -37,15 +37,15 @@ export function harnessEntryOf(step, name) {
  * step's `harness` list pins its `model`/`effort` over everything else (escalate/lite included)
  * for runs routed to that harness alone. A null or unknown name returns the step unchanged with
  * `harness: null`. The input step is never mutated.
- * @param {Pick<import('../types/index.js').Config, 'harnesses'>} cfg
- * @param {import('../types/index.js').Step} step
+ * @param {Pick<import('../types/config.js').Config, 'harnesses'>} cfg
+ * @param {import('../types/pipeline.js').Step} step
  * @param {string|null|undefined} harnessName
- * @returns {{step: import('../types/index.js').Step, harness: string|null, sandboxImage: string|undefined}}
+ * @returns {{step: import('../types/pipeline.js').Step, harness: string|null, sandboxImage: string|undefined}}
  */
 export function resolveHarness(cfg, step, harnessName) {
   const h = harnessName && cfg.harnesses && Object.hasOwn(cfg.harnesses, harnessName) ? cfg.harnesses[harnessName] : undefined;
   if (!harnessName || !h) return { step, harness: null, sandboxImage: undefined };
-  /** @type {import('../types/index.js').Step} */
+  /** @type {import('../types/pipeline.js').Step} */
   const eff = { ...step };
   for (const k of HARNESS_KNOBS) {
     if (eff[k] == null && h[k] != null) Object.assign(eff, { [k]: h[k] });
@@ -81,7 +81,7 @@ export const QUOTA_CREDENTIAL_VARS = /** @type {const} */ (["ANTHROPIC_BASE_URL"
 const ownSubscription = (env) => QUOTA_CREDENTIAL_VARS.some((k) => env?.[k]);
 
 /** The named harnesses in the profile's shared (default-login) claude group: effective agent
- * claude and no own-subscription env. @param {Pick<import('../types/index.js').Config, 'agent'|'harnesses'>} cfg */
+ * claude and no own-subscription env. @param {Pick<import('../types/config.js').Config, 'agent'|'harnesses'>} cfg */
 const sharedQuotaHarnesses = (cfg) =>
   Object.entries(cfg.harnesses ?? {})
     .filter(([, h]) => (h.agent ?? cfg.agent ?? "claude") === "claude" && !ownSubscription(h.env))
@@ -95,9 +95,9 @@ const sharedQuotaHarnesses = (cfg) =>
  * env) are in the group too, so their waiting jobs must also be gated. A non-claude run, or one on
  * its own credentials/base-URL, closes at most itself (a named harness's group of one), or nothing
  * (an unharnessed non-shared step). Pure.
- * @param {Pick<import('../types/index.js').Config, 'agent'|'harnesses'>} cfg
+ * @param {Pick<import('../types/config.js').Config, 'agent'|'harnesses'>} cfg
  * @param {string|null|undefined} harnessName
- * @param {Pick<import('../types/index.js').Step, 'agent'|'env'>|null|undefined} step
+ * @param {Pick<import('../types/pipeline.js').Step, 'agent'|'env'>|null|undefined} step
  * @returns {{harnesses: string[], unharnessed: boolean}}
  */
 export function quotaGroupOf(cfg, harnessName, step) {

@@ -52,7 +52,7 @@ export function isEpicType(issuetype, epicType) {
  * parent's type is an epic type). Pure. The parent object carries `fields.issuetype`, so this needs
  * no second request.
  * @param {any} fields @param {string|undefined} epicType @param {string} baseUrl
- * @returns {{isEpic: boolean, epic?: import('../types/index.js').EpicRef}} */
+ * @returns {{isEpic: boolean, epic?: import('../types/tracker.js').EpicRef}} */
 export function mapEpicFields(fields, epicType, baseUrl) {
   const isEpic = isEpicType(fields?.issuetype, epicType);
   const parent = fields?.parent;
@@ -61,7 +61,7 @@ export function mapEpicFields(fields, epicType, baseUrl) {
 }
 
 /** Search results → Epic[]. Status shown as Jira names it; completed = a done-category status. Pure.
- * @param {any[]} issues @param {string} baseUrl @returns {import('../types/index.js').Epic[]} */
+ * @param {any[]} issues @param {string} baseUrl @returns {import('../types/tracker.js').Epic[]} */
 export function mapEpics(issues, baseUrl) {
   return (Array.isArray(issues) ? issues : []).map((it) => ({
     ref: it.key,
@@ -75,9 +75,9 @@ export function mapEpics(issues, baseUrl) {
 
 /** An epic's children (search of `parent = KEY`) → EpicTicket[]. Subtasks (hierarchy level < 0)
  * are dropped; stage = the issue's status name. Pure.
- * @param {any[]} issues @param {string} baseUrl @returns {import('../types/index.js').EpicTicket[]} */
+ * @param {any[]} issues @param {string} baseUrl @returns {import('../types/tracker.js').EpicTicket[]} */
 export function mapEpicTickets(issues, baseUrl) {
-  /** @type {import('../types/index.js').EpicTicket[]} */
+  /** @type {import('../types/tracker.js').EpicTicket[]} */
   const out = [];
   for (const it of Array.isArray(issues) ? issues : []) {
     if (it.fields?.issuetype?.subtask === true || (it.fields?.issuetype?.hierarchyLevel ?? 0) < 0) continue;
@@ -168,7 +168,7 @@ export const jiraEgressHosts = (pc) => {
   return rule ? [rule] : [];
 };
 
-/** @type {import('../types/index.js').AdapterFactory} */
+/** @type {import('../types/tracker.js').AdapterFactory} */
 export function createJiraAdapter(cfg, store) {
   const pc = cfg.providerConfig;
   const baseUrl = (pc.baseUrl || `https://${pc.site}.atlassian.net`).replace(/\/$/, "");
@@ -374,7 +374,7 @@ export function createJiraAdapter(cfg, store) {
    * FRESH assignee fetch says the issue is ours (a comment payload's `issue.fields` may
    * be abbreviated), and it is held on a runnable step still under its attempt cap
    * (resumeJob). Dedup: `trigger:<comment.id>`.
-   * @param {any} ev @param {string} key @returns {Promise<import('../types/index.js').Job[]>} */
+   * @param {any} ev @param {string} key @returns {Promise<import('../types/pipeline.js').Job[]>} */
   async function resumeFromComment(ev, key) {
     const c = ev.comment;
     if (c?.id == null || !startsWithTrigger(cfg.trigger, c.body)) return [];
@@ -392,14 +392,14 @@ export function createJiraAdapter(cfg, store) {
 
   // The project's workflow statuses — live. Flattens issue-type groups and dedups by
   // name (the binding key). Shared by the init wizard's stage picks and listStages.
-  /** @param {string} base @param {string} auth @param {string|undefined} projectKey @returns {Promise<import('../types/index.js').StageOption[]>} */
+  /** @param {string} base @param {string} auth @param {string|undefined} projectKey @returns {Promise<import('../types/tracker.js').StageOption[]>} */
   const fetchStatuses = async (base, auth, projectKey) => {
     if (!projectKey) throw new Error("jira: no projectKey configured");
     const res = await fetch(`${base}/rest/api/2/project/${encodeURIComponent(projectKey)}/statuses`, {
       headers: { Authorization: auth, Accept: "application/json" },
     });
     if (!res.ok) throw new Error(`Jira project statuses ${res.status}`);
-    /** @type {Map<string, import('../types/index.js').StageOption>} */
+    /** @type {Map<string, import('../types/tracker.js').StageOption>} */
     const byName = new Map();
     for (const type of (await json(res)) || [])
       for (const s of type.statuses || []) byName.set(s.name, { id: s.name, label: s.name });
@@ -457,7 +457,7 @@ export function createJiraAdapter(cfg, store) {
       // Read-only `epic_changed` signals (a child gained/lost its parent, an epic was created or
       // retyped): never a pipeline job and never a board write, so they sit before the assignee gate.
       const delivery = ev.changelog?.id ?? `${ev.webhookEvent}:${key}:${ev.timestamp ?? ""}`;
-      /** @type {import('../types/index.js').Job[]} */
+      /** @type {import('../types/pipeline.js').Job[]} */
       const epicJobs = epicChangesFromEvent(ev, epicType).map((epicKey) => ({ kind: "epic_changed", ref: epicKey, stepId: "", dedupKey: `epic:${delivery}:${epicKey}` }));
       if (ev.webhookEvent === "comment_created") return [...epicJobs, ...(await resumeFromComment(ev, key))];
       if (!(await isOurs(issue.fields?.assignee?.accountId))) {
@@ -479,7 +479,7 @@ export function createJiraAdapter(cfg, store) {
         const changeId = ev.changelog?.id ?? `${key}:${norm(item.toString)}`;
         // The board's done flag (a done-category status) is a signal-only `board_done`,
         // emitted by the engine outside the queue (src/board-done.js) — bound step or not.
-        /** @type {import('../types/index.js').Job[]} */
+        /** @type {import('../types/pipeline.js').Job[]} */
         const doneJobs = issue.fields?.status?.statusCategory?.key === "done" ? [{ kind: "board_done", ref: key, stepId: "", dedupKey: `done:${changeId}` }] : [];
         const step = stepByStatus(item.toString);
         if (!step) return [...epicJobs, ...doneJobs];
@@ -577,7 +577,7 @@ export function createJiraAdapter(cfg, store) {
     // page (maxResults 100) — reconcile is a recovery poll, not exhaustive paging.
     async listResting() {
       if (!pipeline) return [];
-      /** @type {import('../types/index.js').Job[]} */
+      /** @type {import('../types/pipeline.js').Job[]} */
       const jobs = [];
       const seen = new Set();
       const project = pc.projectKey;

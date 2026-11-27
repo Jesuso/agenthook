@@ -7,7 +7,7 @@ import { readJson } from "./read-json.js";
  * Bumped each dispatch; read before routing a `changes` back into a step so an
  * endless code↔review ping-pong (= endless `claude -p` spawns) gets capped → fail.
  * @param {string} dataDir
- * @returns {Pick<import('../types/index.js').Store, 'getAttempt'|'bumpAttempt'|'unbumpAttempt'|'clearAttempts'>}
+ * @returns {Pick<import('../types/state.js').Store, 'getAttempt'|'bumpAttempt'|'unbumpAttempt'|'clearAttempts'>}
  */
 export function attemptsSlice(dataDir) {
   const attemptsFile = path.join(dataDir, "attempts.json");

@@ -16,7 +16,7 @@ import { translate } from "./i18n";
  * Pure: text (and its parsed value) in, new text out.
  */
 
-/** A step's stage-binding key family (src/types/index.js `StageKeys`). */
+/** A step's stage-binding key family (src/types/tracker.js `StageKeys`). */
 export type StageKeys = { source: string; success: string; failure: string; hold: string; queue: string };
 export type StageOption = { id: string; label: string };
 /** `GET /api/discover` 200 body (src/control.js `discover`). */

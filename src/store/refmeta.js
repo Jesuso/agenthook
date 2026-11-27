@@ -9,7 +9,7 @@ import { readJson } from "./read-json.js";
  * independently; a `null` value deletes that key (a re-run drops a stale `prState`),
  * `undefined` is skipped.
  * @param {string} dataDir
- * @returns {Pick<import('../types/index.js').Store, 'getRefMeta'|'setRefMeta'|'listRefMeta'>}
+ * @returns {Pick<import('../types/state.js').Store, 'getRefMeta'|'setRefMeta'|'listRefMeta'>}
  */
 export function refmetaSlice(dataDir) {
   const refmetaFile = path.join(dataDir, "refmeta.json");

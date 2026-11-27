@@ -75,11 +75,11 @@ export function trustedGitDirs(repoPath, cwd) {
  * path (`GH_CONFIG_DIR`). `masks` (from `checkoutMasks`) hide the main checkout's gitignored
  * files from a no-worktree run: the checkout is the operator's, so it holds `.env` and the
  * profile config, which a fresh worktree never does.
- * @param {{cwd: string, hasWorktree: boolean, verdictDir: string, gitCommonDir?: string, agentMounts?: import('../types/index.js').SandboxMount[], credsMount?: string, masks?: import('../types/index.js').SandboxMount[]}} o
- * @returns {import('../types/index.js').SandboxMount[]}
+ * @param {{cwd: string, hasWorktree: boolean, verdictDir: string, gitCommonDir?: string, agentMounts?: import('../types/sandbox.js').SandboxMount[], credsMount?: string, masks?: import('../types/sandbox.js').SandboxMount[]}} o
+ * @returns {import('../types/sandbox.js').SandboxMount[]}
  */
 export function sandboxMounts({ cwd, hasWorktree, verdictDir, gitCommonDir, agentMounts = [], credsMount, masks = [] }) {
-  /** @type {import('../types/index.js').SandboxMount[]} */
+  /** @type {import('../types/sandbox.js').SandboxMount[]} */
   const mounts = [{ path: cwd, ro: !hasWorktree }];
   if (!hasWorktree) mounts.push(...masks);
   if (gitCommonDir) {
@@ -267,7 +267,7 @@ export const MAX_CHECKOUT_MASKS = 500;
  * pointing inside is masked at its own path. Throws when git can't list them or there are
  * more than MAX_CHECKOUT_MASKS — the run is refused rather than started with secrets visible.
  * @param {string} cwd @param {{extra?: (string|undefined)[], timeoutMs?: number}} [o]
- * @returns {import('../types/index.js').SandboxMount[]}
+ * @returns {import('../types/sandbox.js').SandboxMount[]}
  */
 export function checkoutMasks(cwd, { extra = [], timeoutMs = HOST_GIT_READ_TIMEOUT_MS } = {}) {
   let out;
@@ -281,7 +281,7 @@ export function checkoutMasks(cwd, { extra = [], timeoutMs = HOST_GIT_READ_TIMEO
   const under = (/** @type {string} */ p) => p.startsWith(root + path.sep);
   const paths = new Set(out.split("\0").filter(Boolean).map((r) => path.join(root, r.replace(/\/$/, ""))));
   for (const p of extra) if (p) paths.add(path.resolve(p));
-  /** @type {import('../types/index.js').SandboxMount[]} */
+  /** @type {import('../types/sandbox.js').SandboxMount[]} */
   const masks = [];
   for (const p of [...paths].sort()) {
     if (!under(p)) continue;

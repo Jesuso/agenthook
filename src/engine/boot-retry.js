@@ -1,6 +1,6 @@
 // Boot's retry for the one tracker call that isn't best-effort (`registerWebhook`). Pure — no
 // provider names: an adapter reports an HTTP failure as an Error carrying a numeric `status`
-// (see `Adapter.registerWebhook` in src/types/index.js), and a network/timeout failure as whatever
+// (see `Adapter.registerWebhook` in src/types/tracker.js), and a network/timeout failure as whatever
 // fetch threw. A tracker outage must not kill the receiver: transient errors retry forever on a
 // capped backoff; a 404 (a config-named id the tracker briefly forgets) retries a few times.
 
