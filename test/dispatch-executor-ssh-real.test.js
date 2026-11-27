@@ -13,6 +13,7 @@ import net from "node:net";
 import { createSshExecutor } from "../src/dispatch/executor-ssh.js";
 import { createDispatcher } from "../src/dispatch.js";
 import { createStore } from "../src/store/index.js";
+import { worktreePath } from "../src/worktree.js";
 import { startThrowawaySshd } from "./_sshd-helpers.js";
 import { initGitRepo, spawnCtx, writeCommitAgent, headOf } from "./_ssh-helpers.js";
 
@@ -275,11 +276,19 @@ test("real ssh: run.kill() TERM-then-KILLs the remote process group via a fresh 
     const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(workDir, "hub.json") } });
     const run = await executor.launch({ runId: "k1", ref: "1", stepId: "code", bin: "x", args: ["-p", "hi"], prompt: "hi", env: {} });
     await run.kill();
+    // Poll with a deadline, not a single immediate check: `sleeper` is this test's own child, so
+    // right after kill() it can briefly sit as a zombie (still answers kill(pid, 0)) until libuv
+    // reaps it — a single check would false-negative on that race.
+    const deadline = Date.now() + 5000;
     let alive = true;
-    try {
-      process.kill(sleeper.pid, 0);
-    } catch {
-      alive = false;
+    while (Date.now() < deadline) {
+      try {
+        process.kill(sleeper.pid, 0);
+      } catch {
+        alive = false;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 100));
     }
     assert.equal(alive, false, "kill() must end even a TERM-ignoring remote process group");
   } finally {
@@ -318,9 +327,19 @@ test("real ssh: an AGENTHOOK_ env value and the prompt reach the agent but never
     while (!fs.existsSync(pidFile) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
     assert.ok(fs.existsSync(pidFile), "the remote agent never started");
     const agentPid = fs.readFileSync(pidFile, "utf8").trim();
-    const cmdline = fs.readFileSync(`/proc/${agentPid}/cmdline`, "utf8");
-    assert.ok(!cmdline.includes(secretEnv), "the env value must not reach the agent's own argv");
-    assert.ok(!cmdline.includes(secretPrompt), "the prompt must not reach the agent's own argv");
+    // Scan EVERY process's cmdline (the launcher's `sh -c`, the sshd session, the local ssh
+    // client), not just the agent's own: a secret leaking into the launcher script's argv
+    // (rather than the agent's) would otherwise go unnoticed.
+    for (const pid of fs.readdirSync("/proc").filter((p) => /^\d+$/.test(p))) {
+      let cmdline;
+      try {
+        cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, "utf8");
+      } catch {
+        continue; // the process exited between readdir and read
+      }
+      assert.ok(!cmdline.includes(secretEnv), `the env value must not reach any process argv (pid ${pid}: ${JSON.stringify(cmdline)})`);
+      assert.ok(!cmdline.includes(secretPrompt), `the prompt must not reach any process argv (pid ${pid}: ${JSON.stringify(cmdline)})`);
+    }
     process.kill(Number(agentPid), "SIGKILL");
     await promise;
     const envOutDeadline = Date.now() + 5000;
@@ -375,6 +394,9 @@ test("real ssh: a no-worktree step archives the repo to the worker and copies th
     assert.equal(result.code, 0, JSON.stringify(result));
     assert.equal(advanced.length, 1);
     assert.equal(advanced[0].outcome, "advance", JSON.stringify(advanced));
+    // sshd runs on 127.0.0.1, so `workDir` IS the worker's real filesystem — read it directly to
+    // confirm the archive actually delivered README.md, not just that the dir was created.
+    assert.equal(fs.readFileSync(path.join(workDir, "synced.txt"), "utf8"), "yes\n", "the archived repo never reached the worker");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -417,7 +439,9 @@ test("real ssh: a worktree step's worker commit is fetched back and fast-forward
       advance: async (ref, stepId, verdict) => advanced.push({ ref, stepId, ...verdict }),
     };
     const run = createDispatcher(cfg, adapter, undefined, store, () => {});
-    const headBefore = headOf(repoDir);
+    // A `createsWorktree` step fast-forwards the HUB WORKTREE (under worktreePrefix, on the run's
+    // own branch) — not repoDir's checked-out branch, which never moves. Assert on that worktree.
+    const hubWorktree = worktreePath(cfg, "12");
     const log = console.log;
     console.log = () => {};
     let result;
@@ -427,8 +451,13 @@ test("real ssh: a worktree step's worker commit is fetched back and fast-forward
       console.log = log;
     }
     assert.equal(result.code, 0, JSON.stringify(result));
-    const headAfter = headOf(repoDir);
-    assert.notEqual(headAfter, headBefore, "the worker's commit must be fast-forwarded into the hub worktree");
+    assert.ok(fs.existsSync(hubWorktree), "the dispatcher never created the hub worktree");
+    assert.equal(
+      fs.readFileSync(path.join(hubWorktree, "worker-wrote.txt"), "utf8"),
+      "hi\n",
+      "the worker's commit must be fast-forwarded into the hub worktree",
+    );
+    assert.doesNotThrow(() => headOf(hubWorktree), "the hub worktree must be a real git checkout");
     assert.equal(advanced.length, 1);
     assert.equal(advanced[0].outcome, "advance", JSON.stringify(advanced));
   } finally {

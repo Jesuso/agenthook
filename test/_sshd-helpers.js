@@ -39,14 +39,19 @@ function freePort() {
   });
 }
 
-/** Poll `ssh -F <sshConfig> -p <port> 127.0.0.1 true` until it succeeds or `deadline` passes.
- * @returns {Promise<{ok: boolean, lastErr?: string}>} */
-async function waitUntilReady(realSsh, sshConfig, port, deadlineMs) {
+/** Poll `ssh -F <sshConfig> -i <identityFile> -p <port> 127.0.0.1 true` until it succeeds or
+ * `deadline` passes. Without `-i`/`IdentitiesOnly`, the probe would fall back to the operator's
+ * own `~/.ssh` default identities instead of the throwaway client key. @returns
+ * {Promise<{ok: boolean, lastErr?: string}>} */
+async function waitUntilReady(realSsh, sshConfig, port, identityFile, deadlineMs) {
   const deadline = Date.now() + deadlineMs;
   let lastErr;
   while (Date.now() < deadline) {
     try {
-      execFileSync(realSsh, ["-F", sshConfig, "-p", String(port), "127.0.0.1", "true"], { stdio: ["ignore", "ignore", "pipe"], timeout: 2000 });
+      execFileSync(realSsh, ["-F", sshConfig, "-i", identityFile, "-T", "-o", "BatchMode=yes", "-p", String(port), "127.0.0.1", "true"], {
+        stdio: ["ignore", "ignore", "pipe"],
+        timeout: 2000,
+      });
       return { ok: true };
     } catch (e) {
       lastErr = (e.stderr || e.message || e).toString();
@@ -132,7 +137,7 @@ export async function startThrowawaySshd() {
     exited = true;
   });
 
-  const ready = await waitUntilReady(realSsh, sshConfig, port, 5000);
+  const ready = await waitUntilReady(realSsh, sshConfig, port, clientKey, 5000);
   if (!ready.ok || exited) {
     try {
       proc.kill("SIGKILL");
@@ -140,7 +145,13 @@ export async function startThrowawaySshd() {
       /* already gone */
     }
     fs.rmSync(tmp, { recursive: true, force: true });
-    return { available: false, reason: `sshd never became ready: ${(ready.lastErr || "").trim() || stderrBuf.trim() || "(no diagnostics)"}` };
+    // sshd's own `-e` diagnostics (why it dropped/refused the connection) are more useful than
+    // the client's generic error, so lead with those; keep the client error too in case sshd
+    // printed nothing (e.g. it never started at all).
+    const sshdTail = stderrBuf.trim();
+    const clientErr = (ready.lastErr || "").trim();
+    const reason = [sshdTail && `sshd: ${sshdTail}`, clientErr && `client: ${clientErr}`].filter(Boolean).join("; ") || "(no diagnostics)";
+    return { available: false, reason: `sshd never became ready: ${reason}` };
   }
 
   const savedPath = process.env.PATH;
