@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { loadConfig } from "../config.js";
-import { createStore } from "../store.js";
+import { createStore } from "../store/index.js";
 import { runStats, sinceMsOf, STATS_BY, STATS_SINCE } from "../stats.js";
 
 /** @param {number} n */

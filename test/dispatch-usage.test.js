@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { createDispatcher } from "../src/dispatch.js";
 import { pickTurnStats } from "../src/dispatch/spawn.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { tmpDir, timeoutRun } from "./_dispatch-helpers.js";
 
 // --- run_end of an unpriced (local-model) run: no costUsd, unpriced:true ---

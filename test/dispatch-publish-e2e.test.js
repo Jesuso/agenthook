@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { withFakeSsh, initGitRepo } from "./_ssh-helpers.js";
 import { createDispatcher } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 
 const PIPELINE = [
   { id: "code", harness: "worker", createsWorktree: true, sourceLabel: "src:code", successLabel: "src:review" },

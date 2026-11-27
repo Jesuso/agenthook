@@ -19,7 +19,7 @@ import { pricingOf } from "./shared/pricing.js";
 import { ctxOverflow } from "./models.js";
 import { normalizeQuota, normalizeTrip } from "./shared/quota.js";
 import { pendingFollowUp } from "./followup.js";
-import { createStore } from "./store.js";
+import { createStore } from "./store/index.js";
 import { harnessTotals } from "./harness-usage.js";
 import { harnessesOf } from "./dispatch/harness.js";
 import { runStats, sinceMsOf, STATS_BY, STATS_SINCE } from "./stats.js";

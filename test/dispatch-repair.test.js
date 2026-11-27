@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { createDispatcher, NO_VALID_VERDICT } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { tmpDir, heldHarness, repairHarness } from "./_dispatch-helpers.js";
 
 // --- requireVerdict (#358, #500): a clean exit with no valid verdict holds by default ---

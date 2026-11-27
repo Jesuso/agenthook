@@ -9,7 +9,7 @@ import path from "node:path";
 import http from "node:http";
 import { clearHoldOnDone, createBoardDone } from "../src/board-done.js";
 import { createRequestHandler } from "../src/engine/http.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { createQueue } from "../src/queue.js";
 
 const job = { kind: /** @type {const} */ ("board_done"), ref: "36", stepId: "", dedupKey: "done:d-1" };

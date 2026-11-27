@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 import { createServe } from "../src/engine/boot.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 
 /** @param {{check?: () => Promise<any>, reap?: () => Promise<{containers: string[], networks: string[], runs: string[]}>}} sb */
 function harness(sb) {

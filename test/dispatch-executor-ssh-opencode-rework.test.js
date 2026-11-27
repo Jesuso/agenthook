@@ -15,7 +15,7 @@ import { withFakeSsh, spawnCtx } from "./_ssh-helpers.js";
 import { shQuote, createSshExecutor } from "../src/dispatch/executor-ssh.js";
 import { opencode, buildOpencodeArgs } from "../src/agents/opencode.js";
 import { createDispatcher } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { promptPathFor } from "../src/dispatch/prompt.js";
 
 /** A tiny git repo with one commit — a worktree-step dispatch run needs a real hub repo (#690

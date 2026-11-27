@@ -12,7 +12,7 @@ import { createGitlabForge, parseGitlabRemote, forgeOffer, forgeBlock } from "..
 import { createForge } from "../src/forges/index.js";
 import { initForge, initForgeBlock } from "../src/commands/init.js";
 import { createDispatcher } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 
 /** Minimal in-memory Store stub (secrets + the seen set). */
 function makeStore() {

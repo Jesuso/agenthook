@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createDispatcher } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 
 const DUMPED = ["GH_CONFIG_DIR", "GIT_CONFIG_COUNT", "GITHUB_TOKEN", "GH_TOKEN", "SSH_AUTH_SOCK"];
 

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 
 const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-store-"));
 
@@ -218,7 +218,7 @@ test("queue.json dedup includes kind: a merge job and its ref's pipeline job coe
 });
 
 test("isStateDedupKey: only step: keys are state-based", async () => {
-  const { isStateDedupKey } = await import("../src/store.js");
+  const { isStateDedupKey } = await import("../src/store/index.js");
   assert.equal(isStateDedupKey("step:code:88"), true);
   assert.equal(isStateDedupKey("secmove:123"), false);
   assert.equal(isStateDedupKey("unblock:x"), false);
@@ -285,7 +285,7 @@ test("queue.json keeps two ci jobs for one ref apart (keyed by dedupKey)", () =>
 });
 
 test("summaries set/replace/clear per (ref, step) and persist; the file is capped at MAX_SUMMARY_REFS refs", async () => {
-  const { MAX_SUMMARY_REFS } = await import("../src/store.js");
+  const { MAX_SUMMARY_REFS } = await import("../src/store/index.js");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-store-"));
   const s = createStore(dir);
   assert.equal(s.getSummaries("1"), undefined);

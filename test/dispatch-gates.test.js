@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { resolveModelEffort, descriptionHasHeadings, lookupPr, createDispatcher, promptPathFor } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { tmpDir } from "./_dispatch-helpers.js";
 
 // --- block gate re-checked at dispatch time (queued jobs skip the webhook-time gate) ---

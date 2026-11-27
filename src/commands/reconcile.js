@@ -20,7 +20,7 @@
 // re-checks the rows already flagged with a PR reason (src/recheck.js) — those rows only.
 import { loadConfig } from "../config.js";
 import { requireStarted } from "../profile.js";
-import { createStore } from "../store.js";
+import { createStore } from "../store/index.js";
 import { createAdapter } from "../trackers/index.js";
 import { isPipeline } from "../pipeline.js";
 import { staleOverlaps } from "../overlap.js";

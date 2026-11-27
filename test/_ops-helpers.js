@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createOps } from "../src/ops.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { createQueue } from "../src/queue.js";
 
 /** @param {{adapter?: any, forge?: any, locked?: boolean, pipeline?: any[], killed?: Set<string>, tracker?: any, onEpicChanged?: (reset: () => void) => void, reload?: () => Promise<{changed: string[], note: string}>}} [o] */

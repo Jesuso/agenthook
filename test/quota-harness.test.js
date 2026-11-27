@@ -11,7 +11,7 @@ import path from "node:path";
 import { quotaGroupOf } from "../src/dispatch/harness.js";
 import { createQueue } from "../src/queue.js";
 import { createHarnessQuota } from "../src/engine/controllers.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { createOps } from "../src/ops.js";
 import { harnessQuotaLints } from "../src/commands/doctor.js";
 

@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { createDispatcher, parseSummary, MAX_OPTION_CHARS, MAX_SUMMARY_CHARS } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { DEFAULT_MAX_MINUTES } from "../src/pipeline.js";
 import { createEmitter, reportMoveFailure } from "../src/events.js";
 import { MoveRefusedError } from "../src/trackers/owner.js";

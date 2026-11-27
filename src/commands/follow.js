@@ -23,7 +23,7 @@ import { worktreeDir } from "../paths.js";
 import { reposOf } from "../repos.js";
 import { sessionAgents } from "../sessions.js";
 import { getAgent } from "../agents/index.js";
-import { createStore } from "../store.js";
+import { createStore } from "../store/index.js";
 import { remoteProbeArgv, sshClientEnv, shQuote, remoteTranscriptDir } from "../dispatch/executor-ssh.js";
 import { readRuns } from "../agent-api.js";
 import { profileDir, resolveRunLog } from "../ui/logs.js";

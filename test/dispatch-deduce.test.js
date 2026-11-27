@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { createDispatcher, NO_VALID_VERDICT, QUESTION_HOLD } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { tmpDir } from "./_dispatch-helpers.js";
 
 // --- deduced verdict (#680): a clean exit with no valid verdict, on a qualifying implement/change

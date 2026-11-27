@@ -2,14 +2,44 @@
 
 ## Key files
 
-- `src/store.js` — JSON files in `dataDir`: `secrets.json` (handshake secrets keyed by webhook
-  path, 0600), `seen.json` (dedup set), `running.json` (in-flight pipeline jobs for crash
-  recovery), `queue.json` (jobs waiting behind `maxConcurrent`, replayed on boot; a harness-breaker requeue is re-added at the front), `harness-health.json` (`{down: {name: {until, strikes, reason}}}`, the harness health breaker the queue seeds from on boot), `overrides.json` (`{paused?, maxConcurrent?, harnesses?}` — operator runtime overrides, re-applied at engine construction before `restoreQueued`, and deleted once empty), `attempts.json` (per-`(ref,step)` run counts backing the `changes`-loop cap), `repo.json`
+- `src/store/` — JSON files in `dataDir`, split by state concern: `secrets.json` (handshake
+  secrets keyed by webhook path, 0600), `seen.json` (dedup set), `running.json` (in-flight
+  pipeline jobs for crash recovery), `queue.json` (jobs waiting behind `maxConcurrent`, replayed
+  on boot; a harness-breaker requeue is re-added at the front), `harness-health.json` (`{down:
+  {name: {until, strikes, reason}}}`, the harness health breaker the queue seeds from on boot),
+  `overrides.json` (`{paused?, maxConcurrent?, harnesses?}` — operator runtime overrides,
+  re-applied at engine construction before `restoreQueued`, and deleted once empty),
+  `attempts.json` (per-`(ref,step)` run counts backing the `changes`-loop cap), `repo.json`
   (multi-repo sticky `ref → repoId`, cleared on terminal states), and
   `held.json` (`ref → {stepId, reason, heldAt}` written on a `hold` verdict; any later run of the
   ref, `fail`, or drain clears it — it names the step an `@agent` reply resumes).
   **`seen` is reloaded from disk on every batch** because `catchup` edits it out-of-band;
   disk is the source of truth.
+
+  `src/store/index.js` is the only entry point (`createStore`, `isStateDedupKey`,
+  `MAX_SUMMARY_REFS`); it composes one slice per concern, each a `<concern>Slice(dataDir)`
+  factory that owns its own file path(s) and members, importing only `./read-json.js`:
+
+  | file | state file(s) | members |
+  |---|---|---|
+  | `read-json.js` | (shared helper) | `readJson(f, fallback)` |
+  | `secrets.js` | `secrets.json` (0600) | getSecret, setSecret, secretCount |
+  | `seen.js` | `seen.json` | `isStateDedupKey`; reloadSeen, hasSeen, markSeen, unmarkSeen, seenCount, seenFile |
+  | `running.js` | `running.json` | setRunning, clearRunning, listRunning |
+  | `queue.js` | `queue.json` | addQueued, removeQueued, listQueued |
+  | `attempts.js` | `attempts.json` | getAttempt, bumpAttempt, unbumpAttempt, clearAttempts |
+  | `difficulty.js` | `difficulty.json` | getDifficulty, setDifficulty, clearDifficulty |
+  | `repo.js` | `repo.json` | getRepo, setRepo, clearRepo |
+  | `held.js` | `held.json` | getHeld, setHeld, clearHeld |
+  | `overlap.js` | `paths.json`, `locks.json`, `overlap.json` | get/set/clearPredictedPaths, get/set/clearLock, listLocks, get/set/clearOverlap, listOverlap |
+  | `refmeta.js` | `refmeta.json` | getRefMeta, setRefMeta, listRefMeta |
+  | `merge-watermark.js` | `merge-watermark.json` | getMergeWatermark, setMergeWatermark |
+  | `harness-health.js` | `harness-health.json` | getHarnessHealth, setHarnessHealth |
+  | `overrides.js` | `overrides.json` | getOverrides, setOverrides |
+  | `findings.js` | `findings.json` | getFindings, setFindings, clearFindings |
+  | `summaries.js` | `summaries.json` | `MAX_SUMMARY_REFS`; getSummaries, setSummary, clearSummary, clearSummaries |
+  | `cired.js` | `cired.json` | setCiRed, takeCiRed |
+  | `usage.js` | `usage.jsonl` | recordUsage, readUsage |
 - `src/state-move.js` — `rename --move`'s core, shared by the engine and the CLI: `checkMove`
   (valid/free/non-colliding target, config still keys `from`, same filesystem) and
   `moveStateDir` (rename the dir, then rewrite/drop `stateId` via `json-edit.js`

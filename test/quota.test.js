@@ -12,7 +12,7 @@ import { createQuotaPacer, evaluateQuota, formatDuration, formatQuota, normalize
 import { readQuota, writeQuota } from "../src/quota-file.js";
 import { createQueue } from "../src/queue.js";
 import { createOps } from "../src/ops.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { createQuotaControl } from "../src/engine.js";
 import { validateRawConfig } from "../src/config.js";
 

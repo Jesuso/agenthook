@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { createGithubAdapter } from "../src/trackers/github.js";
 import { MoveRefusedError } from "../src/trackers/owner.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { adapter, evt, makeStore, withDeps } from "./_github-helpers.js";
 
 test("rework reaches done twice: run --force back to code, then re-advance into agent:done, fires a fresh labeled delivery each time (#672)", async () => {

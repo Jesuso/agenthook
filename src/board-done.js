@@ -6,7 +6,7 @@
 // The pipeline's terminal stage is not done: entering it is agenthook's handoff
 // (`pipeline_done`), and the board stays open until its own flag flips (ADR 0008). A held
 // ticket that turns done loses its hold (clearHoldOnDone, `hold_cleared`).
-import { isStateDedupKey } from "./store.js";
+import { isStateDedupKey } from "./store/index.js";
 
 /**
  * Is this event the board saying done (ADR 0008)? Only the tracker's own done flag

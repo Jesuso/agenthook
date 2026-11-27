@@ -14,7 +14,7 @@ import { withFakeSsh, initGitRepo } from "./_ssh-helpers.js";
 import { adapter, pipeline } from "./_github-helpers.js";
 import { stubFetch } from "./_forge-helpers.js";
 import { createDispatcher } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 
 const REF = "55";
 

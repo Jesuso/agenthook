@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createDispatcher } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { heldHarness } from "./_dispatch-helpers.js";
 
 // --- merge jobs (forge): no agent spawn; move → complete → emit, fail-closed on assignee ---

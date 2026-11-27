@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { resolveModelEffort, createDispatcher, parseVerdict, NO_VALID_VERDICT, QUESTION_HOLD, endedWithQuestion } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { tmpDir, heldHarness } from "./_dispatch-helpers.js";
 
 // --- parseVerdict: requireVerdict x {valid, missing, garbage, unknown outcome, non-zero exit} ---

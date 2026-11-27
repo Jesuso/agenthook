@@ -13,7 +13,7 @@ import { AGENT_NAMES, AGENT_DEFAULT_BINS, DEFAULT_AGENT, REMOTE_AGENTS } from ".
 import { claude, buildClaudeArgs } from "../src/agents/claude.js";
 import { claudeProjectDir } from "../src/paths.js";
 import { createDispatcher, NO_VALID_VERDICT } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 
 const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-agents-"));
 

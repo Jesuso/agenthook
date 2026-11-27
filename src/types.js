@@ -863,7 +863,7 @@
  */
 
 /**
- * Operator runtime overrides persisted in overrides.json (src/store.js) and re-applied at boot
+ * Operator runtime overrides persisted in overrides.json (src/store/) and re-applied at boot
  * (src/engine/index.js). Only the operator's own `pause`/`resume`/`set_concurrency` write these;
  * a restart/decommission/quota pause is never persisted.
  * @typedef {object} Overrides
@@ -873,7 +873,7 @@
  */
 
 /**
- * The JSON-file store (src/store.js).
+ * The JSON-file store (src/store/).
  * @typedef {object} Store
  * @property {(key: string) => string|undefined} getSecret
  * @property {(key: string, value: string) => void} setSecret

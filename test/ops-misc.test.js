@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createOps } from "../src/ops.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { createQueue } from "../src/queue.js";
 import { startControl } from "../src/control/server.js";
 import { controlRequest } from "../src/control/client.js";

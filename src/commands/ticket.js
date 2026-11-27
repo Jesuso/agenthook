@@ -12,7 +12,7 @@
 // `ticket ls [--json]` reads the board file (read-only) with running/held marks from the store.
 import fs from "node:fs";
 import { loadConfig } from "../config.js";
-import { createStore } from "../store.js";
+import { createStore } from "../store/index.js";
 import { createAdapter } from "../trackers/index.js";
 import { localBoardPath, normalizeBlockedBy, openBlockersOf } from "../trackers/local.js";
 import { readProfile } from "../heartbeat.js";

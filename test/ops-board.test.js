@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { createOps } from "../src/ops.js";
 import { createEpicChanged } from "../src/epic-changed.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { createQueue } from "../src/queue.js";
 import { setup } from "./_ops-helpers.js";
 

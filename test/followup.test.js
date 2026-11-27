@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseFollowUp, followUpDecision, followUpTiers, pendingFollowUp, markFollowUpDone, MAX_FOLLOWUP_CHECKS, MAX_FOLLOWUP_CHARS } from "../src/followup.js";
 import { createDispatcher, parseVerdict } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { registryDir } from "../src/config.js";
 import { readStatus } from "../src/agent-api.js";
 import { readProfile } from "../src/heartbeat.js";

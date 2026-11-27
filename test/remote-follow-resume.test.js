@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadConfig, registryDir } from "../src/config.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { mangle } from "../src/paths.js";
 import { listSessions } from "../src/sessions.js";
 import { follow, followRemote, NoTranscriptYet, remoteFollowCandidates } from "../src/commands/follow.js";

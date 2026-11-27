@@ -3,7 +3,7 @@
 // webhooks (and the forge's, when one is configured) unless --keep-hooks is given.
 import fs from "node:fs";
 import { loadConfig } from "../config.js";
-import { createStore } from "../store.js";
+import { createStore } from "../store/index.js";
 import { createAdapter } from "../trackers/index.js";
 import { createForge } from "../forges/index.js";
 import { readProfile } from "../heartbeat.js";

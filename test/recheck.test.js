@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createOps } from "../src/ops.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { createQueue } from "../src/queue.js";
 import { createEmitter, CANCELLED_REASON } from "../src/events.js";
 import { buildRows, readProfileState } from "../src/ui/rows.js";

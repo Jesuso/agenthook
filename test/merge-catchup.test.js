@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 import { runMergeCatchup, MERGE_LOOKBACK_MS } from "../src/commands/reconcile.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { createDispatcher } from "../src/dispatch.js";
 import { createOps } from "../src/ops.js";
 import { createQueue } from "../src/queue.js";
