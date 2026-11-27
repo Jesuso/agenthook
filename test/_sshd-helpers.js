@@ -102,22 +102,36 @@ export async function startThrowawaySshd() {
   fs.writeFileSync(authorizedKeys, fs.readFileSync(`${clientKey}.pub`, "utf8"), { mode: 0o600 });
   fs.writeFileSync(knownHosts, hostKnownHostsLine(hostKey, port), { mode: 0o600 });
 
-  fs.writeFileSync(
-    sshdConfig,
-    [
-      "ListenAddress 127.0.0.1",
-      `Port ${port}`,
-      `HostKey ${hostKey}`,
-      "UsePAM no",
-      "StrictModes no",
-      "PasswordAuthentication no",
-      "KbdInteractiveAuthentication no",
-      "PubkeyAuthentication yes",
-      `AuthorizedKeysFile ${authorizedKeys}`,
-      `PidFile ${pidFile}`,
-      "",
-    ].join("\n"),
-  );
+  const baseConfigLines = [
+    "ListenAddress 127.0.0.1",
+    `Port ${port}`,
+    `HostKey ${hostKey}`,
+    "UsePAM no",
+    "StrictModes no",
+    "PasswordAuthentication no",
+    "KbdInteractiveAuthentication no",
+    "PubkeyAuthentication yes",
+    `AuthorizedKeysFile ${authorizedKeys}`,
+    `PidFile ${pidFile}`,
+  ];
+  // OpenSSH >= 9.8's PerSourcePenalties (on by default) temporarily drops connections from a
+  // source after an auth failure or a no-auth disconnect (exactly what A4's wrong-key and A8/A9's
+  // short-lived probe connections trigger), which would otherwise reset the NEXT test's connection
+  // with no relation to what that test is actually checking. Disabling it needs an older-sshd
+  // fallback: an sshd that doesn't know the keyword rejects the whole config, so probe first with
+  // `-t` against a throwaway file and only add the line if that succeeds.
+  const probeConfig = path.join(tmp, "sshd_config.probe");
+  fs.writeFileSync(probeConfig, [...baseConfigLines, "PerSourcePenalties no", ""].join("\n"));
+  let supportsPerSourcePenalties = false;
+  try {
+    execFileSync(sshd, ["-t", "-f", probeConfig], { stdio: ["ignore", "ignore", "pipe"] });
+    supportsPerSourcePenalties = true;
+  } catch {
+    /* older sshd: leave PerSourcePenalties at its (pre-9.8) absent default */
+  }
+  fs.rmSync(probeConfig, { force: true });
+
+  fs.writeFileSync(sshdConfig, [...baseConfigLines, ...(supportsPerSourcePenalties ? ["PerSourcePenalties no"] : []), ""].join("\n"));
   fs.writeFileSync(
     sshConfig,
     ["UserKnownHostsFile " + knownHosts, "StrictHostKeyChecking yes", "GlobalKnownHostsFile /dev/null", "IdentitiesOnly yes", "IdentityAgent none", "CheckHostIP no", ""].join("\n"),

@@ -381,10 +381,14 @@ test("real ssh: a no-worktree step archives the repo to the worker and copies th
   fs.mkdirSync(workDir, { recursive: true });
   initGitRepo(repoDir);
   try {
+    // The agent's cwd for a no-worktree step is the worker's EXPORT dir (a subdir of `workDir`
+    // the executor removes once the run ends), not `workDir` itself — write the marker to an
+    // absolute path outside it so it outlives that cleanup and is actually reachable below.
+    const syncedMarker = path.join(workDir, "synced.txt");
     const agentScript = writeScript(
       workDir,
       "agent.sh",
-      `#!/bin/sh\ncat > /dev/null\n[ -f README.md ] && echo yes > synced.txt\nmkdir -p "$(dirname "$AGENTHOOK_VERDICT_FILE")"\necho '{"outcome":"advance","reason":"ok"}' > "$AGENTHOOK_VERDICT_FILE"\nexit 0\n`,
+      `#!/bin/sh\ncat > /dev/null\n[ -f README.md ] && echo yes > ${JSON.stringify(syncedMarker)}\nmkdir -p "$(dirname "$AGENTHOOK_VERDICT_FILE")"\necho '{"outcome":"advance","reason":"ok"}' > "$AGENTHOOK_VERDICT_FILE"\nexit 0\n`,
     );
     const cfg = {
       pipeline: [{ id: "code", harness: "worker" }],
@@ -417,7 +421,7 @@ test("real ssh: a no-worktree step archives the repo to the worker and copies th
     assert.equal(advanced[0].outcome, "advance", JSON.stringify(advanced));
     // sshd runs on 127.0.0.1, so `workDir` IS the worker's real filesystem — read it directly to
     // confirm the archive actually delivered README.md, not just that the dir was created.
-    assert.equal(fs.readFileSync(path.join(workDir, "synced.txt"), "utf8"), "yes\n", "the archived repo never reached the worker");
+    assert.equal(fs.readFileSync(syncedMarker, "utf8"), "yes\n", "the archived repo never reached the worker");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
