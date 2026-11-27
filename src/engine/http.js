@@ -1,7 +1,7 @@
 // The webhook request handler: the fast-ACK-then-async shape. authenticate (sync, no
 // network) → handshake reply / 401 / ACK 200 → processEvents off the response path → intake.
 // `/forge` goes to the forge (when one is configured); everything else to the tracker.
-import { isForgePath } from "../forges/index.js";
+import { isForgePath } from "../forges/github.js";
 
 /** Job kinds that are signals, never queued work. */
 const SIGNAL_KINDS = new Set(["ci_green", "epic_changed", "board_done", "pr_push"]);

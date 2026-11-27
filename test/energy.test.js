@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { energyErrors, splitTick, joulesToKwh, energyFields, formatEnergy } from "../src/shared/energy.js";
 import { readHwmon, parseWatts, readCommand, createEnergySampler } from "../src/energy-sampler.js";
-import { createDispatcher } from "../src/dispatch.js";
+import { createDispatcher } from "../src/dispatch/index.js";
 import { createStore } from "../src/store/index.js";
 import { costOf } from "../src/shared/pricing.js";
 

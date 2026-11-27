@@ -3,7 +3,7 @@ import path from "node:path";
 import { listRuns, resolveRunLog } from "../reader/run-logs.js";
 import { readProfileState, readJson, isObj } from "../reader/rows.js";
 import { pricingOf } from "../shared/pricing.js";
-import { registryDir } from "../config/index.js";
+import { registryDir } from "../config/locations.js";
 
 const LOG_BYTES_MAX = 24 * 1024;
 

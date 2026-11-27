@@ -7,7 +7,7 @@
 //   events --json             emit raw JSONL (one line per event), for piping
 import fs from "node:fs";
 import path from "node:path";
-import { loadConfig } from "../config/index.js";
+import { loadConfig } from "../config/load.js";
 import { neverStarted } from "../profile.js";
 import { HIDDEN_BY_DEFAULT } from "../events.js";
 import { formatEnergy } from "../shared/energy.js";

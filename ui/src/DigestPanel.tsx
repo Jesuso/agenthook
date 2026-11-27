@@ -2,7 +2,9 @@ import { Suspense, lazy, useEffect, useState } from "react";
 import type { DigestView } from "./contract";
 import { digestOutcome, digestRequest, digestUrl, eventsSince } from "./digest";
 import type { FeedEntry } from "./feed";
-import { ShowHide, SpeakButton, useAgo } from "./components";
+import { ShowHide } from "./components/ShowHide";
+import { SpeakButton } from "./components/SpeakButton";
+import { useAgo } from "./components/LiveTime";
 import { useT } from "./i18n/react";
 
 // react-markdown ships in the same lazy chunk as the Instructions preview, not the main bundle.

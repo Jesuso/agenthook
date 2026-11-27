@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { createSshExecutor } from "../src/dispatch/executor-ssh.js";
-import { createDispatcher } from "../src/dispatch.js";
+import { createDispatcher } from "../src/dispatch/index.js";
 import { createStore } from "../src/store/index.js";
 import { worktreePath } from "../src/worktree.js";
 import { startThrowawaySshd } from "./_sshd-helpers.js";

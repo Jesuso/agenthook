@@ -6,7 +6,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { createDispatcher, NO_VALID_VERDICT } from "../src/dispatch.js";
+import { createDispatcher } from "../src/dispatch/index.js";
+import { NO_VALID_VERDICT } from "../src/dispatch/verdict.js";
 import { createStore } from "../src/store/index.js";
 import { tmpDir, heldHarness } from "./_dispatch-helpers.js";
 

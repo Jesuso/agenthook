@@ -2,11 +2,11 @@
 // per-harness drain, the global concurrency cap, per-harness slots) against the live receiver over
 // the control socket (src/ops.js). They persist in overrides.json and survive a restart. `unpause`
 // (not `resume`) because `agenthook resume` already means agent-session resume.
-import { peekConfig } from "../config/index.js";
+import { peekConfig } from "../config/load.js";
 import { readProfile } from "../heartbeat.js";
 import { controlSockPath } from "../paths.js";
 import { controlRequest } from "../control/client.js";
-import { liveTimeoutMs } from "../agent-api/index.js";
+import { liveTimeoutMs } from "../agent-api/live.js";
 
 /** The CLI args these commands read: the parsed positional/flag map from bin/agenthook.js. */
 /** @typedef {{_: string[], config?: string, harness?: string, json?: boolean, reset?: boolean}} OverrideArgs */

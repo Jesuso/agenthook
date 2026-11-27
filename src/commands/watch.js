@@ -15,7 +15,8 @@
 // stopped receiver as a `daemon_down` event instead of waiting out the timeout on a dead log.
 // `--wake a,b` / `--quiet a,b` add to / remove from the built-in actionable list by event type.
 import path from "node:path";
-import { defaultProfileKey, pickProfile, pickProfiles, parseCursorMap, waitForEvents, waitForEventsMulti, eventsCursor, compactEvent } from "../agent-api/index.js";
+import { defaultProfileKey, pickProfile, pickProfiles } from "../agent-api/profiles.js";
+import { parseCursorMap, waitForEvents, waitForEventsMulti, eventsCursor, compactEvent } from "../agent-api/events.js";
 import { isActionable, createSummary, summaryLine } from "../actionable.js";
 import { readProfile } from "../heartbeat.js";
 import { readJson, isObj } from "../reader/rows.js";

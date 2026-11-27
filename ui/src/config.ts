@@ -1,5 +1,5 @@
 import type { ProfileView, UiEvent } from "./contract";
-import { sensitiveChanges } from "./contract";
+import { sensitiveChanges } from "../../src/shared/sensitive.js";
 import type { InstructionsEvent } from "./instructions";
 import { translate } from "./i18n";
 

@@ -15,7 +15,6 @@ import { localEpics, epicStats, isNeedsYou } from "./epics.js";
 import { sumCosts } from "./shared/pricing.js";
 import { harnessTotals } from "./harness-usage.js";
 import { SUMMARIES_MODEL } from "./shared/digest-config.js";
-export { digestErrors, DIGEST_ACCESS } from "./shared/digest-config.js";
 
 const WINDOW_MS = 48 * 3600 * 1000;
 const DAY_MS = 24 * 3600 * 1000;

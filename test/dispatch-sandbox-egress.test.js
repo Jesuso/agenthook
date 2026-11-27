@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { inferredForgeEgressHosts } from "../src/dispatch/sandbox.js";
-import { createDispatcher } from "../src/dispatch.js";
+import { createDispatcher } from "../src/dispatch/index.js";
 import { createSandbox } from "../src/sandbox/index.js";
 import { g, sandboxHarness } from "./_dispatch-sandbox-helpers.js";
 

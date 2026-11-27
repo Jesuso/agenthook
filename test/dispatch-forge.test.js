@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createDispatcher } from "../src/dispatch.js";
+import { createDispatcher } from "../src/dispatch/index.js";
 import { heldHarness } from "./_dispatch-helpers.js";
 import { LOG, SHA, TRUSTED, ciHarness, ciJob } from "./_ci-helpers.js";
 

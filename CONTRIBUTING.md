@@ -80,7 +80,7 @@ ingress is named in the engine.
    fails typecheck.
 5. Optionally implement `wizardSteps()` for `init` live discovery.
 
-The engine never changes to add a provider — if you find yourself editing `src/engine.js` to support
+The engine never changes to add a provider — if you find yourself editing `src/engine/` to support
 one, something's off; open an issue to discuss.
 
 ## Conventions

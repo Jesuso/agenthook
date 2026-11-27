@@ -7,7 +7,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { loadConfig } from "../config/index.js";
+import { loadConfig } from "../config/load.js";
 import { createStore } from "../store/index.js";
 import { createAdapter } from "../trackers/index.js";
 import { worktreeDir, legacyWorktreeDir } from "../paths.js";

@@ -7,7 +7,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadConfig, validateRawConfig, literalSecrets, registryDir } from "../src/config/index.js";
+import { loadConfig } from "../src/config/load.js";
+import { validateRawConfig, literalSecrets } from "../src/config/validate/index.js";
+import { registryDir } from "../src/config/locations.js";
 import { EGRESS_PROXY_ENV_KEYS } from "../src/sandbox/names.js";
 import { raw, loadError } from "./_config-validate-helpers.js";
 

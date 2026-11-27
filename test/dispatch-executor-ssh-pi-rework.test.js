@@ -13,7 +13,7 @@ import path from "node:path";
 import { withFakeSsh, spawnCtx, initGitRepo } from "./_ssh-helpers.js";
 import { createSshExecutor, shQuote } from "../src/dispatch/executor-ssh.js";
 import { pi, buildPiArgs } from "../src/agents/pi.js";
-import { createDispatcher } from "../src/dispatch.js";
+import { createDispatcher } from "../src/dispatch/index.js";
 import { createStore } from "../src/store/index.js";
 import { promptPathFor } from "../src/dispatch/prompt.js";
 

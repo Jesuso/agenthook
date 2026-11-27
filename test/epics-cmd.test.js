@@ -6,7 +6,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pickProfile, readEpics } from "../src/agent-api/index.js";
+import { pickProfile } from "../src/agent-api/profiles.js";
+import { readEpics } from "../src/agent-api/tick.js";
 import { digest } from "../src/commands/epics.js";
 
 test("digest: list header + one line per epic, needs-you and eta", () => {

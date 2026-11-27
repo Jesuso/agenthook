@@ -7,7 +7,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { loadConfig, validateRawConfig, literalSecrets, SECRET_FIELDS, registryDir } from "../src/config/index.js";
+import { loadConfig } from "../src/config/load.js";
+import { validateRawConfig, literalSecrets, SECRET_FIELDS } from "../src/config/validate/index.js";
+import { registryDir } from "../src/config/locations.js";
 import { isEnvRef } from "../src/shared/sensitive.js";
 import { raw, loadError } from "./_config-validate-helpers.js";
 

@@ -6,7 +6,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { resolveModelEffort, descriptionHasHeadings, lookupPr, createDispatcher, promptPathFor } from "../src/dispatch.js";
+import { resolveModelEffort, descriptionHasHeadings, promptPathFor } from "../src/dispatch/prompt.js";
+import { lookupPr } from "../src/dispatch/pr.js";
+import { createDispatcher } from "../src/dispatch/index.js";
 import { createStore } from "../src/store/index.js";
 import { tmpDir } from "./_dispatch-helpers.js";
 

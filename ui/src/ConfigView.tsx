@@ -5,7 +5,7 @@ import { json } from "@codemirror/lang-json";
 import type { ConfigView as ConfigBody, ProfileView } from "./contract";
 import { profileLabel } from "./format";
 import { usePageTitle } from "./usePageTitle";
-import { ProfileMark } from "./components";
+import { ProfileMark } from "./components/ProfileMark";
 import { isDirty } from "./instructions";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { DiffView } from "./DiffView";

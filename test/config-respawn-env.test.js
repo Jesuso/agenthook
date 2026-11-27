@@ -9,8 +9,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileEnvKeys, loadConfig, loadEnv, registryDir, respawnEnv } from "../src/config/index.js";
-import { createEngine, createRestartRequester } from "../src/engine.js";
+import { fileEnvKeys, loadEnv, respawnEnv } from "../src/config/env.js";
+import { loadConfig } from "../src/config/load.js";
+import { registryDir } from "../src/config/locations.js";
+import { createEngine } from "../src/engine/index.js";
+import { createRestartRequester } from "../src/engine/controllers.js";
 import { createQueue } from "../src/queue.js";
 
 const made = new Set();

@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import path from "node:path";
-import { loadConfig } from "../config/index.js";
+import { loadConfig } from "../config/load.js";
 import { listProfiles } from "../heartbeat.js";
 import { readProfileState, buildRows, isObj, harnessSlots, unharnessedSlots, readEventsTail } from "../reader/rows.js";
 import { READ_CAP_BYTES } from "../reader/stats.js";

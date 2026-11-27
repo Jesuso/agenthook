@@ -1,7 +1,7 @@
 // `agenthook restart` — ask the running receiver to restart once idle (src/engine.js
 // createRestartRequester, over the control socket). No `--wait`/polling: it reports the
 // accepted state and leaves watching to `agenthook status` / `agenthook events --follow`.
-import { peekConfig } from "../config/index.js";
+import { peekConfig } from "../config/load.js";
 import { readProfile } from "../heartbeat.js";
 import { controlSockPath } from "../paths.js";
 import { controlRequest } from "../control/client.js";

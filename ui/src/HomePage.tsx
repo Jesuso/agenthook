@@ -3,9 +3,14 @@ import { formatAgents, formatLastEvent, profileBadge, profileLabel, quotaPausedT
 import { buildHome } from "./home";
 import type { CardModel } from "./home";
 import { hashFor } from "./route";
-import { FullAutoShield, Menu, Pill, ProfileMark, ReceiverStatus, useAgo } from "./components";
+import { FullAutoShield } from "./components/FullAutoShield";
+import { Menu } from "./components/Menu";
+import { Pill } from "./components/Pill";
+import { ProfileMark } from "./components/ProfileMark";
+import { ReceiverStatus } from "./components/ReceiverStatus";
+import { useAgo } from "./components/LiveTime";
 import { accentStyle } from "./identity";
-import type { MenuItem } from "./components";
+import type { MenuItem } from "./components/Menu";
 import { rich, useT } from "./i18n/react";
 
 export type HomePageProps = {

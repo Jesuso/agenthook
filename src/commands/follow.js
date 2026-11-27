@@ -18,14 +18,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { loadConfig, registryDir } from "../config/index.js";
+import { loadConfig } from "../config/load.js";
+import { registryDir } from "../config/locations.js";
 import { worktreeDir } from "../paths.js";
 import { reposOf } from "../repos.js";
 import { sessionAgents } from "../sessions.js";
 import { getAgent } from "../agents/index.js";
 import { createStore } from "../store/index.js";
 import { remoteProbeArgv, sshClientEnv, shQuote, remoteTranscriptDir } from "../dispatch/executor-ssh.js";
-import { readRuns } from "../agent-api/index.js";
+import { readRuns } from "../agent-api/runs.js";
 import { profileDir, resolveRunLog } from "../reader/run-logs.js";
 
 /** Transcript dirs that exist for the given repos, per agent the profile runs: each repo's

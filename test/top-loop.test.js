@@ -7,7 +7,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { runTop, TOP_WAIT_MS, PAINT_MS } from "../src/top-loop.js";
 import { topReadData } from "../src/commands/top.js";
-import { registryDir } from "../src/config/index.js";
+import { registryDir } from "../src/config/locations.js";
 import { NOW, iso, heldTick, emptyUpTick, downTick, visible, makeOut, makeInput, makeNextEvent, makeTimers, pump, start } from "./_top-helpers.js";
 
 const ENTER = "\u001b[?1049h\u001b[?25l";

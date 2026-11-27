@@ -3,7 +3,7 @@
 // and forge again and records only the facts it missed. `--all` = every row already flagged with
 // a PR reason, never the whole board. Over control.sock like `run`: only the receiver writes
 // events and `seen`.
-import { loadConfig } from "../config/index.js";
+import { loadConfig } from "../config/load.js";
 import { requireStarted } from "../profile.js";
 import { controlRequest } from "../control/client.js";
 

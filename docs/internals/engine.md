@@ -37,8 +37,7 @@ and takes the boot-failure path above, so the ingress is downed rather than orph
 
 ## Key files
 
-- `src/engine.js` — a one-line re-export shim (the public path every importer uses) over
-  `src/engine/`, the receiver: `index.js` = `createEngine`, the composition root (`claimStateDir`
+- `src/engine/` — the receiver: `index.js` = `createEngine`, the composition root and entry point (`claimStateDir`
   first, wiring, the `intake()` closure, fatal `process.on` handlers at construction); `http.js` the
   request handler (fast-ACK-then-async is deliberate — providers retry a slow 2xx); `boot.js`
   `serve()`; `banner.js` the pure boot `fullAutoBanner` (sandbox-aware, warn-only); `teardown.js` `shutdown`/`forceExit`/`teardown`/`onFatal` + `finishTeardown` (the

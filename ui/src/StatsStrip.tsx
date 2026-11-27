@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import type { StatsView } from "./contract";
-import { Segmented, ShowHide } from "./components";
+import { Segmented } from "./components/Segmented";
+import { ShowHide } from "./components/ShowHide";
 import type { FeedEntry } from "./feed";
 import { formatSpend } from "./format";
 import { formatEnergy } from "../../src/shared/energy.js";

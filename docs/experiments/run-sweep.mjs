@@ -27,11 +27,11 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { loadConfig } from "../../src/config/index.js";
+import { loadConfig } from "../../src/config/load.js";
 import { createStore } from "../../src/store/index.js";
 import { createAdapter } from "../../src/trackers/index.js";
 import { seedBoard, localBoardPath } from "../../src/trackers/local.js";
-import { createDispatcher } from "../../src/dispatch.js";
+import { createDispatcher } from "../../src/dispatch/index.js";
 import { drainWorktree, branchName } from "../../src/worktree.js";
 
 /** best-effort git (ignore failures — cleanup is idempotent). @param {string} repo @param {string[]} a */

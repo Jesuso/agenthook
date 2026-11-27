@@ -5,7 +5,8 @@
 // config file or any worktree. `registry` is injectable for tests.
 import fs from "node:fs";
 import path from "node:path";
-import { ensurePrivateDir, registryDir, validName } from "./config/index.js";
+import { ensurePrivateDir, registryDir } from "./config/locations.js";
+import { validName } from "./config/validate/common.js";
 import { readProfile } from "./heartbeat.js";
 import { appendAudit } from "./atomic-save.js";
 

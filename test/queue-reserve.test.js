@@ -6,9 +6,9 @@ import os from "node:os";
 import path from "node:path";
 import { createQueue } from "../src/queue.js";
 import { buildHarnessing, exclusiveHarnesses } from "../src/engine/harnessing.js";
-import { validateRawConfig } from "../src/config/index.js";
+import { validateRawConfig } from "../src/config/validate/index.js";
 import { harnessSlotLints } from "../src/commands/doctor.js";
-import { readStatus } from "../src/agent-api/index.js";
+import { readStatus } from "../src/agent-api/status.js";
 import { readProfile } from "../src/heartbeat.js";
 
 /** Minimal raw config with one harness (config-validate.test.js's `raw`/`hErrs` pattern). @param {any} h */

@@ -4,7 +4,7 @@
 // this just reads usage.jsonl + events.jsonl and prints a table (or `--json` the raw object).
 import fs from "node:fs";
 import path from "node:path";
-import { loadConfig } from "../config/index.js";
+import { loadConfig } from "../config/load.js";
 import { createStore } from "../store/index.js";
 import { runStats, sinceMsOf, STATS_BY, STATS_SINCE } from "../stats.js";
 

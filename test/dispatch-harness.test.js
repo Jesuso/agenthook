@@ -8,7 +8,8 @@ import os from "node:os";
 import path from "node:path";
 import { resolveHarness, harnessesOf, harnessEntryOf, healthTrip, cooldownFor, modelApiFailure } from "../src/dispatch/harness.js";
 import { createSpawn } from "../src/dispatch/spawn.js";
-import { resolveModelEffort, createDispatcher } from "../src/dispatch.js";
+import { resolveModelEffort } from "../src/dispatch/prompt.js";
+import { createDispatcher } from "../src/dispatch/index.js";
 import { agentFor } from "../src/agents/index.js";
 import { createStore } from "../src/store/index.js";
 

@@ -1,6 +1,6 @@
 // The SENSITIVE_FIELDS diff behind the config editor's second confirm and the `PUT /api/config`
 // audit line (docs/web-ui.md § v3). Import-free apart from contract.js: the browser bundles it
-// (ui/src/contract.ts re-exports it), so the confirm dialog and the audit line can't disagree.
+// (ui/src/config.ts imports it directly), so the confirm dialog and the audit line can't disagree.
 import { SENSITIVE_FIELDS } from "./contract.js";
 
 /** Config paths whose value is a secret — each should be a `${VAR}` ref, never a literal.

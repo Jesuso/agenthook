@@ -8,7 +8,7 @@
 //   rows (reconcileOnBoot only) →
 //   SIGINT/SIGTERM handlers. A failure after ingress.up downs the ingress and closes control.
 import fs from "node:fs";
-import { ensurePrivateDir } from "../config/index.js";
+import { ensurePrivateDir } from "../config/locations.js";
 import { planRestore } from "../queue.js";
 import { startControl } from "../control/server.js";
 import { readQuota } from "../quota-file.js";

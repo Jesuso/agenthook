@@ -4,7 +4,7 @@
 // tracker would have sent and POST it to the live server, which re-reads the task's
 // live section and routes it to the matching step. Reuses the whole dispatch path
 // (dedup, worktree, PR). See docs/architecture.md. (`reconcile` does this in bulk.)
-import { loadConfig } from "../config/index.js";
+import { loadConfig } from "../config/load.js";
 import { requireStarted } from "../profile.js";
 import { createStore } from "../store/index.js";
 import { createAdapter } from "../trackers/index.js";

@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import http from "node:http";
-import { intakeEvent, createPushSink } from "../src/engine.js";
+import { intakeEvent, createPushSink } from "../src/engine/intake.js";
 import { createQueue } from "../src/queue.js";
 import { createServe } from "../src/engine/boot.js";
 import { createStore } from "../src/store/index.js";

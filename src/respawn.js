@@ -9,7 +9,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { ensurePrivateDir, withoutFileEnv } from "./config/index.js";
+import { ensurePrivateDir } from "./config/locations.js";
+import { withoutFileEnv } from "./config/env.js";
 
 /**
  * Exit code a control-socket `restart` uses when the receiver runs as a systemd --user service

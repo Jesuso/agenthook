@@ -12,7 +12,8 @@ import { init, initMode, localScaffold, sanitizeName } from "../src/commands/ini
 import { ticket, ticketBody, ticketRows } from "../src/commands/ticket.js";
 import { TICKET_BODY_MAX } from "../src/ops.js";
 import { firstFreePort } from "../src/port.js";
-import { loadConfig, registryDir } from "../src/config/index.js";
+import { loadConfig } from "../src/config/load.js";
+import { registryDir } from "../src/config/locations.js";
 import { tildify } from "../src/profile.js";
 import { parse, HELP } from "../bin/agenthook.js";
 

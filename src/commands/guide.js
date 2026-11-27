@@ -1,7 +1,7 @@
 // `agenthook guide [topic]` — the agent guide from a shell, for agents without the MCP server
 // (same text the MCP `guide` tool serves). No topic = the list. `authoring` is rendered from this
 // profile's config: tracker, identity, step stages, epic rule, blocker support (src/guide.js).
-import { loadConfig } from "../config/index.js";
+import { loadConfig } from "../config/load.js";
 import { AUTHORING, guideTopics, loadGuide, renderAuthoring } from "../guide.js";
 
 /** @param {any} args */

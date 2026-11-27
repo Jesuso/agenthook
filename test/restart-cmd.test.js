@@ -7,7 +7,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { registryDir } from "../src/config/index.js";
+import { registryDir } from "../src/config/locations.js";
 import { controlSockPath } from "../src/paths.js";
 import { restart } from "../src/commands/restart.js";
 

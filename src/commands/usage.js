@@ -4,7 +4,7 @@
 //   usage --ref <n>    filter to one task's runs + totals
 //   usage --day        group by UTC calendar day
 //   usage --week       group by ISO week (--week wins if both given)
-import { loadConfig } from "../config/index.js";
+import { loadConfig } from "../config/load.js";
 import { createStore } from "../store/index.js";
 import { costOf, sumCosts } from "../shared/pricing.js";
 import { formatEnergy } from "../shared/energy.js";
