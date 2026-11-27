@@ -21,7 +21,7 @@ import { claimStateDir } from "../profile.js";
 import fs from "node:fs";
 import { startArgv, spawnDetached, hasReconcileMarker, clearReconcileMarker, underSystemdUnit, REFUSED_EXIT_CODE } from "../respawn.js";
 import { isAlive } from "../heartbeat.js";
-import { checkSockPath } from "../control.js";
+import { checkSockPath } from "../control/server.js";
 import { claimedPorts, portInUse } from "../port.js";
 import { unitName } from "../service.js";
 

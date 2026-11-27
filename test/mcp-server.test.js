@@ -215,7 +215,7 @@ test("events/tick with profiles: union + tags + object cursor; profile+profiles,
 });
 
 test("harness_reset tool (#621): forwards {harness, actor} to the live receiver's control socket; harness is required", async () => {
-  const { startControl } = await import("../src/control.js");
+  const { startControl } = await import("../src/control/server.js");
   const { controlSockPath } = await import("../src/paths.js");
   const registry = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-mcpreset-"));
   const dir = path.join(registry, "p");

@@ -12,7 +12,7 @@ import path from "node:path";
 import net from "node:net";
 import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { controlRequest } from "../src/ui/control-client.js";
+import { controlRequest } from "../src/control/client.js";
 import { waitForEvents } from "../src/agent-api.js";
 import { readProfileState, buildRows } from "../src/ui/rows.js";
 import { promptPathFor } from "../src/dispatch/index.js";

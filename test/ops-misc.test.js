@@ -9,8 +9,8 @@ import path from "node:path";
 import { createOps } from "../src/ops.js";
 import { createStore } from "../src/store.js";
 import { createQueue } from "../src/queue.js";
-import { startControl } from "../src/control.js";
-import { controlRequest } from "../src/ui/control-client.js";
+import { startControl } from "../src/control/server.js";
+import { controlRequest } from "../src/control/client.js";
 import { setup } from "./_ops-helpers.js";
 
 test("ticket_add: creates the item through adapter.createTask; audit logs the body's length, never its text", async () => {

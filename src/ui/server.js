@@ -12,8 +12,8 @@
 // /api/config` saves it — the second file write. Both file writes go through save.js (the
 // file, its backup in the state dir, a line in the profile's `ui-audit.jsonl`) and both
 // additionally require a same-origin `Origin`, `X-AH-UI: 1` and a JSON body ≤ 256 KB.
-// `GET /api/discover` and `POST /api/restart` are v3's control-socket actions (src/ui/control-
-// client.js, src/control.js): no file write, just a request over the profile's control.sock,
+// `GET /api/discover` and `POST /api/restart` are v3's control-socket actions (src/control/
+// client.js, src/control/server.js): no file write, just a request over the profile's control.sock,
 // mapped to 503/504/502 when the receiver is down, times out, or answers `ok:false`. `restart`
 // reuses the PUT guard chain and audits its outcome via save.js's `appendAudit`; so do `POST
 // /api/pause` and `POST /api/resume` (the dashboard row's operator pause — persisted in
@@ -57,7 +57,7 @@ import { normalizeBlockedBy } from "../trackers/local.js";
 import { readProfile } from "../heartbeat.js";
 import { readMarker, tildify } from "../profile.js";
 import { readConfigFile, writeConfigFile } from "./config.js";
-import { controlRequest, resolveProfileSock } from "./control-client.js";
+import { controlRequest, resolveProfileSock } from "../control/client.js";
 import { listInstructions, promptPreview, readInstructionFile, writeInstructionFile } from "./instructions.js";
 import { createLogTail, listRuns, profileDir, resolveRunLog } from "./logs.js";
 import { buildSnapshot, readEventsTail } from "./rows.js";

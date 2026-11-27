@@ -16,7 +16,7 @@ import { createStore } from "../store.js";
 import { createAdapter } from "../trackers/index.js";
 import { localBoardPath, normalizeBlockedBy, openBlockersOf } from "../trackers/local.js";
 import { readProfile } from "../heartbeat.js";
-import { controlRequest } from "../ui/control-client.js";
+import { controlRequest } from "../control/client.js";
 import { TICKET_BODY_MAX } from "../ops.js";
 
 /** @param {any} args */

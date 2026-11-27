@@ -9,7 +9,7 @@ import { readProfile } from "../src/heartbeat.js";
 import net from "node:net";
 import { live, readTick, pickProfiles, parseCursorMap, cursorMapError, waitForEventsMulti, mergeTagged } from "../src/agent-api.js";
 import { controlSockPath } from "../src/paths.js";
-import { startControl } from "../src/control.js";
+import { startControl } from "../src/control/server.js";
 
 function registry() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-agentapi-"));

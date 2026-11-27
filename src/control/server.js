@@ -13,14 +13,14 @@
 // See docs/web-ui.md.
 import net from "node:net";
 import fs from "node:fs";
-import { isAlive } from "./heartbeat.js";
+import { isAlive } from "../heartbeat.js";
 
 const MAX_LINE_BYTES = 64 * 1024;
 const DISCOVER_CACHE_MS = 60 * 1000;
 
 /**
- * @param {{cfg: import('./types.js').Config, adapter?: import('./types.js').Adapter}} ctx
- * @returns {Promise<{tracker: string, stageKeys: import('./types.js').StageKeys|null, stages: Array<{id:string,label:string}>|null}>}
+ * @param {{cfg: import('../types.js').Config, adapter?: import('../types.js').Adapter}} ctx
+ * @returns {Promise<{tracker: string, stageKeys: import('../types.js').StageKeys|null, stages: Array<{id:string,label:string}>|null}>}
  */
 async function discover(ctx) {
   const { cfg, adapter } = ctx;
@@ -35,7 +35,7 @@ async function discover(ctx) {
 /**
  * Wraps discover with a per-instance 60s cache (injectable clock). Only successful
  * results are cached; concurrent calls while a fetch is in flight share one promise.
- * @param {{cfg: import('./types.js').Config, adapter?: import('./types.js').Adapter}} ctx
+ * @param {{cfg: import('../types.js').Config, adapter?: import('../types.js').Adapter}} ctx
  * @param {() => number} now
  */
 function makeCachedDiscover(ctx, now) {
@@ -122,8 +122,8 @@ export function checkSockPath(sockPath, platform = process.platform) {
 }
 
 /**
- * @param {import('./types.js').Config} cfg
- * @param {{startedAt: string, adapter?: import('./types.js').Adapter, now?(): number, restart?: (args: any) => Promise<any>, decommission?: (args: any) => Promise<any>, commands?: Record<string, (args: any) => Promise<any>>}} opts
+ * @param {import('../types.js').Config} cfg
+ * @param {{startedAt: string, adapter?: import('../types.js').Adapter, now?(): number, restart?: (args: any) => Promise<any>, decommission?: (args: any) => Promise<any>, commands?: Record<string, (args: any) => Promise<any>>}} opts
  *   restart: the engine's restart requester; the `restart` command exists only when given.
  *   decommission: the engine's decommission requester; likewise only when given
  *   commands: extra allowlisted commands (src/ops.js — pause/cancel/run/board/…); a built-in name wins
