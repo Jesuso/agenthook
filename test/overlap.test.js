@@ -113,7 +113,7 @@ function harness(o = {}) {
   const locksAtSpawn = path.join(dir, "locks-at-spawn.json");
   /** @param {string} ref */
   const mkWt = (ref) => fs.mkdirSync(path.join(dir, "wt", ref), { recursive: true });
-  /** @param {string} ref @param {string} stepId @param {any} [verdict] @param {Partial<import('../src/types.js').Job>} [job] */
+  /** @param {string} ref @param {string} stepId @param {any} [verdict] @param {Partial<import('../src/types/index.js').Job>} [job] */
   const runStep = async (ref, stepId, verdict = { outcome: "advance" }, job = {}) => {
     fs.rmSync(promptOut, { force: true });
     fs.rmSync(locksAtSpawn, { force: true });

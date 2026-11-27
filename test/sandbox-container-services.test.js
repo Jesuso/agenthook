@@ -52,7 +52,7 @@ function svcRun(/** @type {{execCodes?: number[], execStderr?: string, ready?: b
   /** @type {any[]} */
   const opts = [];
   let n = 0;
-  /** @type {import('../src/types.js').IngressRun} */
+  /** @type {import('../src/types/index.js').IngressRun} */
   const run = async (bin, args, o) => {
     opts.push(o);
     if (args[0] !== "exec") return e.run(bin, args, o);
@@ -251,7 +251,7 @@ test("check(): every sandboxed step's service images are inspected; a missing on
   const s = stubRun({});
   assert.deepEqual(await createContainerSandbox(cfg, { runtime: "docker", run: s.run }).check(), { ok: true });
   assert.deepEqual(s.calls.slice(1).map((c) => c[3]), [DEFAULT_IMAGE, "postgres:16.4", "redis:7.2"]);
-  /** @type {import('../src/types.js').IngressRun} */
+  /** @type {import('../src/types/index.js').IngressRun} */
   const missing = async (_bin, args) => ({ code: args[2] === "redis:7.2" ? 1 : 0, stdout: "", stderr: "" });
   const r = await createContainerSandbox(cfg, { runtime: "podman", run: missing }).check();
   assert.deepEqual(r, { ok: false, reason: "service image redis:7.2 not found — run podman pull redis:7.2, or if it is built locally: podman build -t redis:7.2 <dir with its Dockerfile>" });

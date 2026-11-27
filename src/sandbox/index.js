@@ -5,7 +5,7 @@
 // orphaned runs. Keys must equal the import-free SANDBOX_NAMES (src/sandbox/names.js).
 import { createContainerSandbox } from "./container.js";
 
-/** @type {Record<string, import('../types.js').SandboxFactory>} */
+/** @type {Record<string, import('../types/index.js').SandboxFactory>} */
 export const SANDBOXES = {
   docker: (cfg, opts) => createContainerSandbox(cfg, { runtime: "docker", ...opts }),
   podman: (cfg, opts) => createContainerSandbox(cfg, { runtime: "podman", ...opts }),
@@ -13,8 +13,8 @@ export const SANDBOXES = {
 
 /**
  * null when `cfg.sandbox` is unset (runs on the host, today's behavior). Throws on an unknown type.
- * @param {import('../types.js').Config} cfg
- * @returns {import('../types.js').Sandbox|null}
+ * @param {import('../types/index.js').Config} cfg
+ * @returns {import('../types/index.js').Sandbox|null}
  */
 export function createSandbox(cfg) {
   if (!cfg.sandbox) return null;

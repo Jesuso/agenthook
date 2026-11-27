@@ -11,7 +11,7 @@
   credentials' `env`, then step `env`, #470/#474; `runCredentials` = `forge.runCredentials` else
   `adapter.runCredentials` — a throw refuses the run like a preflight, `step.js` disposes them in a `finally`
   once the run settles; the GitHub App per-run token lives in `src/github/run-token.js`), `usage.js` (finalize,
-  energy), `routing.js`, `merge.js`, `ci.js`, and `runStep` cut in two: `step.js` (gates, worktree,
+  energy, and the pure `runUsageRecord`/`addTurns` that build the run's usage+cost record), `routing.js`, `merge.js`, `ci.js`, and `runStep` cut in two: `step.js` (gates, worktree,
   prompt — standing instructions + `stepPrompt` base joined by `=== TICKET ===` — and the spawn with
   `AGENTHOOK_VERDICT_FILE`) → `finish.js` (usage, verdict, run_end, `adapter.advance`, then the opt-in
   `forge.autoMerge` call in `src/auto-merge.js` when the approving step's move succeeded, or `auto_merge_skipped`; the enable is pinned to the PR head `step.js` recorded when the tier step started. A `changes`/`fail` first turns auto-merge off via `disableAutoMergeOnBounce` — as do a red-CI bounce in `ci.js`, `ops.cancel` and restart recovery — and a failed disable turns a `changes` into a `hold`. A `pr_push` signal job (forge `synchronize` webhook) runs `createPrPushGuard` outside the queue). A remote (ssh) run's **outbox** (#825) is the one extra phase in `finish.js`: `outbox.js` `readOutbox` parses `pr.json`/`comment.md` (caps, trigger-prefix refusal, unknown names logged never read) right BEFORE the per-run dir `rmSync` wipes them, and `publish.js` `publishOutbox` publishes them with the hub's own credentials (push → draft PR → comment) after every outcome rewrite has settled, before the step summary/drain/`advance` — the hold (a `.github/workflows/` commit) or the fail (a push rejection) coming out of it IS the applied outcome, and a PR/comment failure is one run-log line, never a failed step; `forge.publishBranch`/`openPr` and `adapter.postComment` are optional adapter methods (`src/forges/github.js`, `src/trackers/github.js` + `github-projects.js`). **Verdict**:
@@ -71,7 +71,7 @@
   then drains + emits `pipeline_done`) → optional `adapter.complete` (Asana: `completed:true`) → emit
   `merged`. A self-closing board skips the move and `complete` (see below).
 - `src/agents/*.js` — agent adapters: the coding-agent CLI a step spawns (`claude`, `cursor`, `hermes`, `opencode`). Interface
-  `AgentAdapter` (`src/types.js`): `describe` (optional `promptFile: true` — dispatch passes the prompt via a
+  `AgentAdapter` (`src/types/agents.js`): `describe` (optional `promptFile: true` — dispatch passes the prompt via a
   file, not argv, e.g. hermes' `--query-file`; optional `policy: {allow, deny}` — which step policies the CLI
   enforces, claude only; optional `sandboxResume: false` — a sandboxed run of this agent can never resume a
   session, opencode only), `buildArgs` (also gets the step's `allow`/`deny`, `cwd` and `verdictFile`), optional

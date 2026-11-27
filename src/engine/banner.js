@@ -8,7 +8,7 @@ import { isSandboxed } from "../sandbox/names.js";
  * The boot banner for `cfg.fullAuto`: a ⚠ block when no sandbox is configured (or some steps opt
  * out with `sandbox:false`), a one-line note when every non-manual step runs sandboxed, null when
  * fullAuto is off. See docs/sandbox.md.
- * @param {Pick<import('../types.js').Config, 'fullAuto'|'sandbox'|'pipeline'>} cfg
+ * @param {Pick<import('../types/index.js').Config, 'fullAuto'|'sandbox'|'pipeline'>} cfg
  * @param {{user?: string}} [o]  `user`: who runs the receiver (default `os.userInfo().username`)
  * @returns {string|null}
  */

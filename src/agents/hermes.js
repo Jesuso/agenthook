@@ -21,7 +21,7 @@ export const HERMES_REASONING_LEVELS = ["none", "minimal", "low", "medium", "hig
 export const HERMES_DEFAULT_TOOLSETS = ["terminal", "file"];
 
 /** A hermes step runs isolated unless it sets `isolated: false`.
- * @param {import('../types.js').Step|undefined} step */
+ * @param {import('../types/index.js').Step|undefined} step */
 const isIsolated = (step) => step?.isolated !== false;
 
 /**
@@ -61,7 +61,7 @@ const SESSION_ID_RE = /session_id:\s*(\S+)/;
  * the log (no structure to parse, so no token usage either — `tally` stays all zeros).
  * The session id comes from stderr's `session_id: <id>` line, captured once, split-chunk
  * safe via a line buffer. Never throws.
- * @returns {import('../types.js').AgentParser}
+ * @returns {import('../types/index.js').AgentParser}
  */
 export function createHermesParser() {
   const tally = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
@@ -111,7 +111,7 @@ export function createHermesParser() {
  * hermes reports no usage and agenthook has no Hermes price table. `bin` is tagged only
  * when the step's `bin` overrides the `agent` default.
  * @param {{ref:string, stepId:string, model?:string, bin?:string, startedAt:string, endedAt:string, result:any}} o
- * @returns {import('../types.js').UsageRecord}
+ * @returns {import('../types/index.js').UsageRecord}
  */
 export function buildHermesUsageRecord({ ref, stepId, model, bin, startedAt, endedAt, result }) {
   return {
@@ -192,7 +192,7 @@ export function hermesFinalize({ sessionId, bin, env, dir, timeoutMs }) {
   });
 }
 
-/** @type {import('../types.js').AgentAdapter} */
+/** @type {import('../types/index.js').AgentAdapter} */
 export const hermes = {
   describe: () => ({ name: "hermes", stdout: "text", promptFile: true }),
   envPassthrough: ["HERMES_HOME"],

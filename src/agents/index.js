@@ -9,7 +9,7 @@ import { opencode } from "./opencode.js";
 import { pi } from "./pi.js";
 import { DEFAULT_AGENT } from "./names.js";
 
-/** @type {Record<string, import('../types.js').AgentAdapter>} */
+/** @type {Record<string, import('../types/index.js').AgentAdapter>} */
 export const AGENTS = {
   claude,
   cursor,
@@ -22,7 +22,7 @@ export const AGENTS = {
  * The adapter registered under `name` (unset → the default agent). Throws on an unknown
  * name — config validation rejects one at load, so this only fires on a hand-built cfg.
  * @param {string} [name]
- * @returns {import('../types.js').AgentAdapter}
+ * @returns {import('../types/index.js').AgentAdapter}
  */
 export function getAgent(name = DEFAULT_AGENT) {
   const agent = Object.hasOwn(AGENTS, name) ? AGENTS[name] : undefined;
@@ -32,6 +32,6 @@ export function getAgent(name = DEFAULT_AGENT) {
 
 /**
  * The adapter a step runs: the step's `agent`, else the profile's, else the default.
- * @param {Pick<import('../types.js').Config, 'agent'>} cfg @param {Pick<import('../types.js').Step, 'agent'>} [step]
+ * @param {Pick<import('../types/index.js').Config, 'agent'>} cfg @param {Pick<import('../types/index.js').Step, 'agent'>} [step]
  */
 export const agentFor = (cfg, step) => getAgent(step?.agent ?? cfg.agent ?? DEFAULT_AGENT);

@@ -140,16 +140,16 @@ export function finishTeardown({ cfg, respawn, moveTo, archive }, deps = {}) {
  * The engine's exit paths over the shared engine state: `shutdown` (first signal drains, a
  * second force-kills), `forceExit`, `teardown` (shared by both) and `onFatal` (last resort).
  * @param {{
- *   cfg: import('../types.js').Config,
+ *   cfg: import('../types/index.js').Config,
  *   state: import('./context.js').EngineState,
  *   queue: ReturnType<typeof import('../queue.js').createQueue>,
- *   ingress: import('../types.js').Ingress,
+ *   ingress: import('../types/index.js').Ingress,
  *   heartbeat: ReturnType<typeof import('../heartbeat.js').createHeartbeat>,
  *   children: Set<import('node:child_process').ChildProcess>,
- *   store: import('../types.js').Store,
+ *   store: import('../types/index.js').Store,
  *   quotaPacer: {stop(): void},
- *   sandbox?: import('../types.js').Sandbox | null,
- *   executors?: {host: import('../types.js').Executor, sandbox?: import('../types.js').Executor, ssh?: Record<string, import('../types.js').Executor>},
+ *   sandbox?: import('../types/index.js').Sandbox | null,
+ *   executors?: {host: import('../types/index.js').Executor, sandbox?: import('../types/index.js').Executor, ssh?: Record<string, import('../types/index.js').Executor>},
  *   isRestartPending: () => boolean,
  *   isDecommissionPending: () => boolean,
  * }} deps

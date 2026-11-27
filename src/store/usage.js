@@ -6,7 +6,7 @@ import path from "node:path";
  * from the rewritten state files elsewhere: a finished run appends exactly one record,
  * so concurrent agents never read-modify-write the same file.
  * @param {string} dataDir
- * @returns {Pick<import('../types.js').Store, 'recordUsage'|'readUsage'>}
+ * @returns {Pick<import('../types/index.js').Store, 'recordUsage'|'readUsage'>}
  */
 export function usageSlice(dataDir) {
   const usageFile = path.join(dataDir, "usage.jsonl");

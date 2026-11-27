@@ -99,7 +99,7 @@ export async function run(args) {
 /**
  * Send `run` to the live receiver over its control socket (ops.js `run`: same existence,
  * completed and entryBlock guards). Exit 1 on refusal or a dead socket.
- * @param {import('../types.js').Config} cfg @param {string} ref @param {any} args
+ * @param {import('../types/index.js').Config} cfg @param {string} ref @param {any} args
  */
 async function runViaReceiver(cfg, ref, args) {
   const req = { ref, ...(args._[1] && { step: String(args._[1]) }), assign: args["no-assign"] !== true, force: args.force === true };

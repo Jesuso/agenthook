@@ -16,7 +16,7 @@ export function isStateDedupKey(key) {
  * tools (the `catchup` CLI) edit it out-of-band; the in-memory set would otherwise mask
  * those edits and silently dedup-skip a re-dispatch.
  * @param {string} dataDir
- * @returns {Pick<import('../types.js').Store, 'reloadSeen'|'hasSeen'|'markSeen'|'unmarkSeen'|'seenCount'|'seenFile'>}
+ * @returns {Pick<import('../types/index.js').Store, 'reloadSeen'|'hasSeen'|'markSeen'|'unmarkSeen'|'seenCount'|'seenFile'>}
  */
 export function seenSlice(dataDir) {
   const seenFile = path.join(dataDir, "seen.json");

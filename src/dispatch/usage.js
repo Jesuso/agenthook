@@ -1,7 +1,10 @@
-// Post-exit usage capture (agent.finalize) and per-run energy sampling.
+// Post-exit usage capture (agent.finalize), per-run energy sampling, and the run's usage/cost
+// record (runUsageRecord).
 import fs from "node:fs";
 import path from "node:path";
 import { agentSpawnEnv } from "./spawn.js";
+import { costOf } from "../shared/pricing.js";
+import { energyFields } from "../shared/energy.js";
 
 // Upper bound on an agent's best-effort post-exit usage export (hermes' `sessions export`,
 // #395): bounds the extra wait past the run itself, on top of the adapter's own timeout.
@@ -16,7 +19,7 @@ export function createUsage(ctx) {
    * the repo or worktree — removed afterwards, bounded by FINALIZE_TIMEOUT_MS on top of the
    * adapter's own timeout. A throw, a timeout or a null result is logged and treated as
    * "no usage"; it never touches the run's code/verdict.
-   * @param {import('../types.js').AgentAdapter} agent
+   * @param {import('../types/index.js').AgentAdapter} agent
    * @param {{sessionId: string, bin?: string, agentEnv?: Record<string,string>, env?: Record<string,string>, stepId: string, ref: string, logPath: string}} o
    */
   async function finalizeUsage(agent, { sessionId, bin, agentEnv, env, stepId, ref, logPath }) {
@@ -114,3 +117,86 @@ export function createUsage(ctx) {
 }
 
 /** @typedef {ReturnType<typeof createUsage>} Usage */
+
+/** @typedef {{turns: number, peakContext?: number, lastContext?: number, compactions?: number}} TurnStat */
+/** @typedef {{results: {result: unknown}[], turnStats: TurnStat[]}} ExtraTurns */
+
+/**
+ * Sum one extra set of turns (verdict-repair, #677, or gate-repair, #710) into `usage`: each
+ * turn's `usageRecord` (tokens add; `costUsd`/`durationMs` add when numbers; the last `sessionId`
+ * wins) then each turn's `turnStats` (`turns` add; `peakContext` takes the max with `?? 0`; the
+ * last `lastContext` wins; `compactions` add). A no-op when `turns` had no results.
+ * @param {import('../types/index.js').UsageRecord} usage
+ * @param {ExtraTurns|undefined} turns
+ * @param {import('../types/index.js').AgentAdapter} agent
+ * @param {import('../types/index.js').AgentUsageCtx} meta
+ */
+export function addTurns(usage, turns, agent, meta) {
+  if (!turns?.results?.length) return;
+  for (const r of turns.results) {
+    const ru = agent.usageRecord(r.result, meta);
+    for (const k of /** @type {const} */ (["input", "output", "cacheRead", "cacheCreate"])) usage[k] = (usage[k] || 0) + (ru[k] || 0);
+    if (typeof ru.costUsd === "number") usage.costUsd = (usage.costUsd || 0) + ru.costUsd;
+    if (typeof ru.durationMs === "number") usage.durationMs = (usage.durationMs || 0) + ru.durationMs;
+    if (typeof ru.sessionId === "string") usage.sessionId = ru.sessionId;
+  }
+  for (const ts of turns.turnStats) {
+    usage.turns = (usage.turns || 0) + (ts.turns || 0);
+    if (typeof ts.peakContext === "number") usage.peakContext = Math.max(usage.peakContext ?? 0, ts.peakContext);
+    if (typeof ts.lastContext === "number") usage.lastContext = ts.lastContext;
+    if (typeof ts.compactions === "number") usage.compactions = (usage.compactions || 0) + ts.compactions;
+  }
+}
+
+/**
+ * The run's usage and cost record: one per run, summed across the first turn and every
+ * verdict-repair (#677) and gate-repair (#710) turn, ready for `store.recordUsage` and run_end.
+ * @param {{agent: import('../types/index.js').AgentAdapter, result: unknown, meta: import('../types/index.js').AgentUsageCtx, finalized: {input?: number, output?: number, cacheRead?: number, cacheCreate?: number, model?: string}|null, model: string|undefined, turnStats: TurnStat|undefined, repair: ExtraTurns|undefined, gate: ExtraTurns|undefined, harness: {harness?: string|null}, remoteCwd: string|undefined, energy: {kWh: number}|null, cfg: Pick<import('../types/index.js').Config, "pricing"|"harnesses"|"energy">}} o
+ */
+export function runUsageRecord({ agent, result, meta, finalized, model, turnStats, repair, gate, harness, remoteCwd, energy, cfg }) {
+  const usage = agent.usageRecord(result, meta);
+  // An adapter that reports no `duration_ms` (opencode, hermes) still has a wall time: derive
+  // it from the run's own timestamps. Adapters that report their own (claude, cursor) keep it.
+  if (usage.durationMs === undefined) {
+    const d = Date.parse(meta.endedAt) - Date.parse(meta.startedAt);
+    if (Number.isFinite(d)) usage.durationMs = d;
+  }
+  if (finalized) {
+    for (const k of /** @type {const} */ (["input", "output", "cacheRead", "cacheCreate"])) {
+      if (typeof finalized[k] === "number" && Number.isFinite(finalized[k]) && finalized[k] >= 0) usage[k] = finalized[k];
+    }
+    // Only overlay the model when the step resolved none of its own — the record's model
+    // is still the adapter's unpriced placeholder (hermes: "hermes"), which the rate table
+    // can't match.
+    if (finalized.model && !model) usage.model = finalized.model;
+  }
+  // Per-turn stats the parser saw (#645): turns/firstContext/peakContext/lastContext, only
+  // when the parser counted at least one turn — hermes' `finalize` never sets these.
+  if (turnStats) Object.assign(usage, turnStats);
+  // Verdict-repair (#677) and gate-repair (#710): sum each extra turn's usage into this single
+  // record — tokens, cost and duration add; peakContext is the max across every turn;
+  // lastContext and sessionId come from the final turn, so `ah resume` picks up the latest session.
+  addTurns(usage, repair, agent, meta);
+  addTurns(usage, gate, agent, meta);
+  // A harness may have switched the agent: name it, so follow/resume find the run's transcript.
+  if (harness.harness) usage.agent = agent.describe().name;
+  // ...and the harness itself, so status can sum usage per harness (`harnessUsage`).
+  if (typeof harness.harness === "string" && harness.harness) usage.harness = harness.harness;
+  // A remote run (#830) carries where it lived, so follow/resume can reach the session on the
+  // worker: the host + the worker cwd `executor.paths()` returned. Absent on older records —
+  // those sessions can't be located on the worker (`resume` says so).
+  if (remoteCwd) {
+    const h = typeof harness.harness === "string" ? harness.harness : undefined;
+    if (h) usage.host = cfg.harnesses?.[h]?.remote?.host;
+    usage.remoteCwd = remoteCwd;
+  }
+  // Stamp the basis (src/shared/pricing.js): a reported run keeps `costUsd` alone; otherwise an
+  // API-equivalent `estUsd` from the rate table, when the model has a rate and tokens.
+  const priced = costOf(usage, cfg.pricing);
+  if (priced.estUsd !== undefined) usage.estUsd = priced.estUsd;
+  if (priced.costBasis) usage.costBasis = priced.costBasis;
+  // A third, independent figure — never folded into costUsd/estUsd/costBasis.
+  const energyRec = energy && cfg.energy ? energyFields(energy.kWh, cfg.energy.usdPerKwh, cfg.energy.source.type) : null;
+  if (energyRec) Object.assign(usage, energyRec);
+  return usage;
+}

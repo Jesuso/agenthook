@@ -76,7 +76,7 @@ async function stop(proc) {
 }
 
 /** `timeoutMs` (default 30s) bounds startup; tests shorten it. Not a config key.
- * @type {import('../types.js').IngressFactory} */
+ * @type {import('../types/index.js').IngressFactory} */
 export function createCloudflaredIngress(cfg, { timeoutMs = 30_000 } = {}) {
   const opts = cfg.ingress || { type: "cloudflared" };
   const tunnel = opts.tunnel || "";

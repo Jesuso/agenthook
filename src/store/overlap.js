@@ -6,7 +6,7 @@ import { readJson } from "./read-json.js";
  * file-overlap guard (opt-in): predicted paths, locks, waiting refs. Only written when
  * cfg.overlapGuard is on.
  * @param {string} dataDir
- * @returns {Pick<import('../types.js').Store, 'getPredictedPaths'|'setPredictedPaths'|'clearPredictedPaths'|'getLock'|'setLock'|'clearLock'|'listLocks'|'getOverlap'|'setOverlap'|'clearOverlap'|'listOverlap'>}
+ * @returns {Pick<import('../types/index.js').Store, 'getPredictedPaths'|'setPredictedPaths'|'clearPredictedPaths'|'getLock'|'setLock'|'clearLock'|'listLocks'|'getOverlap'|'setOverlap'|'clearOverlap'|'listOverlap'>}
  */
 export function overlapSlice(dataDir) {
   const pathsFile = path.join(dataDir, "paths.json");

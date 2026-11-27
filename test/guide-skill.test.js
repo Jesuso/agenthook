@@ -17,7 +17,7 @@ import { createTools } from "../src/mcp/tools.js";
 const tmp = (p) => fs.mkdtempSync(path.join(os.tmpdir(), p));
 const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? walk(path.join(dir, d.name)) : [path.join(dir, d.name)]));
 
-/** @param {Partial<import('../src/types.js').Config>} o */
+/** @param {Partial<import('../src/types/index.js').Config>} o */
 const cfg = (o) => /** @type {any} */ ({ name: "p", trigger: "@agent", repoPath: "/r", repos: [], ...o });
 
 test("guideTopics: the static sections plus authoring; the MCP tool lists the same", async () => {

@@ -21,11 +21,11 @@ export function intakeEvent(accepted, wasInflight) {
  * have that cleanup wipe the new run's state. So a job whose ref still has a queued or
  * running job is parked and flushed through `intake` when the ref's last job settles
  * (`whenRefFree`, event-driven); any other job goes straight to `intake`.
- * @param {{hasRef: (ref: string) => boolean, whenRefFree: (ref: string, fn: () => void) => void, intake: (jobs: import('../types.js').Job[]) => unknown}} deps
- * @returns {(jobs: import('../types.js').Job[]) => void}
+ * @param {{hasRef: (ref: string) => boolean, whenRefFree: (ref: string, fn: () => void) => void, intake: (jobs: import('../types/index.js').Job[]) => unknown}} deps
+ * @returns {(jobs: import('../types/index.js').Job[]) => void}
  */
 export function createPushSink({ hasRef, whenRefFree, intake }) {
-  /** @type {Map<string, import('../types.js').Job[]>} ref → jobs parked behind its current run */
+  /** @type {Map<string, import('../types/index.js').Job[]>} ref → jobs parked behind its current run */
   const parked = new Map();
   return (jobs) => {
     for (const job of jobs || []) {

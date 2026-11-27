@@ -119,7 +119,7 @@ export function sandboxHarness(steps, { inner, forge = null, sandbox = { type: "
   const events = [];
   const emit = (/** @type {string} */ event, /** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ data) => void events.push({ event, ref, stepId, data });
   const run = createDispatcher(cfg, adapter, undefined, store, emit, forge, undefined, { killGraceMs: 200, sandbox: createSandbox(cfg) });
-  /** @param {string} stepId @param {Partial<import('../src/types.js').Job>} [extra] */
+  /** @param {string} stepId @param {Partial<import('../src/types/index.js').Job>} [extra] */
   const go = async (stepId, extra) => {
     const l = console.log;
     console.log = () => {};

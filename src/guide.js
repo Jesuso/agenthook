@@ -122,7 +122,7 @@ export const PROVIDERS = {
 
 /**
  * Render the `authoring` topic for one loaded config. Pure.
- * @param {import('./types.js').Config} cfg
+ * @param {import('./types/index.js').Config} cfg
  */
 export function renderAuthoring(cfg) {
   const p = PROVIDERS[cfg.provider];

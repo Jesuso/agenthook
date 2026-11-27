@@ -28,7 +28,7 @@ export function createCi(ctx) {
       emit?.("ci_red", ref, cur?.id ?? "", { action: "skipped", ...extra });
       return;
     }
-    /** @type {import('../types.js').Verdict} */
+    /** @type {import('../types/index.js').Verdict} */
     const verdict = { outcome: "changes", target: b.target, reason: b.text, findings: b.text };
     guardChanges(ref, cur.id, verdict, "ci");
     // forge.autoMerge: an approved PR going back for a CI fix must not merge the fix unreviewed.
@@ -72,7 +72,7 @@ export function createCi(ctx) {
    * The log goes ONLY to the PR comment — findings/reason are receiver-built text, since
    * the PR head controls CI output and the rework prompt feeds a fullAuto agent.
    * Fail-closed on the assignee, like runMerge.
-   * @param {import('../types.js').Job} job
+   * @param {import('../types/index.js').Job} job
    */
   async function runCi(job) {
     /** @param {{name?: string, url?: string}} [t] */

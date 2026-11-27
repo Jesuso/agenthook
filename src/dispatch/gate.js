@@ -20,7 +20,7 @@ const GATE_TAIL_BUF_BYTES = 4 * 1024;
  * own mounts/egress/image, then spawns the wrapped client command; ssh runs it on the worker via
  * a `raw` launch (code already synced there by the main run). An executor with no way to run a
  * gate (an unrecognized `executor.name`) vetoes with a reason instead of falling back to the host.
- * @param {{executor: import('../types.js').Executor, sandboxedRun?: {mounts: import('../types.js').SandboxMount[], step: import('../types.js').Step, env?: Record<string,string>, egress?: import('../types.js').SandboxEgress, image?: string, hub?: {repoId: string, repoPath: string, worktree?: string, branch?: string}}, argv: string[], cwd: string, env: Record<string,string>, timeoutMs: number, ref: string, stepId: string, runId: string, logPath: string, pids: Map<string, number>, executorRuns: Map<string, import('../types.js').ExecutorRun>, cancelled: Set<string>, logLine: (logPath: string, line: string) => void}} o
+ * @param {{executor: import('../types/index.js').Executor, sandboxedRun?: {mounts: import('../types/index.js').SandboxMount[], step: import('../types/index.js').Step, env?: Record<string,string>, egress?: import('../types/index.js').SandboxEgress, image?: string, hub?: {repoId: string, repoPath: string, worktree?: string, branch?: string}}, argv: string[], cwd: string, env: Record<string,string>, timeoutMs: number, ref: string, stepId: string, runId: string, logPath: string, pids: Map<string, number>, executorRuns: Map<string, import('../types/index.js').ExecutorRun>, cancelled: Set<string>, logLine: (logPath: string, line: string) => void}} o
  * @returns {Promise<{exitCode: number|null, timedOut: boolean, durationMs: number, tail: string, refused?: string}>}
  */
 export async function runGate({ executor, sandboxedRun, argv, cwd, env, timeoutMs, ref, stepId, runId, logPath, pids, executorRuns, cancelled, logLine }) {
@@ -29,11 +29,11 @@ export async function runGate({ executor, sandboxedRun, argv, cwd, env, timeoutM
   const args = argv.slice(1);
   /** @type {{bin: string, args: string[], env: Record<string,string>}} */
   let launch = { bin, args, env };
-  /** @type {import('../types.js').ExecutorRun|undefined} */
+  /** @type {import('../types/index.js').ExecutorRun|undefined} */
   let box;
   if (executor.name === "sandbox") {
     try {
-      box = await executor.launch({ runId, ref, stepId, bin, args, env: containerEnv(env), cwd, mounts: sandboxedRun?.mounts ?? [], step: /** @type {import('../types.js').Step} */ (sandboxedRun?.step), ...(sandboxedRun?.egress ? { egress: sandboxedRun.egress } : {}), ...(sandboxedRun?.image ? { image: sandboxedRun.image } : {}) });
+      box = await executor.launch({ runId, ref, stepId, bin, args, env: containerEnv(env), cwd, mounts: sandboxedRun?.mounts ?? [], step: /** @type {import('../types/index.js').Step} */ (sandboxedRun?.step), ...(sandboxedRun?.egress ? { egress: sandboxedRun.egress } : {}), ...(sandboxedRun?.image ? { image: sandboxedRun.image } : {}) });
     } catch (e) {
       return { exitCode: null, timedOut: false, durationMs: Date.now() - started, tail: "", refused: `gate could not start on the sandbox executor: ${e.message}` };
     }
@@ -41,7 +41,7 @@ export async function runGate({ executor, sandboxedRun, argv, cwd, env, timeoutM
     launch = { bin: box.bin, args: box.args, env: { ...runtimeEnv(process.env), ...box.env } };
   } else if (executor.name === "ssh") {
     try {
-      box = await executor.launch({ runId, ref, stepId, bin, args, env, cwd, mounts: [], step: /** @type {import('../types.js').Step} */ (sandboxedRun?.step), ...(sandboxedRun?.hub ? { hub: sandboxedRun.hub } : {}), raw: true });
+      box = await executor.launch({ runId, ref, stepId, bin, args, env, cwd, mounts: [], step: /** @type {import('../types/index.js').Step} */ (sandboxedRun?.step), ...(sandboxedRun?.hub ? { hub: sandboxedRun.hub } : {}), raw: true });
     } catch (e) {
       return { exitCode: null, timedOut: false, durationMs: Date.now() - started, tail: "", refused: `gate could not start on the ssh executor: ${e.message}` };
     }

@@ -5,10 +5,16 @@ import fs from "node:fs";
 import { CONFIG_SCHEMA, NO_FORM, schemaEntry, stepEntry } from "../src/shared/config-schema.js";
 import { SENSITIVE_FIELDS } from "../src/shared/contract.js";
 
-// Drift guard: every key the config typedefs in src/types.js declare must have a schema entry
+// Drift guard: every key the config typedefs in src/types/ declare must have a schema entry
 // (so the forms can reach it) or a NO_FORM reason. Adding a @property without either fails here.
 
-const TYPES = fs.readFileSync(new URL("../src/types.js", import.meta.url), "utf8");
+const TYPES_DIR = new URL("../src/types/", import.meta.url);
+const TYPES = fs
+  .readdirSync(TYPES_DIR)
+  .filter((f) => f.endsWith(".js"))
+  .sort()
+  .map((f) => fs.readFileSync(new URL(f, TYPES_DIR), "utf8"))
+  .join("\n");
 
 /** The `{…}` starting at `s[i]` (balanced braces), and the index just past it. @param {string} s @param {number} i */
 function braced(s, i) {
@@ -23,7 +29,7 @@ function braced(s, i) {
 /** `@property` name → its type text, for the JSDoc block that declares `@typedef {object} <name>`. @param {string} name */
 function typedefProps(name) {
   const block = TYPES.split("/**").find((b) => new RegExp(`@typedef \\{object\\} ${name}\\s`).test(b.split("*/")[0]));
-  assert.ok(block, `typedef ${name} not found in src/types.js`);
+  assert.ok(block, `typedef ${name} not found in src/types/`);
   const text = block.split("*/")[0];
   /** @type {Map<string, string>} */
   const props = new Map();
