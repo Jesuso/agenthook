@@ -236,7 +236,14 @@ same-repo `agent/<ref>` branch becomes a `{kind:'ci', dedupKey:'ci:<run>:<attemp
 (`forge.redCi:false` disables): dispatch's `runCi` re-runs failed jobs on attempt 1, else posts
 the log tail as a **PR comment only** (never into findings/prompts — the PR head controls it) and
 bounces `changes` → `forge.ciTarget` (default the `createsWorktree` step) through the shared
-`guardChanges` cap, parking it (`store.setCiRed`) while a step runs on the ref.
+`guardChanges` cap, parking it (`store.setCiRed`, with the red sha) while a step runs on the ref.
+A park landing on a step downstream of the target turns that step's clean `advance` into the
+bounce on exit (`finishStep`); a park landing on the target step's **own** run can't do that the
+same way (re-entering the source label it's already in fires no webhook), so `finishStep`
+re-parks it instead once that run's own `advance` has landed, but only if the PR head is still on
+the sha that went red — a moved head drops the stale bounce. The late path (`src/dispatch/index.js`,
+`runClaude`'s `finally`) then takes the re-parked bounce and applies it from wherever the task
+lands next.
 
 `runMerge` is a **bridge** for boards that can't hear merges. It is skipped (no `enterStage`, no
 `complete`; only the direct drain + per-ref clears, `clearSummaries`, `prState:"merged"`,

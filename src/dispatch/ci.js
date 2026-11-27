@@ -150,7 +150,7 @@ export function createCi(ctx) {
     store?.markSeen(key);
     const text = `CI failed${ci.attempt > 1 ? " twice" : ""} on ${sha7} (run ${ci.url}, attempt ${ci.attempt}). The failing log tail is posted on PR #${pr.number}.`;
     if (busy.has(job.ref) || store?.listRunning()?.[job.ref]) {
-      store?.setCiRed(job.ref, { target: target.id, text });
+      store?.setCiRed(job.ref, { target: target.id, text, sha: ci.headSha });
       console.log(`[ci] ${job.ref} has a run in flight — bounce to "${target.id}" parked until it exits`);
       emit?.("ci_red", job.ref, "", { action: "deferred", target: target.id, ...extra });
       return done(task);

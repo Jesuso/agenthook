@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { createDispatcher } from "../src/dispatch.js";
 import { createStore } from "../src/store/index.js";
 import { heldHarness } from "./_dispatch-helpers.js";
@@ -198,6 +199,12 @@ function ciHarness(o = {}) {
   /** @type {any[]} */
   const comments = [];
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ci-"));
+  execFileSync("git", ["init", "-q", dir]);
+  execFileSync("git", ["-C", dir, "config", "user.email", "a@a.com"]);
+  execFileSync("git", ["-C", dir, "config", "user.name", "a"]);
+  fs.writeFileSync(path.join(dir, "f"), "x\n");
+  execFileSync("git", ["-C", dir, "add", "f"]);
+  execFileSync("git", ["-C", dir, "commit", "-q", "-m", "init"]);
   const claude = path.join(dir, "fake-claude.sh");
   fs.writeFileSync(claude, `#!/bin/sh\nprintf '%s' '${JSON.stringify(o.verdict ?? { outcome: "advance" })}' > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
   const cfg = { pipeline: CI_PIPELINE, repoPath: dir, dataDir: dir, logDir: dir, claudeBin: claude, forge: { type: "github", ...(o.autoMerge ? { autoMerge: o.autoMerge } : {}) } };
@@ -382,6 +389,83 @@ test("ci: a parked bounce yields to review's own changes/hold/fail verdict", asy
     assert.equal(h.advances[0].reason, verdict.reason);
     assert.equal(h.store.takeCiRed("7"), undefined);
   }
+});
+
+test("ci: a bounce parked while the target step itself runs is re-parked when it advances with the PR head unchanged, then bounced by the late path", async () => {
+  const h = ciHarness({ verdict: { outcome: "advance", reason: "done" } });
+  h.store.setRunning("7", { stepId: "code", startedAt: new Date().toISOString() });
+  await h.run(ciJob(2));
+  assert.deepEqual(h.advances, [], "no move while code runs");
+  assert.ok(h.events.some((e) => e.event === "ci_red" && e.action === "deferred"));
+  h.store.clearRunning("7");
+  await h.run({ kind: "pipeline", ref: "7", stepId: "code", dedupKey: "step:code:7" });
+  assert.equal(h.advances.length, 2, "code's own advance, then the late path's bounce");
+  assert.equal(h.advances[0].stepId, "code");
+  assert.equal(h.advances[0].outcome, "advance");
+  assert.ok(h.events.some((e) => e.event === "ci_red" && e.action === "bounced" && e.target === "code"), "the late path bounced it back from review");
+  assert.equal(h.advances.at(-1).stepId, "review");
+  assert.equal(h.advances.at(-1).outcome, "changes");
+  assert.equal(h.advances.at(-1).target, "code");
+  assert.equal(h.store.takeCiRed("7"), undefined, "parked bounce consumed");
+});
+
+// A forge whose `prHead` answers the park-time lookup (a numbered call) with `atPark`'s sha
+// and the later `currentPrHead` re-check (the unnumbered call, no stored PR number) with
+// `later` — so a bounce can park successfully and then see a *different* head at finish time.
+/** @param {{atPark?: any, later?: any, laterThrows?: boolean}} o */
+function movingHeadForge(o = {}) {
+  return {
+    prHead: async (/** @type {number|null} */ n) => {
+      if (n === null) {
+        if (o.laterThrows) throw new Error("500");
+        return o.later ?? { number: 5, sha: "newer00", open: true };
+      }
+      return o.atPark ?? { number: 5, sha: SHA, open: true };
+    },
+    rerunFailedJobs: async () => {},
+    failedLogTail: async () => LOG,
+    prComment: async () => {},
+  };
+}
+
+test("ci: a bounce parked while the target step runs drops if the PR head moved on by the time it advances", async () => {
+  const h = ciHarness({ verdict: { outcome: "advance", reason: "done" }, forge: movingHeadForge() });
+  h.store.setRunning("7", { stepId: "code", startedAt: new Date().toISOString() });
+  await h.run(ciJob(2));
+  assert.ok(h.events.some((e) => e.event === "ci_red" && e.action === "deferred"), "parked successfully at the old head");
+  h.store.clearRunning("7");
+  await h.run({ kind: "pipeline", ref: "7", stepId: "code", dedupKey: "step:code:7" });
+  assert.equal(h.advances.length, 1, "only code's own advance — no bounce");
+  assert.equal(h.advances[0].stepId, "code");
+  assert.ok(!h.events.some((e) => e.event === "ci_red" && e.action === "bounced"));
+  assert.equal(h.store.takeCiRed("7"), undefined, "parked bounce consumed, not re-parked");
+});
+
+test("ci: a bounce parked while the target step runs drops if the PR head can't be read when it advances", async () => {
+  const h = ciHarness({ verdict: { outcome: "advance", reason: "done" }, forge: movingHeadForge({ laterThrows: true }) });
+  h.store.setRunning("7", { stepId: "code", startedAt: new Date().toISOString() });
+  await h.run(ciJob(2));
+  assert.ok(h.events.some((e) => e.event === "ci_red" && e.action === "deferred"), "parked successfully at the old head");
+  h.store.clearRunning("7");
+  const err = console.error;
+  console.error = () => {};
+  try {
+    await h.run({ kind: "pipeline", ref: "7", stepId: "code", dedupKey: "step:code:7" });
+  } finally {
+    console.error = err;
+  }
+  assert.equal(h.advances.length, 1, "only code's own advance — no bounce");
+  assert.ok(!h.events.some((e) => e.event === "ci_red" && e.action === "bounced"));
+  assert.equal(h.store.takeCiRed("7"), undefined, "parked bounce consumed, not re-parked");
+});
+
+test("ci: setCiRed stores the sha; a parked entry without one still drops when the target advances", async () => {
+  const h = ciHarness({ verdict: { outcome: "advance", reason: "done" } });
+  h.store.setCiRed("7", { target: "code", text: "no sha here" });
+  await h.run({ kind: "pipeline", ref: "7", stepId: "code", dedupKey: "step:code:7" });
+  assert.equal(h.advances.length, 1, "only code's own advance — no bounce");
+  assert.ok(!h.events.some((e) => e.event === "ci_red" && e.action === "bounced"));
+  assert.equal(h.store.takeCiRed("7"), undefined, "dropped, not re-parked");
 });
 
 // --- forge.autoMerge wiring: the approving step's final advance reaches the forge, nothing else does ---

@@ -10,7 +10,7 @@ import { energyFields } from "../shared/energy.js";
 import { timeoutReason, NO_VALID_VERDICT, QUESTION_HOLD, ASSUMED_ADVANCE_SUFFIX, endedWithQuestion, guardSandboxVerdict } from "./verdict.js";
 import { harnessesOf, healthTrip } from "./harness.js";
 import { followUpDecision } from "../followup.js";
-import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMergeOnBounce, holdAutoMergeSlot } from "../auto-merge.js";
+import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMergeOnBounce, holdAutoMergeSlot, currentPrHead } from "../auto-merge.js";
 import { readOutbox } from "./outbox.js";
 import { publishOutbox } from "./publish.js";
 
@@ -379,14 +379,18 @@ export function createFinish(ctx) {
     }
 
     // A red-CI bounce parked while this run was in flight: a downstream step's clean
-    // `advance` becomes `changes` → the CI target (the guard below still caps it). Any
-    // other case drops it — the target itself is reworking, or the verdict already takes
-    // the task off the happy path (changes/fail/hold stand).
+    // `advance` becomes `changes` → the CI target (the guard below still caps it). The
+    // target's OWN run advancing can't do that the same way — re-entering the source label
+    // it's already in fires no webhook (github.js:745,799-802) — so that case is decided
+    // after the move, once the PR head is known (see `selfTarget` below). Every other case
+    // drops it now — the verdict already takes the task off the happy path (changes/fail/hold
+    // stand).
     const parked = store?.takeCiRed(job.ref);
     const ciBounce = !!parked && verdict.outcome === "advance" && stepIndex(step.id) > stepIndex(parked.target);
+    const selfTarget = !!parked && verdict.outcome === "advance" && stepIndex(step.id) === stepIndex(parked.target) && !!parked.sha;
     if (parked && ciBounce) {
       Object.assign(verdict, { outcome: "changes", target: parked.target, reason: parked.text, findings: parked.text });
-    } else if (parked) {
+    } else if (parked && !selfTarget) {
       console.log(`[ci] drop parked bounce for ${job.ref} (${step.id} -> ${verdict.outcome})`);
     }
 
@@ -478,6 +482,23 @@ export function createFinish(ctx) {
     } catch (e) {
       console.error(`[advance] ${step.id} ${job.ref} (${verdict.outcome}) failed:`, e.message);
       reportMoveFailure(emit, job.ref, step.id, verdict.outcome, e);
+    }
+
+    // The target step's own run just advanced with a red-CI bounce parked for it: the move
+    // itself can't re-fire it (see above), so re-park the bounce if the PR head is still on
+    // the sha that went red — read only now, after a remote run's outbox push already
+    // happened. `index.js`'s late path then bounces it from wherever the task lands next. A
+    // moved head gets its own CI run and drops this one, same as a failed move.
+    if (parked && selfTarget) {
+      const head = moved ? await currentPrHead(forge, store, job.ref) : null;
+      if (head && head === parked.sha) {
+        const newer = store?.takeCiRed(job.ref); // a `ci` job that ran during this finish parked a fresher one
+        store?.setCiRed(job.ref, newer ?? parked);
+        console.log(`[ci] ${job.ref}: ${step.id} advanced with CI still red on ${String(parked.sha).slice(0, 7)} — bounce re-parked`);
+      } else {
+        const why = !moved ? "move failed" : head ? `PR head moved to ${head.slice(0, 7)}` : "PR head unreadable";
+        console.log(`[ci] drop parked bounce for ${job.ref} (${step.id} -> ${verdict.outcome}, ${why})`);
+      }
     }
 
     // Opt-in auto-merge (forge.autoMerge): the approving step advanced with an allowed risk tier

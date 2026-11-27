@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- Fix: a red-CI bounce parked while the CI target step (`code`) itself was still running used to
+  be dropped on that run's clean `advance`, even when the run pushed no fix and CI was still red
+  on the PR head — the ticket would advance to `review` with no way back to `code` (#869). The
+  parked bounce now also records the sha that went red (`store.setCiRed`); when the target's own
+  run advances, the PR head is re-checked after the move, and if it's still on that sha the
+  bounce is re-parked instead of dropped, so the existing late-bounce path (`src/dispatch/index.js`)
+  applies it from the next step. A moved head (or an unreadable one) still drops it.
 - New: remote (ssh) runs are hardened against a worker that is untrusted input to the hub (#829,
   #681 phase 5c). Every git call on the hub-side publish path (`fetch`/`log`/`diff`/`push`) is
   time-capped (60 s, then killed) and runs with hooks and fsmonitor disabled (`core.hooksPath=/dev/null`,
