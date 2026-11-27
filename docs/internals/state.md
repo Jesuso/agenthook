@@ -46,6 +46,11 @@
   `setStateIdInConfigText` + `atomicSave`; a failed write renames the dir back). A running
   receiver moves in `teardown()` of a `restart {when:'idle', moveTo}` (after the pidfile is gone,
   before `spawnDetached`, which then logs into the new dir); a failed move restarts on the old key.
+- `src/atomic-save.js` — the one safe way to change a file in a profile's state dir: `readCurrent`
+  (bytes, mode, sha256), `atomicSave` (temp file → fsync → one-generation backup via
+  `backupPathFor` → rename) and `appendAudit` (a line in `ui-audit.jsonl`). Used by the panel's
+  two editors (`src/ui/config.js`, `src/ui/instructions.js`), `state-move.js`, `archive.js` and
+  `src/commands/rename.js`.
 - `src/archive.js` — `archiveStateDir` (epic #209): rename a **stopped** profile's state dir to
   `<registry>-archive/<key>-<UTC stamp>/` (refuses `.`/`..`, a live pid, an existing target, cross-fs)
   + audit line. The engine's control-socket `decommission {when:'idle'}` pauses like `restart`,

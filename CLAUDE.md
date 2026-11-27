@@ -77,7 +77,7 @@ dedupKey, comment? }`. Adapters produce jobs; the engine only ever sees jobs. `s
 - Keep `npm run typecheck` green when touching `src/`.
 - `seen.json` is reloaded from disk on every batch (`catchup` edits it out-of-band; disk is the
   source of truth).
-- The only UI file writes go through `src/ui/save.js` (`atomicSave`) — never write a state dir
+- The only UI file writes go through `src/atomic-save.js` (`atomicSave`) — never write a state dir
   from elsewhere in `src/ui/*`.
 - A new config key needs a `src/shared/config-schema.js` entry (a test enforces it).
 - Update `docs/agent-guide.md` when an MCP tool, event, or error message changes.

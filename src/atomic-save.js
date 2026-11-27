@@ -1,16 +1,14 @@
-// `ah ui` shared save path (docs/web-ui.md § v2, § v3) — the only code in src/ui that writes.
-// Both editors (instructions.js writeInstructionFile, config.js writeConfigFile) resolve and
-// validate their own target, then hand the bytes here: an atomic replace of the file, a
-// one-generation backup under the profile's state dir, and a line in its `ui-audit.jsonl` via
-// `appendAudit`. `POST /api/restart` (server.js, no file write) uses `appendAudit` directly to
-// log its outcome.
+// Atomic file save (epic #839, ticket 9). The one safe way to change a file in a profile's
+// state dir: checks the file against the version the caller read, backs up the old copy, writes
+// atomically and appends an audit line. Used by the panel's two editors (src/ui/config.js
+// writeConfigFile, src/ui/instructions.js writeInstructionFile) plus src/state-move.js,
+// src/archive.js and src/commands/rename.js, which hand it bytes without a web request behind
+// them. `POST /api/restart` (src/ui/server.js, no file write) uses `appendAudit` directly to log
+// its outcome.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { sha256 } from "../reader/rows.js";
-
-/** Largest file either editor reads or writes (and the PUT body cap). */
-export const UI_MAX_BYTES = 256 * 1024;
+import { sha256 } from "./reader/rows.js";
 
 /**
  * Where the one-generation backup of a saved file lives: the profile's state dir, never beside

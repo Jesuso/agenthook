@@ -14,7 +14,7 @@ import { renameInConfigText } from "../json-edit.js";
 import { controlSockPath } from "../paths.js";
 import { tildify } from "../profile.js";
 import { checkMove, moveStateDir } from "../state-move.js";
-import { atomicSave, readCurrent } from "../ui/save.js";
+import { atomicSave, readCurrent } from "../atomic-save.js";
 import { sendRestart } from "./restart.js";
 
 /**

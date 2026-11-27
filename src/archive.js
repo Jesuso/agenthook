@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ensurePrivateDir, registryDir, validName } from "./config/index.js";
 import { readProfile } from "./heartbeat.js";
-import { appendAudit } from "./ui/save.js";
+import { appendAudit } from "./atomic-save.js";
 
 /** The archive root beside a registry: `~/.agenthook` → `~/.agenthook-archive`. @param {string} [registry] */
 export const archiveRoot = (registry = registryDir) => `${registry}-archive`;

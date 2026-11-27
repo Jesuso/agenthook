@@ -2,16 +2,17 @@
 // `agenthook.config.json` — exactly the file at the receiver-published heartbeat.configPath; no
 // request param ever names a path. Validation is src/config/validate/'s pure validateRawConfig over the
 // raw text (`${VAR}` refs stay opaque, env is never read); `ah ui` still loads no config. A save
-// goes through save.js (backup under the profile's `config-bak/`) and its audit line also names
-// the SENSITIVE_FIELDS paths that changed. The receiver reads config at boot, so a save always
-// answers `restartNeeded: true`.
+// goes through src/atomic-save.js (backup under the profile's `config-bak/`) and its audit line
+// also names the SENSITIVE_FIELDS paths that changed. The receiver reads config at boot, so a
+// save always answers `restartNeeded: true`.
 import fs from "node:fs";
 import path from "node:path";
 import { literalSecrets, validateRawConfig } from "../config/index.js";
 import { listProfiles } from "../heartbeat.js";
 import { profileDir } from "../reader/run-logs.js";
 import { isObj, readJson, sha256 } from "../reader/rows.js";
-import { UI_MAX_BYTES, atomicSave, readCurrent } from "./save.js";
+import { atomicSave, readCurrent } from "../atomic-save.js";
+import { UI_MAX_BYTES } from "./limits.js";
 import { sensitiveChanges } from "../shared/sensitive.js";
 
 // Re-exported so existing importers keep working; the implementation lives in sensitive.js.
@@ -90,7 +91,7 @@ export function readConfigFile(registry, profile) {
  * **label collision**: only when the new `name` actually differs from the old parsed file's
  * `name` (so a pre-existing collision doesn't block an unrelated save), the new name must not
  * equal another registry profile's label or state key → else 422; any 422 writes nothing (no
- * temp, no backup, no audit); then save.js atomicSave with the backup under `config-bak/` and
+ * temp, no backup, no audit); then atomic-save.js atomicSave with the backup under `config-bak/` and
  * the audit line's `sensitive` = sensitiveChanges(old, new). Fully synchronous, so concurrent
  * saves with one `baseHash` get exactly one 200 and one 409.
  * @param {string} registry @param {string} profile @param {string} baseHash @param {string} text

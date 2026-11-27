@@ -171,8 +171,8 @@ test("static: traversal and NUL paths never escape distDir", async () => {
   }
 });
 
-/** The one writer in src/ui (save.js atomicSave, behind both editors) and the write-ish fs calls it needs. */
-const WRITER = "save.js";
+/** The one writer (atomic-save.js atomicSave, behind both editors) and the write-ish fs calls it needs. */
+const WRITER = "atomic-save.js";
 const WRITER_CALLS = new Set(["fchmodSync", "writeSync", "renameSync", "unlinkSync", "appendFileSync", "mkdirSync"]); // mkdirSync: the 0700 instructions-bak/ / config-bak/ dir
 const WRITES = /^[fl]?(write|writev|append|mkdir|mkdtemp|rm|rmdir|unlink|rename|copyFile|cp|truncate|symlink|link|chmod|chown|utimes|createWriteStream)(File)?(Sync)?$/;
 
@@ -191,12 +191,16 @@ function uiWrites(name, src) {
   return bad;
 }
 
-test("src/ui and src/reader never write files — except the save.js writer, and only its calls", () => {
+test("src/ui and src/reader never write files — only src/atomic-save.js does, and only with its listed calls", () => {
   for (const rel of ["../src/ui/", "../src/reader/"]) {
     const dir = fileURLToPath(new URL(rel, import.meta.url));
     for (const f of fs.readdirSync(dir)) assert.deepEqual(uiWrites(f, fs.readFileSync(path.join(dir, f), "utf8")), [], f);
   }
-  // The rule bites: any write outside save.js, or an unlisted one inside it.
+  {
+    const file = fileURLToPath(new URL("../src/atomic-save.js", import.meta.url));
+    assert.deepEqual(uiWrites("atomic-save.js", fs.readFileSync(file, "utf8")), []);
+  }
+  // The rule bites: any write outside atomic-save.js, or an unlisted one inside it.
   for (const [f, src] of [
     ["server.js", "fs.writeFileSync(p, x)"],
     ["server.js", "fs.appendFileSync(p, x)"],
@@ -208,9 +212,10 @@ test("src/ui and src/reader never write files — except the save.js writer, and
     ["instructions.js", "fs.renameSync(a, b)"],
     ["config.js", 'fs.openSync(p, "w")'],
     ["save.js", "fs.writeFileSync(p, x)"],
-    ["save.js", "fs.rmSync(p)"],
-    ["save.js", "fs.chmodSync(p, 0o777)"],
-    ["save.js", "fs.promises.writeFile(p, x)"],
+    ["atomic-save.js", "fs.writeFileSync(p, x)"],
+    ["atomic-save.js", "fs.rmSync(p)"],
+    ["atomic-save.js", "fs.chmodSync(p, 0o777)"],
+    ["atomic-save.js", "fs.promises.writeFile(p, x)"],
   ]) {
     assert.notDeepEqual(uiWrites(f, src), [], `${f}: ${src}`);
   }

@@ -459,7 +459,7 @@ The UI server exposes this as `POST /api/restart` with body `{profile}` — not 
 ≤ 256 KB) as the `PUT` editors. It always sends `{when:'idle'}` over `control.sock` (the browser
 never picks `when`); the status mapping is the same as `discover`'s. Either way, once the profile
 is known, the outcome is audited — `{ts, action:'restart', profile, status}` appended to that
-profile's `ui-audit.jsonl` via `save.js`'s `appendAudit`.
+profile's `ui-audit.jsonl` via `src/atomic-save.js`'s `appendAudit`.
 
 **Dashboard row actions — restart, pause, resume.** Each dashboard profile row's `⋯` menu also
 has **Restart when idle** (the same `POST /api/restart {profile}` as the Config view) and **Pause
