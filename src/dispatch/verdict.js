@@ -244,4 +244,24 @@ export function createVerdictOps(ctx) {
   return { readVerdict, guardChanges };
 }
 
+/**
+ * Guarded verdict read (#677, #710's gate loop, #680's deduce check): the sandbox/remote
+ * untrusted-writer guard, then the ordinary read — the same pair step.js's deduce/repair/gate
+ * turns each ran inline at five call sites. `rc` carries the fields every one of them already
+ * had: `executor` (whether the guard applies), `localVerdictFile`, `step`, `agent` (parseVerdict's
+ * requireVerdict default) and `readVerdict` itself.
+ * @param {{executor: {name: string}, localVerdictFile: string, step: import('../types/index.js').Step, agent: import('../types/index.js').AgentAdapter, readVerdict: (code: number, verdictFile: string, step: import('../types/index.js').Step, agent: import('../types/index.js').AgentAdapter) => import('../types/index.js').Verdict}} rc
+ * @param {number} code
+ * @returns {import('../types/index.js').Verdict}
+ */
+export function peekVerdict(rc, code) {
+  if (rc.executor.name !== "host") guardSandboxVerdict(rc.localVerdictFile);
+  return rc.readVerdict(code, rc.localVerdictFile, rc.step, rc.agent);
+}
+
+/** The clean-exit-with-no-valid-verdict hold (#677/#680's shared pre-check). @param {import('../types/index.js').Verdict} v */
+export function isNoValidVerdict(v) {
+  return v.outcome === "hold" && v.reason === NO_VALID_VERDICT;
+}
+
 /** @typedef {ReturnType<typeof createVerdictOps>} VerdictOps */
