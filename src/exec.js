@@ -2,7 +2,7 @@
 import { execFile, spawnSync } from "node:child_process";
 
 /** One CLI call: a non-zero exit resolves, a spawn failure rejects.
- * @type {import('./types.js').IngressRun} */
+ * @type {import('./types/index.js').IngressRun} */
 export const execRun = (bin, args, { timeoutMs }) =>
   new Promise((resolve, reject) => {
     execFile(bin, args, { timeout: timeoutMs, encoding: "utf8" }, (err, stdout, stderr) => {

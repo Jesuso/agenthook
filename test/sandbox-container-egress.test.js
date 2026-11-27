@@ -158,7 +158,7 @@ test("check(): allowlist with a custom sandbox.image also requires the built-in 
   const cfg = { ...tmpCfg({ type: "docker", image: "mine:1" }), pipeline };
   assert.deepEqual(await createContainerSandbox(cfg, { runtime: "docker", run: s.run }).check(), { ok: true });
   assert.deepEqual(s.calls.slice(1).map((c) => c.slice(1)), [["image", "inspect", "mine:1"], ["image", "inspect", DEFAULT_IMAGE]]);
-  /** @type {import('../src/types.js').IngressRun} */
+  /** @type {import('../src/types/index.js').IngressRun} */
   const missingDefault = async (_bin, args) => ({ code: args[2] === DEFAULT_IMAGE ? 1 : 0, stdout: "", stderr: "" });
   const r = await createContainerSandbox(cfg, { runtime: "docker", run: missingDefault }).check();
   assert.match(/** @type {any} */ (r).reason, new RegExp(`sandbox image ${DEFAULT_IMAGE.replace(/[.]/g, "\\.")} not found — run \`agenthook doctor --fix\``));

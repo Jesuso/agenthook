@@ -27,7 +27,7 @@ import { DEFAULT_AGENT } from "../agents/names.js";
  * Harnesses used by some non-manual step as its ONLY harness (#745), with the reserve that
  * protects them from a spill. `automatic` is false when `harnesses.<name>.reserve` overrides the
  * default (1 when some OTHER step lists `name` as one option among several, else 0). Pure.
- * @param {Pick<import('../types.js').Config, 'pipeline'|'harnesses'>} cfg
+ * @param {Pick<import('../types/index.js').Config, 'pipeline'|'harnesses'>} cfg
  * @returns {Record<string, {reserve: number, automatic: boolean, usedAsAlt: boolean}>}
  */
 export function exclusiveHarnesses(cfg) {
@@ -53,7 +53,7 @@ export function exclusiveHarnesses(cfg) {
 }
 
 /**
- * @param {import('../types.js').Config} cfg
+ * @param {import('../types/index.js').Config} cfg
  * @returns {HarnessingShape}
  */
 export function buildHarnessing(cfg) {

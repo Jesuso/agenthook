@@ -10,7 +10,7 @@ export const MAX_SUMMARY_REFS = 500;
  * manual drain (the PR is still open); cleared on terminal fail/cancel and merge; capped
  * at MAX_SUMMARY_REFS refs.
  * @param {string} dataDir
- * @returns {Pick<import('../types.js').Store, 'getSummaries'|'setSummary'|'clearSummary'|'clearSummaries'>}
+ * @returns {Pick<import('../types/index.js').Store, 'getSummaries'|'setSummary'|'clearSummary'|'clearSummaries'>}
  */
 export function summariesSlice(dataDir) {
   const summariesFile = path.join(dataDir, "summaries.json");

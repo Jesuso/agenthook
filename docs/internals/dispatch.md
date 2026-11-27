@@ -71,7 +71,7 @@
   then drains + emits `pipeline_done`) → optional `adapter.complete` (Asana: `completed:true`) → emit
   `merged`. A self-closing board skips the move and `complete` (see below).
 - `src/agents/*.js` — agent adapters: the coding-agent CLI a step spawns (`claude`, `cursor`, `hermes`, `opencode`). Interface
-  `AgentAdapter` (`src/types.js`): `describe` (optional `promptFile: true` — dispatch passes the prompt via a
+  `AgentAdapter` (`src/types/agents.js`): `describe` (optional `promptFile: true` — dispatch passes the prompt via a
   file, not argv, e.g. hermes' `--query-file`; optional `policy: {allow, deny}` — which step policies the CLI
   enforces, claude only; optional `sandboxResume: false` — a sandboxed run of this agent can never resume a
   session, opencode only), `buildArgs` (also gets the step's `allow`/`deny`, `cwd` and `verdictFile`), optional

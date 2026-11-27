@@ -31,12 +31,12 @@ const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 const iso = (ms) => new Date(ms).toISOString();
 
 /** Count a ref's sessions (transcripts + usage.jsonl ones; 0 if none exist).
- * @param {import('../types.js').Config} cfg @param {string} ref @param {any} store */
+ * @param {import('../types/index.js').Config} cfg @param {string} ref @param {any} store */
 const sessionCount = (cfg, ref, store) => listSessions(cfg, ref, store).length;
 
 /** Where listSessions looked, for the "no session" error: the transcript dirs, else (no agent
  * of the profile keeps transcripts) the agents' plain error, or usage.jsonl when one resumes from it.
- * @param {import('../types.js').Config} cfg @param {string} ref @param {any} store */
+ * @param {import('../types/index.js').Config} cfg @param {string} ref @param {any} store */
 export function lookedIn(cfg, ref, store) {
   try {
     return `looked in ${sessionDirs(cfg, ref, store).map((d) => d.dir).join(", ")}`;
@@ -63,7 +63,7 @@ function select(sessions, sel) {
 
 /** The agent that wrote a session: its tagged `agent` (listSessions), else its step's (a
  * step renamed since → the profile's agent).
- * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'>} cfg @param {{step: string, agent?: string, remote?: unknown}} session */
+ * @param {Pick<import('../types/index.js').Config, 'agent'|'pipeline'>} cfg @param {{step: string, agent?: string, remote?: unknown}} session */
 function sessionAgent(cfg, session) {
   const step = (cfg.pipeline ?? []).find((s) => s.id === session.step);
   return { step, agent: session.agent ? getAgent(session.agent) : agentFor(cfg, step) };
@@ -73,7 +73,7 @@ function sessionAgent(cfg, session) {
  * (claude, cursor) finds its session by the worktree it ran in; one without (hermes, opencode)
  * keeps sessions in its own store, so it just needs to run there again — plus, for an isolated
  * hermes step, where its session actually lives (its own `HERMES_HOME`, not the worktree).
- * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'|'stateDir'|'dataDir'>} cfg @param {{step: string, agent?: string}} session */
+ * @param {Pick<import('../types/index.js').Config, 'agent'|'pipeline'|'stateDir'|'dataDir'>} cfg @param {{step: string, agent?: string}} session */
 export function drainedReason(cfg, session) {
   const { step, agent } = sessionAgent(cfg, session);
   const name = agent.describe().name;
@@ -85,7 +85,7 @@ export function drainedReason(cfg, session) {
 /** The resume argv (after the binary) for one session, from the agent that wrote it: its
  * transcripts' `resumeCommand`, else its top-level one (no transcripts, ids from usage.jsonl).
  * Throws for an agent with neither.
- * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'>} cfg @param {{id: string, step: string, agent?: string}} session */
+ * @param {Pick<import('../types/index.js').Config, 'agent'|'pipeline'>} cfg @param {{id: string, step: string, agent?: string}} session */
 export function resumeArgs(cfg, session) {
   const { agent } = sessionAgent(cfg, session);
   const cmd = agent.sessions?.resumeCommand ?? agent.resumeCommand;
@@ -99,7 +99,7 @@ export function resumeArgs(cfg, session) {
  * may be secrets; never printed). The agent's own env (`agent.env`, e.g. an isolated hermes
  * step's HERMES_HOME — a path, not a secret) sits under the step's and is printed inline.
  * Pure; exported for tests.
- * @param {Pick<import('../types.js').Config, 'agent'|'claudeBin'|'pipeline'|'stateDir'|'dataDir'>} cfg
+ * @param {Pick<import('../types/index.js').Config, 'agent'|'claudeBin'|'pipeline'|'stateDir'|'dataDir'>} cfg
  * @param {{id: string, step: string, agent?: string}} session @param {string} wt  the worktree (the agent's cwd)
  * @returns {{bin: string, env: Record<string, string>|undefined, line: string, envNote: string|null}}
  */
@@ -120,7 +120,7 @@ export function resumeCommand(cfg, session, wt) {
 
 /** The one-line error both `follow` and `resume` share for a worker ssh that can't connect
  * (exit 255, or the ssh binary itself failing): names host + harness + the first stderr line.
- * @param {import('../types.js').RemoteHarness} remote @param {string} harnessName @param {unknown} e
+ * @param {import('../types/index.js').RemoteHarness} remote @param {string} harnessName @param {unknown} e
  * @returns {Error} */
 export function unreachableWorker(remote, harnessName, e) {
   const msg = e instanceof Error ? e.message.split("\n").map((l) => l.trim()).find(Boolean) ?? "" : String(e);
@@ -134,7 +134,7 @@ export function unreachableWorker(remote, harnessName, e) {
  * executor's client env — NEVER the step's `env` or agent.env. Gone: say so, exit non-zero,
  * and print the operator's two options (re-run the step, or hand-recreate the dir) plus the
  * no-sync-back warning. Never recreates the dir or starts a fresh session automatically.
- * @param {import('../types.js').Config} cfg @param {{id: string, step: string, agent?: string}} session
+ * @param {import('../types/index.js').Config} cfg @param {{id: string, step: string, agent?: string}} session
  * @param {{harness: string, host: string, cwd?: string}} remoteInfo @param {string} ref @param {boolean} exec @param {string} bin the launch bin (`remote.bin` or the agent's default)
  * @returns {Promise<void>} */
 async function resumeRemote(cfg, session, remoteInfo, ref, exec, bin) {

@@ -136,7 +136,7 @@ export const PULL_TTL_MS = 10 * 60 * 1000;
  * are the queue steps in pipeline order (empty ⇒ pull is a no-op); `inflightRefs` are the
  * refs in running.json + queue.json.
  * @param {{
- *   steps: import('./types.js').Step[],
+ *   steps: import('./types/index.js').Step[],
  *   max: number | (() => number),   // a function tracks the live cap (`set_concurrency`)
  *   queueState: () => {active: number, queued: number, capped?: number},
  *   stepState?: () => Record<string, {active: number, queued: number}>,  // per-step counts (only read for capped steps)
@@ -144,7 +144,7 @@ export const PULL_TTL_MS = 10 * 60 * 1000;
  *   inflightRefs: () => string[],
  *   listQueued: (stepId: string) => Promise<string[]>,
  *   enterStage: (ref: string, stepId: string, opts: {assign: boolean}) => Promise<unknown>,
- *   stageOf: (step: import('./types.js').Step) => string|undefined,
+ *   stageOf: (step: import('./types/index.js').Step) => string|undefined,
  *   isDraining: () => boolean,
  *   emit?: (event: string, ref: string, step: string, extra?: Record<string, any>) => void,
  *   onDepth?: (depth: Record<string, {depth: number, at: string}>) => void,

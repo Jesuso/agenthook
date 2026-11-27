@@ -22,7 +22,7 @@ const mtime = (p) => {
 
 /** An agent's session layout; throws a plain error for an agent that keeps no transcripts
  * (one with a top-level `resumeCommand` still resumes, from usage.jsonl — see listSessions).
- * @param {import('./types.js').AgentAdapter} agent */
+ * @param {import('./types/index.js').AgentAdapter} agent */
 export function agentSessions(agent) {
   if (!agent.sessions) throw new Error(`${agent.describe().name} runs have no transcripts to follow${agent.resumeCommand ? "" : "/resume"}`);
   return agent.sessions;
@@ -31,10 +31,10 @@ export function agentSessions(agent) {
 /** The distinct agents whose transcripts a profile's runs may have left: the profile's agent,
  * then every non-manual step's, then every harness's, keeping only those with `sessions`.
  * Throws (the profile agent's plain error) when none keeps transcripts.
- * @param {Pick<import('./types.js').Config, 'agent'|'pipeline'|'harnesses'>} cfg
- * @returns {{name: string, sessions: import('./types.js').AgentSessions}[]} */
+ * @param {Pick<import('./types/index.js').Config, 'agent'|'pipeline'|'harnesses'>} cfg
+ * @returns {{name: string, sessions: import('./types/index.js').AgentSessions}[]} */
 export function sessionAgents(cfg) {
-  /** @type {Map<string, import('./types.js').AgentSessions>} */
+  /** @type {Map<string, import('./types/index.js').AgentSessions>} */
   const seen = new Map();
   const harnessAgents = Object.values(cfg.harnesses ?? {}).filter((h) => h.agent).map((h) => agentFor(cfg, h));
   for (const agent of [agentFor(cfg), ...(cfg.pipeline ?? []).filter((s) => !s.manual).map((s) => agentFor(cfg, s)), ...harnessAgents]) {
@@ -50,13 +50,13 @@ export function sessionAgents(cfg) {
  * transcript dir depends on it. The sticky `repo.json` entry wins; a drained ref has none
  * (cleared on terminal states), so fall back to the repo whose worktree transcript dir
  * exists (newest mtime if several), else the default repo. Single-repo: always the one.
- * @param {import('./types.js').Config} cfg @param {string} ref
+ * @param {import('./types/index.js').Config} cfg @param {string} ref
  * @param {{ getRepo: (ref: string) => string|undefined }} [store]
- * @returns {import('./types.js').RepoConfig} */
+ * @returns {import('./types/index.js').RepoConfig} */
 export function refRepo(cfg, ref, store) {
   const sticky = repoById(cfg, store?.getRepo(ref));
   if (sticky) return sticky;
-  /** @type {{name: string, sessions: import('./types.js').AgentSessions}[]} */
+  /** @type {{name: string, sessions: import('./types/index.js').AgentSessions}[]} */
   let agents;
   try {
     agents = sessionAgents(cfg);
@@ -77,14 +77,14 @@ export function refRepo(cfg, ref, store) {
 }
 
 /** The agent's transcript dir for a task ref's worktree (the profile's agent; throws when it keeps none).
- * @param {import('./types.js').Config} cfg @param {string} ref
+ * @param {import('./types/index.js').Config} cfg @param {string} ref
  * @param {{ getRepo: (ref: string) => string|undefined }} [store] */
 export const sessionDir = (cfg, ref, store) => agentSessions(agentFor(cfg)).transcriptDir(worktreePath(cfg, ref, refRepo(cfg, ref, store)));
 
 /** Every agent's transcript dir for a task ref's worktree (see `sessionAgents`).
- * @param {import('./types.js').Config} cfg @param {string} ref
+ * @param {import('./types/index.js').Config} cfg @param {string} ref
  * @param {{ getRepo: (ref: string) => string|undefined }} [store]
- * @returns {{name: string, sessions: import('./types.js').AgentSessions, dir: string}[]} */
+ * @returns {{name: string, sessions: import('./types/index.js').AgentSessions, dir: string}[]} */
 export function sessionDirs(cfg, ref, store) {
   const wt = worktreePath(cfg, ref, refRepo(cfg, ref, store));
   return sessionAgents(cfg).map((a) => ({ ...a, dir: a.sessions.transcriptDir(wt) }));
@@ -100,7 +100,7 @@ function stampToMs(stamp) {
 /** Per-run records from cfg.logDir (`${stamp}-step-${stepId}-${safeRef}.log`, written
  * by dispatch for every run), oldest first. Optionally filtered to one ref. Logs
  * persist after a worktree is drained, so this surfaces finished tasks too.
- * @param {import('./types.js').Config} cfg @param {string} [onlyRef]
+ * @param {import('./types/index.js').Config} cfg @param {string} [onlyRef]
  * @returns {{ ref: string, step: string, at: number }[]} */
 export function runLogs(cfg, onlyRef) {
   const stepIds = (cfg.pipeline || []).map((s) => s.id);
@@ -129,7 +129,7 @@ export function runLogs(cfg, onlyRef) {
 }
 
 /** Recent agent runs, newest first, one row per ref (its latest run's step + time).
- * @param {import('./types.js').Config} cfg @param {number} [limit]
+ * @param {import('./types/index.js').Config} cfg @param {number} [limit]
  * @returns {{ ref: string, step: string, at: number }[]} */
 export function recentRuns(cfg, limit = 10) {
   /** @type {Map<string, { ref: string, step: string, at: number }>} */
@@ -149,11 +149,11 @@ export function recentRuns(cfg, limit = 10) {
  * its transcript lives on the worker, so nothing local exists to dedupe against. Such sessions
  * carry `remote: { harness, host, cwd }` — `cwd` (the worker launch cwd, `remoteCwd`) is
  * absent on older records that predate the field.
- * @param {import('./types.js').Config} cfg @param {string} ref
- * @param {{ getRepo: (ref: string) => string|undefined, readUsage?: () => import('./types.js').UsageRecord[] }} [store]
+ * @param {import('./types/index.js').Config} cfg @param {string} ref
+ * @param {{ getRepo: (ref: string) => string|undefined, readUsage?: () => import('./types/index.js').UsageRecord[] }} [store]
  * @returns {{ id: string, step: string, at: number, msgs: number, prompt: string, agent: string, remote?: { harness: string, host: string, cwd?: string } }[]} */
 export function listSessions(cfg, ref, store) {
-  /** @type {{name: string, sessions: import('./types.js').AgentSessions, dir: string}[]} */
+  /** @type {{name: string, sessions: import('./types/index.js').AgentSessions, dir: string}[]} */
   let dirs;
   try {
     dirs = sessionDirs(cfg, ref, store);

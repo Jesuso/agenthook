@@ -46,7 +46,7 @@ export function pathsOverlap(a, b) {
  * or undefined.
  * @param {string} ref
  * @param {string[]} predicted
- * @param {Record<string, import('./types.js').LockInfo>} locks
+ * @param {Record<string, import('./types/index.js').LockInfo>} locks
  * @returns {string|undefined}
  */
 export function findBlocker(ref, predicted, locks) {
@@ -67,8 +67,8 @@ export function unionPaths(a, b) {
 /**
  * Refs waiting (overlap.json) on a blocker that holds no lock any more — stale holds
  * `reconcile` prunes before replaying.
- * @param {Record<string, import('./types.js').OverlapInfo>} overlap
- * @param {Record<string, import('./types.js').LockInfo>} locks
+ * @param {Record<string, import('./types/index.js').OverlapInfo>} overlap
+ * @param {Record<string, import('./types/index.js').LockInfo>} locks
  * @returns {string[]}
  */
 export function staleOverlaps(overlap, locks) {

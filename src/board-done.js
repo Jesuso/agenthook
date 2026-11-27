@@ -26,9 +26,9 @@ export function isBoardDone(e) {
  * touched, a waiting `merge`/`ci` job stays (on a completed task a merge is self-closing and
  * records the PR's merge), and a ref that is not held is left alone.
  * @param {{
- *   store: import('./types.js').Store,
+ *   store: import('./types/index.js').Store,
  *   emit?: (event: string, ref: string, step: string, extra?: Record<string, any>) => void,
- *   queue?: {remove: (ref: string, stepId?: string, only?: (job: import('./types.js').Job) => boolean) => import('./types.js').Job[]},
+ *   queue?: {remove: (ref: string, stepId?: string, only?: (job: import('./types/index.js').Job) => boolean) => import('./types/index.js').Job[]},
  * }} deps  queue: the receiver's run queue (omitted by callers that refuse a queued ref)
  * @param {string} ref
  * @returns {boolean} true when a hold was cleared
@@ -46,11 +46,11 @@ export function clearHoldOnDone({ store, emit, queue }, ref) {
 
 /**
  * @param {{
- *   store: import('./types.js').Store,
+ *   store: import('./types/index.js').Store,
  *   emit?: (event: string, ref: string, step: string, extra?: Record<string, any>) => void,
- *   queue?: {remove: (ref: string, stepId?: string, only?: (job: import('./types.js').Job) => boolean) => import('./types.js').Job[]},
+ *   queue?: {remove: (ref: string, stepId?: string, only?: (job: import('./types/index.js').Job) => boolean) => import('./types/index.js').Job[]},
  * }} deps
- * @returns {(job: import('./types.js').Job) => boolean}  true when `board_done` was emitted
+ * @returns {(job: import('./types/index.js').Job) => boolean}  true when `board_done` was emitted
  */
 export function createBoardDone({ store, emit, queue }) {
   return function boardDone(job) {

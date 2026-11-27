@@ -6,7 +6,7 @@ import { readJson } from "./read-json.js";
  * per-ref difficulty tag (difficulty.json): persisted from triage verdict.
  * Keyed by ref; cleared alongside attempts when the task reaches a terminal state.
  * @param {string} dataDir
- * @returns {Pick<import('../types.js').Store, 'getDifficulty'|'setDifficulty'|'clearDifficulty'>}
+ * @returns {Pick<import('../types/index.js').Store, 'getDifficulty'|'setDifficulty'|'clearDifficulty'>}
  */
 export function difficultySlice(dataDir) {
   const difficultyFile = path.join(dataDir, "difficulty.json");

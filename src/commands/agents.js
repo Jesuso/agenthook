@@ -142,7 +142,7 @@ function readState(dir, file) {
 }
 
 /** `label` is the display name: the profile's label, `Label (stateKey)` when they differ.
- * @typedef {{ stateKey: string, label: string, running: Record<string, any>, lastUsage: Record<string, any>, refmeta: Record<string, import('../types.js').RefMeta> }} ProfileState */
+ * @typedef {{ stateKey: string, label: string, running: Record<string, any>, lastUsage: Record<string, any>, refmeta: Record<string, import('../types/index.js').RefMeta> }} ProfileState */
 
 /** Build a profile record with running + lastUsage (token display) + refmeta (id/title/PR).
  * @param {{ stateKey: string, name: string, dir: string }} p a heartbeat.js profile entry @returns {ProfileState} */
@@ -168,7 +168,7 @@ const truncate = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 /** One human-readable `ah agents` line. Pure; exported for tests.
  *  default: `<displayId ?? ref>  <step>  <#pr | —>  <etime>  <harness@host>  <model>  <title>  <ctx…>`
- * @param {AgentRow} row @param {import('../types.js').RefMeta|undefined} meta @param {string} tok  the fmtCtx column
+ * @param {AgentRow} row @param {import('../types/index.js').RefMeta|undefined} meta @param {string} tok  the fmtCtx column
  * @param {{ verbose?: boolean, all?: boolean, label?: string }} [opts] label = the owner's display name (default the state key)
  * @returns {string} */
 export function formatAgentRow(row, meta, tok, opts = {}) {
@@ -184,7 +184,7 @@ export function formatAgentRow(row, meta, tok, opts = {}) {
 }
 
 /** One `ah agents --json` record. Pure; exported for tests.
- * @param {AgentRow} row @param {import('../types.js').RefMeta|undefined} meta
+ * @param {AgentRow} row @param {import('../types/index.js').RefMeta|undefined} meta
  * @param {any} runInfo  running.json[ref] (may be undefined) @param {any} last  last usage.jsonl record for ref
  * @param {string} [label] the owner's display name (default the state key) */
 export function agentRecord(row, meta, runInfo, last, label = row.profile) {

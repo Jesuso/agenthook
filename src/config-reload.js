@@ -142,8 +142,8 @@ function diffTracker(a, b, restartRequired) {
  * changed (dotted paths) and the keys that would require a restart. A reload applies nothing
  * unless `restartRequired` is empty; `changed` drives the queue/quota/override updates and the
  * `config_reloaded` event. Pure.
- * @param {import('./types.js').Config} cur
- * @param {import('./types.js').Config} next
+ * @param {import('./types/index.js').Config} cur
+ * @param {import('./types/index.js').Config} next
  * @returns {{changed: string[], restartRequired: string[]}}
  */
 export function diffConfig(cur, next) {

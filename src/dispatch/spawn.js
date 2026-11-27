@@ -60,7 +60,7 @@ const MAX_TIMER_MS = 2 ** 31 - 1;
  * top, unfiltered. Shared by `spawnAgent` and a post-exit `agent.finalize` (which never gets
  * `creds`: they are disposed by then) so the export sees the same `HERMES_HOME` the run used.
  * Never includes AGENTHOOK_VERDICT_FILE.
- * @param {{cfg: Pick<import('../types.js').Config, 'agentEnvPassthrough'>, agent: import('../types.js').AgentAdapter, meta?: import('../types.js').AdapterMeta, forge?: import('../types.js').Forge|null, agentEnv?: Record<string,string>, creds?: import('../types.js').RunCredentials|null, env?: Record<string,string>}} o
+ * @param {{cfg: Pick<import('../types/index.js').Config, 'agentEnvPassthrough'>, agent: import('../types/index.js').AgentAdapter, meta?: import('../types/index.js').AdapterMeta, forge?: import('../types/index.js').Forge|null, agentEnv?: Record<string,string>, creds?: import('../types/index.js').RunCredentials|null, env?: Record<string,string>}} o
  * @returns {Record<string,string>} */
 export function agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, creds, env }) {
   const allow = agentEnvAllow({ agent: agent.envPassthrough, tracker: meta?.agentEnv, forge: forge?.describe?.().agentEnv, operator: cfg.agentEnvPassthrough });
@@ -68,7 +68,7 @@ export function agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, creds, env })
 }
 
 /** The path the agent writes its verdict to (one per run, under the state dir so a
- * worktree drain can't take it). @param {import('../types.js').Config} cfg @param {string} stepId @param {string} ref */
+ * worktree drain can't take it). @param {import('../types/index.js').Config} cfg @param {string} stepId @param {string} ref */
 export function verdictPathFor(cfg, stepId, ref) {
   const dir = path.join(cfg.dataDir, "verdicts");
   fs.mkdirSync(dir, { recursive: true });
@@ -78,7 +78,7 @@ export function verdictPathFor(cfg, stepId, ref) {
 
 /** A sandboxed run's verdict path: its own dir (`verdicts/run-<ref>-<step>/`, 0700, emptied
  * first), the only one mounted into its container — mounting `verdicts/` would let one
- * ticket's agent write another running ticket's verdict. @param {import('../types.js').Config} cfg @param {string} stepId @param {string} ref */
+ * ticket's agent write another running ticket's verdict. @param {import('../types/index.js').Config} cfg @param {string} stepId @param {string} ref */
 export function sandboxVerdictPathFor(cfg, stepId, ref) {
   const safeRef = String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
   const dir = path.join(cfg.dataDir, "verdicts", `run-${safeRef}-${stepId}`);
@@ -148,15 +148,15 @@ export function createSpawn(ctx) {
    * from `agent.resumeArgs` (same options plus the session id) instead of `buildArgs`; everything
    * else (env incl. AGENTHOOK_VERDICT_FILE, the sandbox wrap, timers, parser, the same `logPath`
    * appended to) is unchanged. Ignored when the agent has no `resumeArgs`.
-   * @param {{agent: import('../types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, bin?: string, agentEnv?: Record<string, string>, creds?: import('../types.js').RunCredentials|null, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number,lastContext?:number}) => void,
-    *   sandboxed?: {ref: string, stepId: string, step: import('../types.js').Step, mounts: import('../types.js').SandboxMount[], env?: Record<string, string>, egress?: import('../types.js').SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[], args?: string[], hub?: {repoId: string, repoPath: string, worktree?: string, branch?: string}}, executor?: import('../types.js').Executor, resumeSessionId?: string}} o
+   * @param {{agent: import('../types/index.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, allow?: import('../types/index.js').StepPolicy, deny?: import('../types/index.js').StepPolicy, bin?: string, agentEnv?: Record<string, string>, creds?: import('../types/index.js').RunCredentials|null, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number,lastContext?:number}) => void,
+    *   sandboxed?: {ref: string, stepId: string, step: import('../types/index.js').Step, mounts: import('../types/index.js').SandboxMount[], env?: Record<string, string>, egress?: import('../types/index.js').SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[], args?: string[], hub?: {repoId: string, repoPath: string, worktree?: string, branch?: string}}, executor?: import('../types/index.js').Executor, resumeSessionId?: string}} o
    * `lastText` is the run's last output the question-hold detector inspects: the final result text
    * when the parser captured one (a non-empty string), else the tail of the run's rendered stdout
    * (stdout only) — `undefined` when neither produced anything.
    * `errorLine` (#688) is the breaker's agent-side detail for its fast-exit reason: the last
    * non-blank line of the final result text when there is one, else of a small raw-stderr tail —
    * redacted (src/agent-env.js redactSecrets) and clipped to 200 chars; absent when there is none.
-   * @returns {Promise<{code: number, result: any, quota: import('../shared/quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, unreachable?: string, sshConfigFailure?: string, noOutput?: boolean, apiDown?: string, lastText?: string, errorLine?: string}>}
+   * @returns {Promise<{code: number, result: any, quota: import('../shared/quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types/index.js').SandboxReport, spawnError?: string, unreachable?: string, sshConfigFailure?: string, noOutput?: boolean, apiDown?: string, lastText?: string, errorLine?: string}>}
    */
   async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, allow, deny, bin, agentEnv, creds, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed, executor, resumeSessionId }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
@@ -193,7 +193,7 @@ export function createSpawn(ctx) {
     const runEnv = { ...agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, creds, env }), ...(sandboxed?.env ?? {}), ...(verdictFile ? { AGENTHOOK_VERDICT_FILE: verdictFile } : {}) };
     /** @type {{bin: string, args: string[], env: Record<string, string>}} */
     let launch = { bin: agentBin, args, env: runEnv };
-    /** @type {import('../types.js').ExecutorRun|undefined} */
+    /** @type {import('../types/index.js').ExecutorRun|undefined} */
     let box;
     if (sandboxed && executor) {
       const { ref } = sandboxed;
@@ -409,7 +409,7 @@ export function createSpawn(ctx) {
         // overrides with a different value still gets masked.
         const errorLine = rawErrorLine ? redactSecrets(redactSecrets(rawErrorLine, process.env), runEnv).slice(0, 200) : undefined;
         children?.delete(child);
-        /** @type {import('../types.js').SandboxReport|undefined} */
+        /** @type {import('../types/index.js').SandboxReport|undefined} */
         let sandboxReport;
         if (run && sandboxed) {
           // A killed client may have left its container behind: make sure it is gone.
@@ -456,8 +456,8 @@ export function createSpawn(ctx) {
    * `{creds: null}` = nothing to scope (the #470 env applies). A throw becomes `refused` — the
    * run fails with that reason, written to the run log, and is never spawned; it never falls
    * back to the operator's credentials.
-   * @param {import('../types.js').RunCredentialsInput} o
-   * @returns {Promise<{creds: import('../types.js').RunCredentials|null, refused?: string}>}
+   * @param {import('../types/index.js').RunCredentialsInput} o
+   * @returns {Promise<{creds: import('../types/index.js').RunCredentials|null, refused?: string}>}
    */
   async function runCredentials(o) {
     try {
@@ -497,7 +497,7 @@ export function createSpawn(ctx) {
    * Then a sandboxed run of an agent with no `sandbox` hook: it never falls back to the host silently.
    * `health` is set only when the agent's own preflight refused — the one branch that says the
    * backend is down (the harness breaker's signal); the policy and sandbox refusals are config.
-   * @param {import('../types.js').AgentAdapter} agent @param {import('../types.js').Step} step
+   * @param {import('../types/index.js').AgentAdapter} agent @param {import('../types/index.js').Step} step
    * @param {string|undefined} provider @param {string} logPath
    * @param {{sandboxed?: boolean, env?: Record<string, string>}} [o]  `env` = the spawn env (agentSpawnEnv)
    * @returns {{reason: string, health?: true}|undefined}

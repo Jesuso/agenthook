@@ -18,7 +18,7 @@ const cfg = /** @type {any} */ ({ stateKey: "dogfood", port: 4124, ingress: { ty
 function stub(reply) {
   /** @type {string[][]} */
   const calls = [];
-  /** @type {import('../src/types.js').IngressRun} */
+  /** @type {import('../src/types/index.js').IngressRun} */
   const run = async (_bin, args) => {
     calls.push(args);
     return reply(args);
@@ -95,7 +95,7 @@ test("up: a non-zero funnel exit rejects with its stderr; access denied hints th
 });
 
 test("up: a hung funnel call rejects after timeoutMs", async () => {
-  /** @type {import('../src/types.js').IngressRun} */
+  /** @type {import('../src/types/index.js').IngressRun} */
   const run = (_bin, args) => (args[0] === "status" ? Promise.resolve({ code: 0, stdout: JSON.stringify(HEALTHY), stderr: "" }) : new Promise(() => {}));
   const t0 = Date.now();
   await assert.rejects(createTailscaleIngress(cfg, { run, timeoutMs: 50 }).up(4124), /no answer after/);

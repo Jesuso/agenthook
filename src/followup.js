@@ -38,7 +38,7 @@ export function parseFollowUp(raw) {
   return checks.length ? checks : undefined;
 }
 
-/** The tiers that may approve with follow-up checks (lower-cased). @param {import('./types.js').Config} cfg */
+/** The tiers that may approve with follow-up checks (lower-cased). @param {import('./types/index.js').Config} cfg */
 export function followUpTiers(cfg) {
   const t = cfg.forge?.autoMerge?.tiers;
   return (Array.isArray(t) && t.length ? t : DEFAULT_FOLLOWUP_TIERS).map((x) => String(x).trim().toLowerCase());
@@ -51,8 +51,8 @@ export function followUpTiers(cfg) {
  * - `{record, checks, tier}`: approve; record the checks.
  * The tier is read exactly as auto-merge reads it (`riskTier`): the verdict's own `summary.tier`
  * only when this step is the tier source, else the stored `tierFrom` summary — one rating per ticket.
- * @param {import('./types.js').Config} cfg @param {string} stepId @param {import('./types.js').Verdict} verdict
- * @param {Record<string, import('./types.js').SummaryRecord>|undefined} [summaries]
+ * @param {import('./types/index.js').Config} cfg @param {string} stepId @param {import('./types/index.js').Verdict} verdict
+ * @param {Record<string, import('./types/index.js').SummaryRecord>|undefined} [summaries]
  * @returns {{hold: string, checks: string[], tier: string|null} | {record: true, checks: string[], tier: string} | null}
  */
 export function followUpDecision(cfg, stepId, verdict, summaries) {

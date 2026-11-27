@@ -16,7 +16,7 @@ const INSTALL_HINT = [
   "or point TAILSCALE at the binary.",
 ].join("\n");
 
-/** @typedef {import('../types.js').IngressRun} Run */
+/** @typedef {import('../types/index.js').IngressRun} Run */
 /** @typedef {Awaited<ReturnType<Run>>} RunResult */
 
 /** The default `run`: execFile, killed after `timeoutMs`. A non-zero exit resolves; a spawn
@@ -52,7 +52,7 @@ export function statusProblem(json) {
 }
 
 /** `timeoutMs` (default 30s) bounds each CLI call; `run` replaces execFile in tests. Not config keys.
- * @type {import('../types.js').IngressFactory} */
+ * @type {import('../types/index.js').IngressFactory} */
 export function createTailscaleIngress(cfg, { timeoutMs = 30_000, run = execRun } = {}) {
   const bin = process.env.TAILSCALE || "tailscale";
   const mountPath = "/" + cfg.stateKey;

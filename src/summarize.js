@@ -115,8 +115,8 @@ function writeTicketSummaries(dir, all) {
  * The receiver's ticket summarizer.
  * @param {{
  *   cfg: any,
- *   store: Pick<import('./types.js').Store, 'getRefMeta'|'listRefMeta'>,
- *   adapter: Pick<import('./types.js').Adapter, 'fetchTask'>,
+ *   store: Pick<import('./types/index.js').Store, 'getRefMeta'|'listRefMeta'>,
+ *   adapter: Pick<import('./types/index.js').Adapter, 'fetchTask'>,
  *   run?: (bin: string, args: string[], cwd: string) => Promise<string>,
  *   now?: () => number,
  *   emit?: (event: string, ref: string, step: string, extra?: Record<string, any>) => void,
@@ -179,7 +179,7 @@ export function createSummarizer({ cfg, store, adapter, run = runClaudeJson, now
      */
     async request({ ref, lang }) {
       if (!store.getRefMeta(ref)) throw new Error(`${ref} is not tracked by this receiver`);
-      /** @type {import('./types.js').Task} */
+      /** @type {import('./types/index.js').Task} */
       let task;
       try {
         task = await adapter.fetchTask(ref);

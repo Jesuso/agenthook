@@ -4,7 +4,7 @@
 // stable, ephemeral=false, so the engine skips the boot-time webhook scrub and
 // relies on each tracker's idempotent registerWebhook.
 
-/** @type {import('../types.js').IngressFactory} */
+/** @type {import('../types/index.js').IngressFactory} */
 export function createManualIngress(cfg) {
   return {
     describe: () => ({ name: "manual", ephemeral: false }),

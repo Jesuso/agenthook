@@ -208,7 +208,7 @@ export async function status(args) {
       console.log(`\nrecent runs (${logDir}):`);
       // Build a lookup: "step-<stepId>-<safeRef>" suffix → usage record.
       // Log filename: <stamp>-step-<stepId>-<safeRef>.log
-      /** @type {Map<string, import('../types.js').UsageRecord>} */
+      /** @type {Map<string, import('../types/index.js').UsageRecord>} */
       const usageByKey = new Map();
       for (const r of usageRecords) {
         const safeRef = r.ref.replace(/[^a-zA-Z0-9_-]/g, "_");

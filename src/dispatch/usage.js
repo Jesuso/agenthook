@@ -19,7 +19,7 @@ export function createUsage(ctx) {
    * the repo or worktree — removed afterwards, bounded by FINALIZE_TIMEOUT_MS on top of the
    * adapter's own timeout. A throw, a timeout or a null result is logged and treated as
    * "no usage"; it never touches the run's code/verdict.
-   * @param {import('../types.js').AgentAdapter} agent
+   * @param {import('../types/index.js').AgentAdapter} agent
    * @param {{sessionId: string, bin?: string, agentEnv?: Record<string,string>, env?: Record<string,string>, stepId: string, ref: string, logPath: string}} o
    */
   async function finalizeUsage(agent, { sessionId, bin, agentEnv, env, stepId, ref, logPath }) {

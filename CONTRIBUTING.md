@@ -25,9 +25,9 @@ Everyone interacting in the project agrees to the [Code of Conduct](CODE_OF_COND
 
 - **Plain Node ESM, no build.** `"type": "module"`, Node ≥ 22. The code ships as JS and runs
   unbuilt. There is no bundler and no transpile step.
-- **TypeScript as a checker only.** Types live in `src/types.js` as JSDoc `@typedef`s; `checkJs`
-  (`tsconfig.json`, `noEmit`) type-checks the JS. `src/types.js`'s `Adapter` typedef **is** the
-  provider contract — an adapter missing a method fails `npm run typecheck`.
+- **TypeScript as a checker only.** Types live in `src/types/`, split by domain, as JSDoc
+  `@typedef`s; `checkJs` (`tsconfig.json`, `noEmit`) type-checks the JS. The `Adapter` typedef
+  **is** the provider contract — an adapter missing a method fails `npm run typecheck`.
 - **ESM only.** `import`, never `require()`.
 - The repo you're editing is the **receiver/framework**. The `claude -p` agents it spawns run in a
   *different* repo and read *that* repo's `CLAUDE.md` — not this one. See [`CLAUDE.md`](CLAUDE.md)
@@ -76,8 +76,8 @@ ingress is named in the engine.
    and [docs/providers.md](docs/providers.md).
 2. Create `src/trackers/<name>.js` (or `src/ingress/<name>.js`) exporting the factory.
 3. Register it in `src/trackers/index.js` (`TRACKERS`) or `src/ingress/index.js` (`INGRESS`).
-4. Tag the factory `/** @type {import('../types.js').AdapterFactory} */` so a wrong shape fails
-   typecheck.
+4. Tag the factory `/** @type {import('../types/index.js').AdapterFactory} */` so a wrong shape
+   fails typecheck.
 5. Optionally implement `wizardSteps()` for `init` live discovery.
 
 The engine never changes to add a provider — if you find yourself editing `src/engine.js` to support
