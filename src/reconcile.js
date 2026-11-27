@@ -11,18 +11,18 @@
 // With a forge, reconcile then also replays agent PRs merged while the receiver was down
 // (`runMergeCatchup`, via the `reconcile_merges` op — only the receiver can intake them), and
 // re-checks the rows already flagged with a PR reason (src/recheck.js) — those rows only.
-import { isPipeline } from "../pipeline.js";
-import { staleOverlaps } from "../overlap.js";
-import { readRecheckState, recordBoardDone } from "../recheck.js";
-import { clearHoldOnDone } from "../board-done.js";
+import { isPipeline } from "./pipeline.js";
+import { staleOverlaps } from "./overlap.js";
+import { readRecheckState, recordBoardDone } from "./recheck.js";
+import { clearHoldOnDone } from "./board-done.js";
 
 /**
  * The reconcile body, callable in-process (the engine runs it once on a
  * `--reconcile-on-boot` restart). Throws instead of exiting; replays through the
  * live server on 127.0.0.1:<port> — or, given `intake` (in the receiver) and an adapter with no
  * forgeCatchup (an in-process tracker), straight into the queue.
- * @param {import('../types/config.js').Config} cfg
- * @param {{store: import('../types/state.js').Store, adapter: import('../types/tracker.js').Adapter, log?: (msg: string) => void, intake?: (jobs: import('../types/pipeline.js').Job[], opts?: {force?: boolean}) => number}} deps
+ * @param {import('./types/config.js').Config} cfg
+ * @param {{store: import('./types/state.js').Store, adapter: import('./types/tracker.js').Adapter, log?: (msg: string) => void, intake?: (jobs: import('./types/pipeline.js').Job[], opts?: {force?: boolean}) => number}} deps
  * @returns {Promise<{replayed: number, skipped: number}>}
  */
 export async function runReconcile(cfg, { store, adapter, log = console.log, intake }) {
@@ -98,8 +98,8 @@ export const MERGE_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
  * a `board_done` (`via: "recheck"`, src/recheck.js) for its likely-missed done webhook.
  * Best-effort: no forge / no list method / a forge error logs and returns; the watermark only
  * advances after a successful list. Never throws.
- * @param {import('../types/config.js').Config} cfg
- * @param {{store: import('../types/state.js').Store, adapter: import('../types/tracker.js').Adapter, forge: import('../types/forge.js').Forge|null|undefined, intake: (jobs: import('../types/pipeline.js').Job[], opts?: {force?: boolean}) => number, emit?: (event: string, ref: string, step: string, extra?: Record<string, any>) => void, log?: (msg: string) => void, now?: () => number}} deps
+ * @param {import('./types/config.js').Config} cfg
+ * @param {{store: import('./types/state.js').Store, adapter: import('./types/tracker.js').Adapter, forge: import('./types/forge.js').Forge|null|undefined, intake: (jobs: import('./types/pipeline.js').Job[], opts?: {force?: boolean}) => number, emit?: (event: string, ref: string, step: string, extra?: Record<string, any>) => void, log?: (msg: string) => void, now?: () => number}} deps
  * @returns {Promise<{merged: number, skipped: number}>}
  */
 export async function runMergeCatchup(cfg, { store, adapter, forge, intake, emit, log = console.log, now = Date.now }) {

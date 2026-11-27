@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import http from "node:http";
-import { runMergeCatchup, MERGE_LOOKBACK_MS } from "../src/engine/reconcile.js";
+import { runMergeCatchup, MERGE_LOOKBACK_MS } from "../src/reconcile.js";
 import { createStore } from "../src/store/index.js";
 import { createDispatcher } from "../src/dispatch/index.js";
 import { createOps } from "../src/ops.js";
