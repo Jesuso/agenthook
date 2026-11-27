@@ -4,10 +4,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { etagOf, pickProfile, readStatus, readProfiles, readEventsSince, waitForEvents, compactEvent, eventsCursor, readRuns, readRunLogTail } from "../src/agent-api.js";
+import { etagOf, pickProfile, readStatus, readProfiles, readEventsSince, waitForEvents, compactEvent, eventsCursor, readRuns, readRunLogTail } from "../src/agent-api/index.js";
 import { readProfile } from "../src/heartbeat.js";
 import net from "node:net";
-import { live, readTick, pickProfiles, parseCursorMap, cursorMapError, waitForEventsMulti, mergeTagged } from "../src/agent-api.js";
+import { live, readTick, pickProfiles, parseCursorMap, cursorMapError, waitForEventsMulti, mergeTagged } from "../src/agent-api/index.js";
 import { controlSockPath } from "../src/paths.js";
 import { startControl } from "../src/control/server.js";
 
@@ -469,14 +469,14 @@ test("readTick: carries a PR row's mine through to the tick payload and changes 
 });
 
 test("compactEvent keeps the ci_green payload (pr, sha, mergeable, mergeState) and drops null mergeable", async () => {
-  const { compactEvent } = await import("../src/agent-api.js");
+  const { compactEvent } = await import("../src/agent-api/index.js");
   const e = compactEvent({ ts: "t", event: "ci_green", ref: "1", step: "", pr: 7, sha: "abc", mergeable: false, mergeState: "dirty", runId: 9 });
   assert.deepEqual(e, { ts: "t", e: "ci_green", ref: "1", pr: 7, sha: "abc", mergeable: false, mergeState: "dirty" });
   assert.equal("mergeable" in compactEvent({ ts: "t", event: "ci_green", ref: "1", pr: 7, mergeable: null }), false);
 });
 
 test("readStatus lists real failures (not cancels, dismissed or re-run ones) as failed[] with why", async () => {
-  const { readStatus } = await import("../src/agent-api.js");
+  const { readStatus } = await import("../src/agent-api/index.js");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-failed-"));
   const ev = [
     { ts: "2026-10-13T10:00:00Z", event: "failed", ref: "a", step: "code", reason: "exit 1" },

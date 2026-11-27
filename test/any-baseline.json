@@ -3,7 +3,11 @@
     "total": 646,
     "files": {
       "src/actionable.js": 3,
-      "src/agent-api.js": 21,
+      "src/agent-api/common.js": 1,
+      "src/agent-api/events.js": 12,
+      "src/agent-api/live.js": 2,
+      "src/agent-api/status.js": 3,
+      "src/agent-api/tick.js": 3,
       "src/agents/claude.js": 7,
       "src/agents/cursor.js": 6,
       "src/agents/hermes.js": 3,

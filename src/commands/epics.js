@@ -1,7 +1,7 @@
 // `agenthook epics [name] [--ref <epic>] [--fresh] [--json]` — the same payload the MCP `epics`
 // tool returns: every epic with its progress, live via the receiver when up else the local
 // refmeta-based fallback (`live:false`). --json prints the exact payload.
-import { defaultProfileKey, pickProfile, readEpics } from "../agent-api.js";
+import { defaultProfileKey, pickProfile, readEpics } from "../agent-api/index.js";
 
 /** @param {Record<string, any>} e @returns {string} */
 function epicLine(e) {

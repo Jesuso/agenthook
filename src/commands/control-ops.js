@@ -6,7 +6,7 @@
 // check, the per-op timeout (liveTimeoutMs, same as the MCP path) and the error/exit handling
 // all live in the shared sender (src/commands/pause.js `send`).
 import { send } from "./pause.js";
-import { liveTimeoutMs } from "../agent-api.js";
+import { liveTimeoutMs } from "../agent-api/index.js";
 
 /** The CLI args these commands read: the parsed positional/flag map from bin/agenthook.js. */
 /** @typedef {{_: string[], config?: string, json?: boolean}} OpArgs */

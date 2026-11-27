@@ -14,7 +14,7 @@
 // with `--once` — it prints the one-shot view (src/top.js `renderTop`/`renderAll`, or the strip)
 // and exits. Always local state only: no board/PR reads, never through `live(...)` — the
 // no-polling rule.
-import { defaultProfileKey, eventsCursor, pickProfile, pickProfiles, readRuns, readTick, waitForEvents, waitForEventsMulti } from "../agent-api.js";
+import { defaultProfileKey, eventsCursor, pickProfile, pickProfiles, readRuns, readTick, waitForEvents, waitForEventsMulti } from "../agent-api/index.js";
 import { registryDir } from "../config/index.js";
 import { resolveRunLog } from "../reader/run-logs.js";
 import { runTop } from "../top-loop.js";

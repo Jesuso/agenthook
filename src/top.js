@@ -1,4 +1,4 @@
-// `agenthook top` renderer — the operator's glance view over a tick payload (src/agent-api.js
+// `agenthook top` renderer — the operator's glance view over a tick payload (src/agent-api/
 // `readTick`, local state only; `src/commands/tick.js` `digest` is the dense agent-oriented one).
 // Always a header, then the needs-you rows (held → failed → PR) and the running rows, then one
 // queued-count line. Glance rule: a state marker, id/ref, step, age and a truncated title — no
@@ -42,7 +42,7 @@ function ageFrom(ts, now) {
  * their `prNeeds` word in `kind`). */
 /** @typedef {{ref: string, id?: string, step?: string, title?: string, since?: string, at?: string, ageS?: number|null, model?: string, harness?: string, pr?: string, kind?: string}} RowEntry */
 
-/** The payload `renderTop` reads: `src/agent-api.js` `readTick` output, local-only fields. */
+/** The payload `renderTop` reads: `src/agent-api/` `readTick` output, local-only fields. */
 /** @typedef {{profile?: string, up?: boolean, slots?: {max?: number|null, active?: number, queued?: number}, held?: RowEntry[], failed?: RowEntry[], prWaiting?: RowEntry[], running?: RowEntry[]}} TopTick */
 
 /**
@@ -110,7 +110,7 @@ export function build(t, { width = 80, now, color = false, selected } = {}) {
  * N = held + failed + prWaiting. With `up:false` it returns the header alone. `selected` marks
  * the row at that index over `selectable(t)` (needs-you then running) with the `> ` prefix —
  * omitted, the output is byte-identical to the unselected render.
- * @param {TopTick} t a status/tick payload (src/agent-api.js `readTick`)
+ * @param {TopTick} t a status/tick payload (src/agent-api/ `readTick`)
  * @param {{width?: number, now?: number, color?: boolean, selected?: number}} [o] `now` (ms) — no clock in here; omitted ages render "-"
  * @returns {string[]}
  */
@@ -132,7 +132,7 @@ export function renderTop(t, { width = 80, now, color = false, selected } = {}) 
  * (K hidden rows, A/B the hidden needs-you / running split, both counts always printed).
  * With `up:false` or `lines <= 1` it returns the header alone. Never returns more than
  * `lines` lines.
- * @param {TopTick} t a status/tick payload (src/agent-api.js `readTick`)
+ * @param {TopTick} t a status/tick payload (src/agent-api/ `readTick`)
  * @param {{lines: number, width?: number, now?: number, color?: boolean}} o `lines` the strip height (≥ 1); `now` (ms) as `renderTop`
  * @returns {string[]}
  */

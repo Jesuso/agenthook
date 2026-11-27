@@ -6,7 +6,7 @@ import { peekConfig } from "../config/index.js";
 import { readProfile } from "../heartbeat.js";
 import { controlSockPath } from "../paths.js";
 import { controlRequest } from "../control/client.js";
-import { liveTimeoutMs } from "../agent-api.js";
+import { liveTimeoutMs } from "../agent-api/index.js";
 
 /** The CLI args these commands read: the parsed positional/flag map from bin/agenthook.js. */
 /** @typedef {{_: string[], config?: string, harness?: string, json?: boolean, reset?: boolean}} OverrideArgs */

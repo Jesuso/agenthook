@@ -1,4 +1,4 @@
-# Agent-facing surface: `agent-api.js`, MCP, control ops
+# Agent-facing surface: `agent-api/`, MCP, control ops
 
 The **agent-facing surface** (docs/mcp.md; usage guide for agents `docs/agent-guide.md`, served by
 the MCP `guide` tool — update it when a tool, event or error message changes).
@@ -6,7 +6,11 @@ the MCP `guide` tool — update it when a tool, event or error message changes).
 ## Key files
 
 - `src/guide.js` — `loadGuide` (agent-guide.md by `##` topic) + `renderAuthoring(cfg)`: the dynamic `authoring` topic, pure over the loaded config with a per-provider facts table (`PROVIDERS`: stage keys, epic rule, blocker support — keep in sync with `src/trackers/<kind>.js`). Served by the MCP `guide` tool and `agenthook guide`. `src/skill-install.js` + `src/commands/skill.js` — the portable skill in `skills/agenthook/` (open SKILL.md format), its agent-dir table, version stamp, `skill install|ls`; `doctor` warns on a stale copy, `init` offers the install.
-- `src/agent-api.js` + `src/mcp/*` + `src/ops.js` — `agent-api.js`
+- `src/agent-api/` + `src/mcp/*` + `src/ops.js` — `agent-api/index.js` re-exports the pure read model, split by
+  job: `common.js` (`REASON_MAX`/`clip`), `live.js` (control-socket `live` + its timeouts), `profiles.js`
+  (`pickProfile`/`pickProfiles`/`readProfiles`), `status.js` (`readStatus`/`readRunStats`/`etagOf`),
+  `events.js` (`readEventsSince`/`waitForEvents`/`waitForEventsMulti`/cursor helpers), `runs.js`
+  (`readRuns`/`readRunLogTail`), `tick.js` (`readEpics`/`readLocalEpics`/`readTick`). It
   is the pure read model over a state dir (`readStatus` slots/running/queue/held with an `etag`,
   `readEventsSince`/`waitForEvents` byte-offset cursors — `waitForEvents` is `fs.watch`-driven, never
   polling —, `readRuns`/`readRunLogTail`, `readTick`, `pickProfile` multiplexing); reads work with the

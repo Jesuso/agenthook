@@ -10,6 +10,6 @@ to read more" index for when to open each file.
 - [trackers.md](trackers.md) — Asana, Jira, GitHub, GitHub Projects v2 provider specifics.
 - [state.md](state.md) — `store/` state files, `state-move.js`, `archive.js`.
 - [ui.md](ui.md) — the `ah ui` server, `identity.js`, `config-schema.js`.
-- [agent-api-mcp.md](agent-api-mcp.md) — `agent-api.js`, `src/mcp/*`, `ops.js` (control ops, audit, caching).
+- [agent-api-mcp.md](agent-api-mcp.md) — `agent-api/`, `src/mcp/*`, `ops.js` (control ops, audit, caching).
 - [epics.md](epics.md) — `epics.js`, `epic-changed.js`, the cross-provider epic model.
 - [digest.md](digest.md) — `digest.js`, `digest-config.js`, `ticket-summary.js`.

@@ -95,7 +95,7 @@ test("top: detailLine — needs-you rows say the kind in words plus the title; r
   assert.equal([...visible(cut)].length, 20, "the detail line is cut to width");
   assert.ok(cut.endsWith("…"));
   assert.equal(detailLine(t, 99), "", "an out-of-range index gives no detail line");
-  // tick entries carry the reason as `why` (src/agent-api.js) — the detail line must not print it
+  // tick entries carry the reason as `why` (src/agent-api/) — the detail line must not print it
   const withWhy = UP({
     held: [{ ref: "h1", step: "review", title: "W", why: "waiting on the operator" }],
     failed: [{ ref: "f1", step: "code", title: "B", why: "tests red" }],

@@ -127,6 +127,6 @@ area; don't read all of them for every ticket.
 - [docs/internals/trackers.md](docs/internals/trackers.md) — Asana, Jira, GitHub, GitHub Projects v2 provider specifics.
 - [docs/internals/state.md](docs/internals/state.md) — `store/` state files, `state-move.js`, `archive.js`.
 - [docs/internals/ui.md](docs/internals/ui.md) — the `ah ui` server, `src/shared/identity.js`, `src/shared/config-schema.js`, the `src/shared/` boundary.
-- [docs/internals/agent-api-mcp.md](docs/internals/agent-api-mcp.md) — `agent-api.js`, `src/mcp/*`, `ops.js` (control ops, audit, caching).
+- [docs/internals/agent-api-mcp.md](docs/internals/agent-api-mcp.md) — `agent-api/`, `src/mcp/*`, `ops.js` (control ops, audit, caching).
 - [docs/internals/epics.md](docs/internals/epics.md) — `epics.js`, `epic-changed.js`, the cross-provider epic model.
 - [docs/internals/digest.md](docs/internals/digest.md) — `digest.js`, `src/shared/digest-config.js`, `ticket-summary.js`.
