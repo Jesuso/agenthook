@@ -278,7 +278,14 @@ If the question no longer matters, complete the ticket on the board: its done we
 hold and any queued resume (`hold_cleared {via:"board_done"}`), with no move on the tracker. Already
 completed but still in `held[]` (the done webhook was missed, or it landed before this behaviour)?
 `recheck {ref}` drops it (`changed` includes `hold_cleared`). Don't `cancel` a closed ticket just to
-clear its hold: `cancel` moves it to the failure lane.
+clear its hold: `cancel` moves it to the failure lane. A `why` containing
+`a human must review and push CI changes` is the hub-side workflow guard on a remote (ssh) run:
+its commits touch `.github/workflows/`, so the branch was never pushed and no PR or comment was
+published — a human reviews the CI change (the `blocked` event's `harness` field, when present,
+names the worker) and pushes it themselves, then `release {ref}`. When the `why` says the change
+`include[s] a merge that brings in changes to …`, the hit came in through a merge of the base
+branch, not the run's own work — the fix is rebasing the run's branch on the updated base, not
+deleting anything the agent wrote.
 
 **A task failed** (`failed` event). `reason` is clipped; `runs {ref, tail}` has the real error.
 Decide: transient (re-enter with `run {ref, force:true}`), needs a fix elsewhere, or needs a human.

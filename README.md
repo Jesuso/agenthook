@@ -132,7 +132,10 @@ replay (`catchup` / `reconcile`) for the gaps.
 > per-run sandbox (each run sees only its worktree) or on a trusted host with a scoped token;
 > `agenthook doctor` shows the isolation report. Read the full threat model in
 > [docs/architecture.md#security-posture](docs/architecture.md#security-posture) and report issues
-> per [SECURITY.md](SECURITY.md) before you point this at anything real.
+> per [SECURITY.md](SECURITY.md) before you point this at anything real. With a remote (ssh)
+> harness the same rule applies in reverse: the worker holds no tracker or forge credentials, and
+> everything it returns (verdict, outbox, commits) is checked before the hub acts on it —
+> [docs/remote.md#the-trust-model-stated-plainly](docs/remote.md#the-trust-model-stated-plainly).
 
 ## Build your pipeline, small first
 

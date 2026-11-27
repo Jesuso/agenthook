@@ -6,6 +6,28 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- New: remote (ssh) runs are hardened against a worker that is untrusted input to the hub (#829,
+  #681 phase 5c). Every git call on the hub-side publish path (`fetch`/`log`/`diff`/`push`) is
+  time-capped (60 s, then killed) and runs with hooks and fsmonitor disabled (`core.hooksPath=/dev/null`,
+  `core.fsmonitor=false`); a timeout fails the step with a `… timed out after 60s` reason. The
+  `.github/workflows/` publish guard is merge-aware: when the only hit is a merge commit's diff, the
+  hold reason says so (`the run's commits include a merge that brings in changes to <path> — a human
+  must review and push CI changes`) so a human rebases on the base instead of deleting the run's
+  work. Worker-written outbox text (PR title/body, comment) is mention-neutralised before the hub
+  publishes it under its own identity — every `@login`/`@org/team` is wrapped in backticks (which
+  GitHub does not notify), our own tracker login is exempt case-insensitively, and with no owner
+  login known every mention is neutralised (fail closed).
+- New: `agenthook doctor` lints the remote trust model (config-only, no probe; non-local tracker +
+  a remote harness): **fails** when `tracker.assigneeFilter` is `false` (any ticket on the tracker
+  runs on the worker) or when no assignee identity is resolvable from the config (App auth without
+  `tracker.assigneeLogin`); otherwise **warns** once naming the remote harness(es) and the identity
+  that is the only gate, plus one **warn** per step whose harness list is remote-only (no non-remote
+  fallback; the agent runs as the worker's ssh user).
+- Fixed: `resume`'s remote re-point guard now works — usage records carry the run's own host
+  (`rec.host`), so a harness whose `remote.host` changed after the run is refused instead of
+  resuming somewhere else (#826). A github comment thread longer than the 100-comment window the
+  prompt embeds now reports the omission (`N older comments omitted` in the prompt) instead of
+  silently dropping the head; github-projects reports it from the thread's `totalCount` (#826).
 - New: remote (ssh) harness runs work with the **pi** agent (#827, #681 phase 3): `harnesses.<name>.agent: "pi"` on a harness with `remote` — the same unattended-contract and standing-instructions files a sandboxed pi run gets (one `--append-system-prompt` flag per file, both surviving compaction), the run's `model` as `--model provider/id`, and a belt-and-braces `--offline` flag + `PI_OFFLINE=1` env. The per-run files are written into the worker's per-run dir (outside the synced worktree/export, removed after the run; the boot/shutdown reaper cleans a crashed run's leftovers) and the prompt still travels on stdin, never argv. A step's `piConfigDir` is **ignored** on a remote harness (warned, never read or copied): the worker keeps its own `~/.pi/agent` — its own model endpoint and credentials. `pi` joins the config-validated remote agents (the refusal now lists the `REMOTE_AGENTS` set), and `agenthook doctor`'s missing-bin hint names `npm i -g @earendil-works/pi-coding-agent`.
 
 - Fixed: a missing sandbox **service** image no longer gets a remedy that can't work — the
