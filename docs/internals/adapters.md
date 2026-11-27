@@ -33,7 +33,9 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
   `ingressDown` field that `status`/`doctor` surface (tailscale/manual have no child to watch, so
   no `onExit`).
 - `src/sandbox/*.js` + `index.js` — optional sandbox adapters (`docker`, `podman`, both
-  `container.js`). Registry `SANDBOXES` keyed by `cfg.sandbox.type`; no `sandbox` block →
+  `container.js`). `readiness.js` holds `sandboxRuntimeChecks`/`buildImage`, the runtime + image
+  readiness checks shared by `doctor` (`sandboxChecks`) and `ah ui`'s sandbox readiness card.
+  Registry `SANDBOXES` keyed by `cfg.sandbox.type`; no `sandbox` block →
   `createSandbox` returns null and runs spawn on the host. Interface: `describe() → {name, home}`,
   `check() → {ok, reason?}` (runtime + image present; boot refuses on `!ok`), `wrap({runId, ref,
   stepId, bin, args, env, cwd, mounts, step}) → {bin, args, env, id, kill, done}` (the argv that

@@ -1,15 +1,17 @@
 // `ah ui` sandbox readiness card, server side (`GET /api/sandbox-readiness`, docs/web-ui.md).
 // Read-only: the three things a sandboxed claude step needs outside agenthook.config.json — the
 // container runtime, the agent image, a claude credential in the profile's `.env` — checked with
-// doctor's own probes (sandboxRuntimeChecks, sandboxCredentialProblem). Like the config editor it
-// loads no config: the raw file at heartbeat.configPath, `.env` parsed in place (never into
-// process.env). No fix is ever applied (doctor's image fix runs `docker build`), and no credential
-// value leaves this module — a row is a boolean, a label, a note and the CLI command that fixes it.
+// src/sandbox/readiness.js's probes (sandboxRuntimeChecks, sandboxCredentialProblem). Like the
+// config editor it loads no config: the raw file at heartbeat.configPath, `.env` parsed in place
+// (never into process.env). No fix is ever applied (doctor's image fix runs `docker build`), and
+// no credential value leaves this module — a row is a boolean, a label, a note and the CLI
+// command that fixes it.
 import fs from "node:fs";
 import path from "node:path";
 import util from "node:util";
 import { SANDBOX_CREDENTIAL_VARS, sandboxCredentialProblem } from "../agents/claude.js";
-import { execRun, onPath, sandboxRuntimeChecks } from "../commands/doctor.js";
+import { execRun, onPath } from "../exec.js";
+import { sandboxRuntimeChecks } from "../sandbox/readiness.js";
 import { tildify } from "../profile.js";
 import { DEFAULT_IMAGE } from "../sandbox/image.js";
 import { SANDBOX_NAMES } from "../sandbox/names.js";
@@ -21,7 +23,7 @@ import { UI_MAX_BYTES } from "./save.js";
 /** @typedef {SandboxReadiness['rows'][number]} ReadinessRow */
 
 /** doctor's fix as a CLI remedy: a manual one as-is, the image build as `doctor --fix`.
- * @param {import('../commands/doctor.js').Fix|undefined} fix */
+ * @param {import('../types.js').Fix|undefined} fix */
 const remedyOf = (fix) => (!fix ? undefined : "manual" in fix ? fix.manual : "agenthook doctor --fix");
 
 /** The parsed `.env` beside the config, or {} when it's missing, not a regular file, or too big.
