@@ -72,15 +72,23 @@ test("a health trip marks the harness down, strikes double the cooldown, then a 
   assert.deepEqual(events.at(-1), ["up", "A", { cause: "health" }]);
 });
 
-test("closeForQuota reads down then up (never probing) on the reopen timer, and never adds strikes", () => {
+test("closeForQuota never adds strikes, and a stale quota entry reads up (never probing) on a lazy read before the timer fires", () => {
   const { b, c, events } = harness();
   const until = T0 + 10 * MIN;
   b.closeForQuota(["A"], { until, reason: "quota: weekly 92% ≥ 90%" });
-  assert.equal(b.entry("A").strikes, 0);
+  assert.equal(b.entry("A").strikes, 0, "a quota entry never adds strikes");
   assert.equal(b.stateOf("A"), "down");
+  // Seed a second breaker with the same still-quota-closed entry but never call .arm() on it, so
+  // no timer is armed — stateOf must still read "up" (never "probing") once `until` passes, purely
+  // from the cause check, with the stale entry still sitting in the map.
+  const until2 = { until: new Date(until).toISOString(), strikes: 0, reason: "x", cause: "quota" };
+  const lazy = harness(["A"], { health: { A: until2 } });
+  lazy.c.advance(until);
+  assert.equal(lazy.b.stateOf("A"), "up", "a quota entry reads up on a lazy read, never probing");
+  assert.ok(lazy.b.entry("A"), "the stale entry stays in the map — no timer was armed to clear it");
   b.arm();
-  c.advance(until);
-  assert.equal(b.stateOf("A"), "up", "a quota entry reopens straight to up, never probing");
+  c.advance(until); // now let the reopen timer actually fire on the first breaker
+  assert.equal(b.entry("A"), undefined, "the timer clears the stale entry");
   assert.deepEqual(events.at(-1), ["up", "A", { cause: "quota" }]);
 });
 

@@ -47,7 +47,11 @@ and takes the boot-failure path above, so the ingress is downed rather than orph
   `intake.js` the push sink; `context.js` types-only `EngineState` (the shared mutable flags,
   `control`, `server`).
 - `src/queue.js` — bounded-concurrency queue (`maxConcurrent`); worktree isolation makes parallel
-  agents safe. Takes an `onChange` callback the engine wires to the heartbeat.
+  agents safe. Takes an `onChange` callback the engine wires to the heartbeat. The health/quota
+  breaker (per-harness up/down/probing, the unharnessed gate, the reopen timer) lives next to it in
+  `src/harness-breaker.js` (`createHarnessBreaker`), behind a narrow interface (`stateOf`, `entry`,
+  `gateClosed`, `settle`, `closeForQuota`, `reset`, `prune`, `arm`, `stop`) — `settle`/`prune` never
+  fire its `onChange`, the caller reports/pumps at its own moment.
 - `src/heartbeat.js` — per-profile status JSON in the state dir, plus cross-profile readers
   (`listProfiles`/`readProfile`, pid-liveness) backing `ls`/`status`. Entries are
   `{stateKey, name, …}`: `stateKey` = dir name (the id the UI API uses), `name` = label
