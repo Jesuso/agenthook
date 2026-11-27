@@ -35,6 +35,7 @@ import { neutralizeMentions, breakAllMentions } from "./outbox.js";
 async function safeMentions(text, { forge, owner, say, label }) {
   const isForeign = (/** @type {string[]} */ logins) => logins.some((l) => !owner || l !== owner.toLowerCase());
   if (typeof forge.liveMentions !== "function") {
+    say(`[publish] ${label}: forge has no liveMentions check — mentions broken, not just wrapped`);
     return { text: breakAllMentions(text, owner) };
   }
   const t1 = neutralizeMentions(text, owner);

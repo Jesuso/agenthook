@@ -18,8 +18,9 @@ All notable changes to this project are documented here. The format is based on
   notify), and — when the forge can render Markdown without notifying anyone (GitHub's
   `liveMentions`) — that render call is the arbiter; a live mention surviving the wrap, a failed
   render call, or a forge without the check all fall back to `breakAllMentions`, which inserts a
-  zero-width space right after every `@`+alphanumeric with no notion of code at all, so it cannot
-  be bypassed by a Markdown construct our own code-vs-prose guess disagreed with the renderer
+  zero-width space right after every `@`+alphanumeric — literal or HTML-entity-encoded (`&#64;`,
+  `&#x40;`, `&commat;`, any case) — with no notion of code at all, so it cannot be bypassed by a
+  Markdown construct, or an entity escape, our own code-vs-prose guess disagreed with the renderer
   about. The PR title always goes straight through `breakAllMentions`. Our own tracker login is
   exempt case-insensitively throughout, and with no owner login known every mention is broken
   (fail closed).

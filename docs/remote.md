@@ -226,19 +226,22 @@ guessing:
    that's the normal case.
 3. If the renderer finds a live mention anyway, if the render call throws (timeout, non-2xx,
    unparseable response), or if the forge offers no such check at all, the hub falls back to
-   `breakAllMentions`: it inserts a zero-width space (U+200B) right after **every** `@` followed
-   by a letter or digit, with no notion of code or Markdown structure at all — an email
-   (`a@b.com`) and text inside a fenced block both get the character too. There is nothing left to
-   disagree with the renderer about, because the rule no longer looks at structure. When the
-   renderer is available, this broken text is checked once more; if a foreign login is *still*
-   live even after that, the hub does not publish that piece of text at all (one run-log line) —
-   like any other publish failure, this does not fail the step.
+   `breakAllMentions`: it inserts a zero-width space (U+200B) right after **every** `@` — literal,
+   or spelled as an HTML entity (`&#64;`, `&#064;`, `&#x40;`, `&commat;`, any case) — that is
+   followed by a letter or digit, with no notion of code or Markdown structure at all — an email
+   (`a@b.com`) and text inside a fenced block both get the character too, and so does an
+   entity-encoded mention sitting inside what looks like code. There is nothing left to disagree
+   with the renderer about, because the rule no longer looks at structure, and nothing left for an
+   entity escape to exploit either. When the renderer is available, this broken text is checked
+   once more; if a foreign login is *still* live even after that, the hub does not publish that
+   piece of text at all (one run-log line) — like any other publish failure, this does not fail
+   the step.
 4. The PR **title** always goes straight through `breakAllMentions`, with no render call — a
    one-line title has no code context worth preserving.
 
 In short: the backtick form is a best-effort readability win, verified against the real renderer
-when possible; `breakAllMentions` is the fallback that cannot be bypassed because it has nothing
-for a bypass to exploit.
+when possible; `breakAllMentions` is the fallback that cannot be bypassed, because — having no
+notion of code, Markdown structure, or entity-escaping — it has nothing for a bypass to exploit.
 
 The workflow guard covers **`.github/workflows/` only** — nothing else a commit touches is
 refused. And a branch that does get pushed still opens a PR that runs the repo's existing CI on

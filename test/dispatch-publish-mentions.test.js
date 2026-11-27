@@ -48,6 +48,15 @@ test("breakAllMentions: a fenced block and an inline code span get the character
   expect("`@bob`", "octo", "`@\u200bbob`");
 });
 
+test("breakAllMentions: HTML-entity-encoded @ (decimal, hex, named) gets the character too — GitHub's renderer decodes entities before it looks for mentions", () => {
+  expect("&#64;octocat", "owner", "&#64;​octocat");
+  expect("&#064;octocat", "owner", "&#064;​octocat", "leading zeros in the decimal form");
+  expect("&#x40;octocat", "owner", "&#x40;​octocat");
+  expect("&#X40;octocat", "owner", "&#X40;​octocat", "uppercase hex marker");
+  expect("&commat;octocat", "owner", "&commat;​octocat");
+  expect("&COMMAT;octocat", "owner", "&COMMAT;​octocat", "matched case-insensitively");
+});
+
 test("breakAllMentions: idempotent on its own output", () => {
   const once = breakAllMentions("hi @bob and @octo", "octo");
   assert.equal(breakAllMentions(once, "octo"), once);
@@ -149,11 +158,35 @@ test("(c) the render call throws -> mentions are broken, no second call", async 
   assert.equal(r.liveCalls(), 1);
 });
 
-test("(d) the forge has no liveMentions -> mentions are broken, no render call at all", async () => {
+test("(d) the forge has no liveMentions -> mentions are broken, no render call at all, and a run-log line says so", async () => {
   const run = rig({});
   const r = await run({ outbox: { comment: "hi @bob @octo" } });
   const posted = r.lines.find((l) => l.startsWith("comment:")) ?? "";
   assert.equal(posted, "comment:hi @\u200bbob @octo");
+  assert.ok(
+    r.lines.some((l) => l.includes("no liveMentions check")),
+    "a run-log line explains the fallback",
+  );
+});
+
+test("(c) an HTML-entity-encoded mention survives the render-call failure path -> broken too", async () => {
+  const run = rig({ liveMentions: async () => Promise.reject(new Error("boom")) });
+  const r = await run({ outbox: { comment: "hi &#64;octocat" } });
+  const posted = r.lines.find((l) => l.startsWith("comment:")) ?? "";
+  assert.ok(!/&#64;octocat|@octocat/.test(posted), `entity mention leaked through: ${JSON.stringify(posted)}`);
+});
+
+test("(d) an HTML-entity-encoded mention survives the no-liveMentions path -> broken too", async () => {
+  const run = rig({});
+  const r = await run({ outbox: { comment: "hi &#64;octocat" } });
+  const posted = r.lines.find((l) => l.startsWith("comment:")) ?? "";
+  assert.ok(!/&#64;octocat|@octocat/.test(posted), `entity mention leaked through: ${JSON.stringify(posted)}`);
+});
+
+test("the PR title breaks an HTML-entity-encoded mention too", async () => {
+  const run = rig({ liveMentions: async () => [] });
+  const r = await run({ outbox: { pr: { title: "ping &#64;octocat", body: "no mentions here" } } });
+  assert.ok(!/&#64;octocat|@octocat/.test(r.prArg.title), `entity mention leaked through the title: ${JSON.stringify(r.prArg.title)}`);
 });
 
 test("(e) still live after breaking every mention -> that item is skipped; an unrelated item still publishes", async () => {

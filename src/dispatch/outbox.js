@@ -155,23 +155,28 @@ export function neutralizeMentions(text, ownerLogin) {
   return out + text.slice(last);
 }
 
-/** Any `@` immediately followed by a letter/digit — the character GitHub's mention syntax
- * needs right after the `@`. No notion of code at all (unlike {@link neutralizeMentions}): this
- * is the fail-closed fallback used when we can't ask GitHub's own renderer whether a mention is
- * live (#829 redesign) — reviews found renderer-disagreement bypasses (tab/NBSP fence indent,
- * CRLF closer, escaped backtick, headings, tables, raw HTML, autolinks…) faster than they could
- * be special-cased, so the fallback stops trying to tell code from prose. */
-const MENTION_AT = /@(?=[A-Za-z0-9])/g;
+/** Any `@` — literal or HTML-entity-encoded (`&#64;`, `&#064;`, `&#x40;`, `&#X40;`, `&commat;`,
+ * matched case-insensitively, any number of leading zeros in the decimal form) — immediately
+ * followed by a letter/digit: the character GitHub's mention syntax needs right after the `@`,
+ * however it was spelled in the raw text. GitHub's renderer decodes entities before it looks for
+ * mentions, so `&#64;octocat` renders exactly like `@octocat`. No notion of code at all (unlike
+ * {@link neutralizeMentions}): this is the fail-closed fallback used when we can't ask GitHub's
+ * own renderer whether a mention is live (#829 redesign) — reviews found renderer-disagreement
+ * bypasses (tab/NBSP fence indent, CRLF closer, escaped backtick, headings, tables, raw HTML,
+ * autolinks, entity-encoded `@`…) faster than they could be special-cased, so the fallback stops
+ * trying to tell code from prose. */
+const MENTION_AT = /(?:@|&#0*64;|&#[xX]0*40;|&commat;)(?=[A-Za-z0-9])/gi;
 
 /**
- * Break EVERY GitHub-style mention in `text` by inserting a zero-width space (U+200B) right
- * after the `@`, so no Markdown structure — code, heading, table, raw HTML, whatever — can turn
- * it back into something GitHub's renderer notifies (#829). The only exemption is an EXACT
- * `@<ownerLogin>` mention (case-insensitive), i.e. not followed by another login/path character
- * (`[A-Za-z0-9/-]`) — `@owner-x` and `@owner/team` are NOT the owner and ARE broken. An email
- * (`a@b.com`) gets the character too: there is no context-sensitive exemption left to carry a
- * bypass. With no owner known, every mention is broken. Idempotent on its own output (the
- * inserted U+200B itself breaks the `@`+alnum adjacency the regex requires). Pure.
+ * Break EVERY GitHub-style mention in `text` — literal `@` or an HTML-entity encoding of it — by
+ * inserting a zero-width space (U+200B) right after it, so no Markdown structure — code, heading,
+ * table, raw HTML, entity escape, whatever — can turn it back into something GitHub's renderer
+ * notifies (#829). The only exemption is an EXACT `@<ownerLogin>` mention (case-insensitive,
+ * literal `@` only), i.e. not followed by another login/path character (`[A-Za-z0-9/-]`) —
+ * `@owner-x` and `@owner/team` are NOT the owner and ARE broken. An email (`a@b.com`) gets the
+ * character too: there is no context-sensitive exemption left to carry a bypass. With no owner
+ * known, every mention is broken. Idempotent on its own output (the inserted U+200B itself breaks
+ * the `@`/entity + alnum adjacency the regex requires). Pure.
  * @param {string} text
  * @param {string|undefined|null} [ownerLogin]
  * @returns {string}
@@ -182,13 +187,13 @@ export function breakAllMentions(text, ownerLogin) {
   let out = "";
   let last = 0;
   for (const m of text.matchAll(MENTION_AT)) {
-    const at = m.index;
+    const end = m.index + m[0].length; // just past the `@` or its entity encoding
     if (owner !== null) {
-      const rest = text.slice(at + 1);
+      const rest = text.slice(end);
       if (rest.toLowerCase().startsWith(owner) && !/^[A-Za-z0-9/-]/.test(rest.slice(owner.length))) continue; // the owner's own, exact mention
     }
-    out += text.slice(last, at + 1) + "\u200b";
-    last = at + 1;
+    out += text.slice(last, end) + "\u200b";
+    last = end;
   }
   return out + text.slice(last);
 }
