@@ -312,7 +312,7 @@ test("real ssh: run.kill() TERM-then-KILLs the remote process group via a fresh 
 
 // --- A9: env/prompt travel off-argv ---
 
-test("real ssh: an AGENTHOOK_ env value and the prompt reach the agent but never appear in its own argv", async (t) => {
+test("real ssh: an AGENTHOOK_ env value reaches the agent, and neither it nor the prompt ever appear in any process's argv", async (t) => {
   if (unavailable(t)) return;
   const workDir = mkWork();
   const pidFile = path.join(workDir, "agent.pid");
@@ -323,7 +323,10 @@ test("real ssh: an AGENTHOOK_ env value and the prompt reach the agent but never
     const script = writeScript(
       workDir,
       "sleepy-env.sh",
-      `#!/bin/sh\necho "$$" > ${JSON.stringify(pidFile)}\ncat > /dev/null\nprintf '%s' "$AGENTHOOK_TEST_SECRET" > ${JSON.stringify(envOutFile)}\nsleep 30\n`,
+      // `exec sleep 30` (not a plain `sleep 30` child) so SIGKILLing this script's own pid below
+      // ends the sleep immediately instead of leaving an orphaned 30s sleep holding the ssh
+      // session open and making the test itself take 30s.
+      `#!/bin/sh\necho "$$" > ${JSON.stringify(pidFile)}\ncat > /dev/null\nprintf '%s' "$AGENTHOOK_TEST_SECRET" > ${JSON.stringify(envOutFile)}\nexec sleep 30\n`,
     );
     const remote = remoteFor(workDir, { bin: script });
     const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(workDir, "hub.json") } });
