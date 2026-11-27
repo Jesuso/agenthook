@@ -185,6 +185,32 @@ export function createOps(deps) {
     return true;
   };
 
+  /** @param {string} ref @returns {Promise<import('./types/tracker.js').Task>} the tracker's task, or throws a "not found" error naming the ref */
+  const fetchTaskOrThrow = async (ref) => {
+    try {
+      return await adapter.fetchTask(ref);
+    } catch (e) {
+      throw new Error(`${ref} not found (${String(e.message).slice(0, 120)}). Check the ref.`);
+    }
+  };
+
+  /** @param {string} ref @param {string} verb @param {string} [heldHint] refuse a running/queued ref for any command; a held one too when heldHint is given */
+  const refuseIfBusy = (ref, verb, heldHint) => {
+    if (ref in store.listRunning()) throw new Error(`${ref} is running — nothing to ${verb}`);
+    if (store.listQueued().some((j) => j.ref === ref)) throw new Error(`${ref} is queued — nothing to ${verb}`);
+    if (heldHint !== undefined && store.getHeld(ref)) throw new Error(`${ref} is held — ${heldHint}`);
+  };
+
+  /** @param {import('./types/config.js').Overrides} o @param {string} harness  drop + re-publish a harness override if one existed; returns whether it did */
+  const resetHarnessOverride = (o, harness) => {
+    const had = clearHarnessOverride(o, harness);
+    if (had) {
+      queue.setHarnessMax(harness, cfg.harnesses?.[harness]?.maxConcurrent ?? null);
+      publishOverrides();
+    }
+    return had;
+  };
+
   /** @param {string} id */
   const stepOrThrow = (id) => {
     const s = findStep(cfg, id);
@@ -408,11 +434,7 @@ export function createOps(deps) {
       const harness = args.harness !== undefined ? needHarness(args.harness) : undefined;
       if (harness !== undefined) {
         const o = store.getOverrides();
-        const had = clearHarnessOverride(o, harness);
-        if (had) {
-          queue.setHarnessMax(harness, cfg.harnesses?.[harness]?.maxConcurrent ?? null);
-          publishOverrides();
-        }
+        const had = resetHarnessOverride(o, harness);
         return {
           harness,
           ...(had ? { maxConcurrent: cfg.harnesses?.[harness]?.maxConcurrent ?? null, note: `"${harness}" back to its config value` } : { note: `no override for harness "${harness}"` }),
@@ -440,11 +462,7 @@ export function createOps(deps) {
       const o = store.getOverrides();
       if (reset) {
         if (harness !== undefined) {
-          const had = clearHarnessOverride(o, harness);
-          if (had) {
-            queue.setHarnessMax(harness, cfg.harnesses?.[harness]?.maxConcurrent ?? null);
-            publishOverrides();
-          }
+          const had = resetHarnessOverride(o, harness);
           return { harness, reset: true, ...(had ? { note: `"${harness}" back to its config value` } : { note: `no override for harness "${harness}"` }), ...queue.state() };
         }
         if (o.maxConcurrent !== undefined) {
@@ -489,8 +507,7 @@ export function createOps(deps) {
     }),
     harness_reset: write("harness_reset", async (args) => {
       if (!cfg.harnesses) throw new Error("this profile has no harnesses");
-      const name = needString(args.harness, "harness");
-      if (!Object.hasOwn(cfg.harnesses, name)) throw new Error(`no harness "${name}" (have: ${Object.keys(cfg.harnesses).join(", ")})`);
+      const name = needHarness(args.harness);
       const r = queue.resetHarness(name); // emits harness_up when it was down or probing, then starts waiting work
       // A quota-closed harness: an operator reset reopens it now and suppresses re-closing by quota
       // until that trip's reset (src/engine/controllers.js createHarnessQuota).
@@ -539,9 +556,7 @@ export function createOps(deps) {
     // writing nothing.
     dismiss: write("dismiss", async (args) => {
       const ref = needString(args.ref, "ref");
-      if (ref in store.listRunning()) throw new Error(`${ref} is running — nothing to dismiss`);
-      if (store.listQueued().some((j) => j.ref === ref)) throw new Error(`${ref} is queued — nothing to dismiss`);
-      if (store.getHeld(ref)) throw new Error(`${ref} is held — answer it with release, or abandon it with cancel`);
+      refuseIfBusy(ref, "dismiss", "answer it with release, or abandon it with cancel");
       const { rows, events } = readRecheckState(cfg);
       const row = rows.find((r) => r.ref === ref);
       if (row?.status === "failed" || row?.status === "cancelled" || row?.prNeeds) {
@@ -566,8 +581,7 @@ export function createOps(deps) {
     recheck: write("recheck", async (args) => {
       if (args.all === true) return recheckAll();
       const ref = needString(args.ref, "ref");
-      if (ref in store.listRunning()) throw new Error(`${ref} is running — nothing to re-check`);
-      if (store.listQueued().some((j) => j.ref === ref)) throw new Error(`${ref} is queued — nothing to re-check`);
+      refuseIfBusy(ref, "re-check");
       const { rows, events } = readRecheckState(cfg);
       return recheckRef({ store, adapter, forge, emit }, ref, { row: rows.find((r) => r.ref === ref), events });
     }),
@@ -580,13 +594,7 @@ export function createOps(deps) {
         throw new Error(`${ref} has no shipped PR waiting on its ticket${row?.prNeeds ? ` (${row.prNeeds})` : ""} — nothing to close`);
       }
       if (typeof adapter.complete !== "function") throw new Error(`tracker "${cfg.provider}" cannot close tickets — close ${ref} on the board`);
-      /** @type {import('./types/tracker.js').Task} */
-      let task;
-      try {
-        task = await adapter.fetchTask(ref);
-      } catch (e) {
-        throw new Error(`${ref} not found (${String(e.message).slice(0, 120)}). Check the ref.`);
-      }
+      const task = await fetchTaskOrThrow(ref);
       if (!task.assignedToUs) throw new Error(`${ref} is not assigned to us — refusing to close it`);
       await adapter.complete(ref);
       return { ref, completed: true, note: "the tracker's done webhook records it; `recheck` if it does not" };
@@ -600,13 +608,7 @@ export function createOps(deps) {
       const force = args.force === true;
       // Like the CLI: confirm the item exists first (a clear error beats a tracker 404 from
       // enterStage), and don't re-enter a completed one unless forced.
-      /** @type {import('./types/tracker.js').Task} */
-      let task;
-      try {
-        task = await adapter.fetchTask(ref);
-      } catch (e) {
-        throw new Error(`${ref} not found (${String(e.message).slice(0, 120)}). Check the ref.`);
-      }
+      const task = await fetchTaskOrThrow(ref);
       if (task.completed && !force) throw new Error(`${ref} ("${task.name}") is already completed — pass force to enter it anyway`);
       let stage = null;
       if (!force && typeof adapter.currentStage === "function") stage = await adapter.currentStage(ref);
@@ -630,12 +632,7 @@ export function createOps(deps) {
       const ref = needString(args.ref, "ref");
       if (!isPipeline(cfg)) throw new Error("catchup is for pipeline configs");
       if (typeof adapter.forgeCatchup !== "function") throw new Error(`tracker "${cfg.provider}" has no catchup support`);
-      let task;
-      try {
-        task = await adapter.fetchTask(ref);
-      } catch (e) {
-        throw new Error(`${ref} not found (${String(e.message).slice(0, 120)}). Check the ref.`);
-      }
+      const task = await fetchTaskOrThrow(ref);
       if (!task.assignedToUs) throw new Error(`${ref} is not assigned to us`);
       const forged = await adapter.forgeCatchup(ref);
       if (!forged.stepId) throw new Error(`${ref} is not in any pipeline source stage — nothing to replay. Use run to start it.`);
@@ -664,20 +661,12 @@ export function createOps(deps) {
       const ref = needString(args.ref, "ref");
       if (!isPipeline(cfg)) throw new Error("retry is for pipeline configs");
       if (typeof adapter.enterStage !== "function") throw new Error(`tracker "${cfg.provider}" has no run support`);
-      if (ref in store.listRunning()) throw new Error(`${ref} is running — nothing to retry`);
-      if (store.listQueued().some((j) => j.ref === ref)) throw new Error(`${ref} is queued — nothing to retry`);
-      if (store.getHeld(ref)) throw new Error(`${ref} is held — answer it with release instead`);
+      refuseIfBusy(ref, "retry", "answer it with release instead");
       const row = buildRows(cfg.name, readProfileState(cfg.stateDir)).find((r) => r.ref === ref);
       if (row?.status !== "failed") throw new Error(`${ref} is not failed — nothing to retry (start it with run)`);
       const step = row.step ? findStep(cfg, row.step) : undefined;
       if (!step || step.manual) throw new Error(`${ref}: its failed step "${row.step ?? "?"}" is not a runnable step`);
-      /** @type {import('./types/tracker.js').Task} */
-      let task;
-      try {
-        task = await adapter.fetchTask(ref);
-      } catch (e) {
-        throw new Error(`${ref} not found (${String(e.message).slice(0, 120)}). Check the ref.`);
-      }
+      const task = await fetchTaskOrThrow(ref);
       if (!task.assignedToUs && cfg.tracker?.assigneeFilter !== false) throw new Error(`${ref} is not assigned to us — refusing to retry it (assign it back first)`);
       if (task.completed) throw new Error(`${ref} ("${task.name}") is already completed — nothing to retry`);
       const sourceKey = adapter.describe?.().stageKeys?.source;
