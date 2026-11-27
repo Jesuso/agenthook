@@ -63,6 +63,7 @@ test("(b) repair turns only: tokens/cost/duration sum, peakContext max, lastCont
   assert.equal(usage.peakContext, 900);
   assert.equal(usage.lastContext, 800, "last repair turnStats' lastContext wins");
   assert.equal(usage.compactions, 1); // 1 + 0
+  assert.equal(usage.durationMs, 300_300); // 300000 (fallback) + 100 + 200
 });
 
 test("(c) gate turns only: same summation shape as repair", () => {
@@ -75,6 +76,7 @@ test("(c) gate turns only: same summation shape as repair", () => {
   assert.equal(usage.peakContext, 300);
   assert.equal(usage.lastContext, 250);
   assert.equal(usage.compactions, 2);
+  assert.equal(usage.durationMs, 300_050); // 300000 (fallback) + 50
 });
 
 test("(d) both repair and gate turns: repair applied before gate, gate's final turn wins", () => {
@@ -87,6 +89,7 @@ test("(d) both repair and gate turns: repair applied before gate, gate's final t
   assert.equal(usage.peakContext, 900, "max across repair and gate turns");
   assert.equal(usage.lastContext, 250, "gate's last turnStats wins over repair's");
   assert.equal(usage.compactions, 3); // 1 (repair) + 2 (gate)
+  assert.equal(usage.durationMs, 300_350); // 300000 (fallback) + 100 + 200 + 50
 });
 
 test("a turnStats entry is ignored when results is empty", () => {
