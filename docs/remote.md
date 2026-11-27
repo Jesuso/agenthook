@@ -175,8 +175,8 @@ never read (that is where a planted payload shows up without ever being touched)
 string `body` (≤ 60 KB); `comment.md` must be non-empty (≤ 60 KB) and may **not** start with the
 configured resume trigger — the hub posts it under its OWN identity, so a comment starting with
 `@agent` would self-trigger the resume gate; every GitHub-style mention in the surviving text is
-neutralised (wrapped in backticks, below) before it goes out. Every dropped or ignored file is one
-line in the **run log** (and the server log), naming the file and the reason.
+made safe (below) before it goes out. Every dropped or ignored file is one line in the **run
+log** (and the server log), naming the file and the reason.
 
 **Publishing, with the hub's own credentials, in the order push → PR → comment.**
 
@@ -204,22 +204,41 @@ A forge or tracker that **lacks a method** skips just that item — one line in 
 pr.json`) — and never fails the step over it. **GitLab has neither `publishBranch` nor `openPr`**,
 so a remote run under it publishes nothing but the comment.
 
-**Mention neutralisation.** The published PR title/body and the comment are the agent's own
-untrusted text, and the hub posts them under its own identity. Before anything is published, every
-GitHub-style `@login` (or `@org/team`) mention in that text is wrapped in **backticks** —
-`` `@login` `` — which GitHub renders as code and does **not** notify. The one exemption is the
-ticket's own assignee — the tracker's `assigneeLogin`, or its `describe().ownerHint` (a leading
-`@` stripped) when that is unset — matched case-insensitively, whose mentions stay active: a
-"please @assignee" from the agent still reaches the human it names. When no owner login is known,
-**every** mention is neutralised (fail-closed). Genuine code — fenced blocks and inline spans,
-including an inline span spanning lines — is left untouched, as are lookalikes (an email, where
-a word char precedes the `@`). Which text counts as code is decided CommonMark-style, mirroring
-GitHub's renderer, and **every ambiguous case errs the safe way (neutralise)**: a fence opens
-only on a line indented 0–3 *spaces* — a tab or a lookalike space (U+00A0) is an indented code
-block, not a fence; a backtick fence whose info string contains a backtick never opens; a
-CRLF/CR line ending still closes a fence; and an unmatched or backslash-escaped backtick (\`) is
-literal text that cannot open a span — so none of them can be used to smuggle a live mention
-through.
+**Mention safety.** The published PR title/body and the comment are the agent's own untrusted
+text, and the hub posts them under its own identity, so a stranger's `@mention` in that text must
+not reach anyone through it. The ticket's own assignee is the one exemption throughout — the
+tracker's `assigneeLogin`, or its `describe().ownerHint` (a leading `@` stripped) when that is
+unset, matched case-insensitively — so a "please @assignee" from the agent still reaches the
+human it names; with no owner login known, every mention is treated as unsafe (fail-closed).
+
+Two earlier review rounds found that guessing, from the text alone, which `@mention` GitHub would
+actually turn into a notification (fenced code vs. prose, an escaped backtick, a tab-indented
+"fence", a heading, a table cell, raw HTML…) kept disagreeing with GitHub's own renderer in new
+ways — each fix just moved the bypass somewhere else. The design now asks the renderer instead of
+guessing:
+
+1. The text is first wrapped the cheap way — every mention gets backticks, `` `@login` `` — which
+   GitHub renders as code and does not notify. This is `neutralizeMentions`; it is still
+   CommonMark-aware, so it stays readable when it's right.
+2. When the forge can render Markdown without notifying anyone (GitHub: a `POST /markdown`
+   preview call, `liveMentions` on the forge), the hub asks it whether the wrapped text still
+   contains a live mention other than the owner's. If it doesn't, the wrapped text is published —
+   that's the normal case.
+3. If the renderer finds a live mention anyway, if the render call throws (timeout, non-2xx,
+   unparseable response), or if the forge offers no such check at all, the hub falls back to
+   `breakAllMentions`: it inserts a zero-width space (U+200B) right after **every** `@` followed
+   by a letter or digit, with no notion of code or Markdown structure at all — an email
+   (`a@b.com`) and text inside a fenced block both get the character too. There is nothing left to
+   disagree with the renderer about, because the rule no longer looks at structure. When the
+   renderer is available, this broken text is checked once more; if a foreign login is *still*
+   live even after that, the hub does not publish that piece of text at all (one run-log line) —
+   like any other publish failure, this does not fail the step.
+4. The PR **title** always goes straight through `breakAllMentions`, with no render call — a
+   one-line title has no code context worth preserving.
+
+In short: the backtick form is a best-effort readability win, verified against the real renderer
+when possible; `breakAllMentions` is the fallback that cannot be bypassed because it has nothing
+for a bypass to exploit.
 
 The workflow guard covers **`.github/workflows/` only** — nothing else a commit touches is
 refused. And a branch that does get pushed still opens a PR that runs the repo's existing CI on

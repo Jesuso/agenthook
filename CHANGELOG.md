@@ -13,10 +13,16 @@ All notable changes to this project are documented here. The format is based on
   `.github/workflows/` publish guard is merge-aware: when the only hit is a merge commit's diff, the
   hold reason says so (`the run's commits include a merge that brings in changes to <path> — a human
   must review and push CI changes`) so a human rebases on the base instead of deleting the run's
-  work. Worker-written outbox text (PR title/body, comment) is mention-neutralised before the hub
-  publishes it under its own identity — every `@login`/`@org/team` is wrapped in backticks (which
-  GitHub does not notify), our own tracker login is exempt case-insensitively, and with no owner
-  login known every mention is neutralised (fail closed).
+  work. Worker-written outbox text (PR title/body, comment) is made safe before the hub publishes
+  it under its own identity: mentions are first wrapped in backticks (which GitHub does not
+  notify), and — when the forge can render Markdown without notifying anyone (GitHub's
+  `liveMentions`) — that render call is the arbiter; a live mention surviving the wrap, a failed
+  render call, or a forge without the check all fall back to `breakAllMentions`, which inserts a
+  zero-width space right after every `@`+alphanumeric with no notion of code at all, so it cannot
+  be bypassed by a Markdown construct our own code-vs-prose guess disagreed with the renderer
+  about. The PR title always goes straight through `breakAllMentions`. Our own tracker login is
+  exempt case-insensitively throughout, and with no owner login known every mention is broken
+  (fail closed).
 - New: `agenthook doctor` lints the remote trust model (config-only, no probe; non-local tracker +
   a remote harness): **fails** when `tracker.assigneeFilter` is `false` (any ticket on the tracker
   runs on the worker) or when no assignee identity is resolvable from the config (App auth without
