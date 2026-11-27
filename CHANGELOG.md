@@ -40,6 +40,12 @@ All notable changes to this project are documented here. The format is based on
   silently dropping the head; github-projects reports it from the thread's `totalCount` (#826).
 - New: remote (ssh) harness runs work with the **pi** agent (#827, #681 phase 3): `harnesses.<name>.agent: "pi"` on a harness with `remote` — the same unattended-contract and standing-instructions files a sandboxed pi run gets (one `--append-system-prompt` flag per file, both surviving compaction), the run's `model` as `--model provider/id`, and a belt-and-braces `--offline` flag + `PI_OFFLINE=1` env. The per-run files are written into the worker's per-run dir (outside the synced worktree/export, removed after the run; the boot/shutdown reaper cleans a crashed run's leftovers) and the prompt still travels on stdin, never argv. A step's `piConfigDir` is **ignored** on a remote harness (warned, never read or copied): the worker keeps its own `~/.pi/agent` — its own model endpoint and credentials. `pi` joins the config-validated remote agents (the refusal now lists the `REMOTE_AGENTS` set), and `agenthook doctor`'s missing-bin hint names `npm i -g @earendil-works/pi-coding-agent`.
 
+- Fixed: the remote-harness archive (no-worktree) sync's `git archive | ssh` transfer could stay
+  pending forever when a worker never answered and never exited, holding a dispatch slot with no
+  way out (#848). It is now bounded by the same `HUB_GIT_TRANSPORT_TIMEOUT_MS` (30s) the other
+  sync transports use, and settlement no longer depends on `git.stdout` happening to drain after
+  `ssh.stdin` closes — the pipe is detached and drained the moment the destination goes away, so
+  `git`'s own `close` is never stranded behind it.
 - Fixed: a missing sandbox **service** image no longer gets a remedy that can't work — the
   `agenthook doctor` fix and the run-time refusal (`` service image <image> not found — run … ``)
   now offer `<runtime> pull <image>` plus `… or if it is built locally: <runtime> build -t

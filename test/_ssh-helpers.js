@@ -85,6 +85,23 @@ export function withFailingSsh(stderrLine) {
   };
 }
 
+/** A fake `ssh` that neither exits nor reads stdin — a worker wedged mid-connect (#848): never
+ * sends a byte, never closes its stdin, just sits there until killed. Used to prove a sync call
+ * can't hang forever once it's bounded by a timeout. */
+export function withHangingSsh() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-bin-"));
+  const bin = path.join(dir, "ssh");
+  fs.writeFileSync(bin, `#!/bin/sh\nexec sleep 3600\n`, { mode: 0o755 });
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${dir}${path.delimiter}${savedPath}`;
+  return {
+    restore: () => {
+      process.env.PATH = savedPath;
+      fs.rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
 /** A fake `ssh` that fails with `stderrLine`/exit 255 until `flip()` rewrites the same bin in
  * place into a WORKING fake (the worker comes back) — one bin path on PATH for both states, so a
  * test can trip a run on a dead worker, let the cooldown pass, then watch the probe succeed
