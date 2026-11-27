@@ -137,8 +137,8 @@
  * @property {(ref: string) => {target: string, fromStep: string, text: string}|undefined} getFindings  review findings pending for ref's rework step
  * @property {(ref: string, f: {target: string, fromStep: string, text: string}) => void} setFindings  persist findings on a `changes` bounce (latest wins)
  * @property {(ref: string) => void} clearFindings                  drop pending findings for ref
- * @property {(ref: string, b: {target: string, text: string}) => void} setCiRed  park a red-CI bounce for ref while a step runs on it (latest wins)
- * @property {(ref: string) => {target: string, text: string}|undefined} takeCiRed  read AND clear ref's parked red-CI bounce
+ * @property {(ref: string, b: {target: string, text: string, sha?: string}) => void} setCiRed  park a red-CI bounce for ref while a step runs on it (latest wins)
+ * @property {(ref: string) => {target: string, text: string, sha?: string}|undefined} takeCiRed  read AND clear ref's parked red-CI bounce
  * @property {(ref: string) => Record<string, SummaryRecord>|undefined} getSummaries  ref's stored step summaries, keyed by stepId
  * @property {(ref: string, stepId: string, rec: SummaryRecord) => void} setSummary  store (replace) one step's summary; caps the file at 500 refs
  * @property {(ref: string, stepId: string) => void} clearSummary   drop one step's summary (a re-run that wrote none)
