@@ -16,7 +16,7 @@ import { tildify } from "../profile.js";
 import { DEFAULT_IMAGE } from "../sandbox/image.js";
 import { SANDBOX_NAMES } from "../sandbox/names.js";
 import { resolveConfigFile } from "./config.js";
-import { isObj } from "./rows.js";
+import { isObj } from "../reader/rows.js";
 import { UI_MAX_BYTES } from "./save.js";
 
 /** @typedef {import('../shared/contract.js').SandboxReadiness} SandboxReadiness */

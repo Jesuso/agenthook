@@ -16,7 +16,7 @@
 // no-polling rule.
 import { defaultProfileKey, eventsCursor, pickProfile, pickProfiles, readRuns, readTick, waitForEvents, waitForEventsMulti } from "../agent-api.js";
 import { registryDir } from "../config/index.js";
-import { resolveRunLog } from "../ui/logs.js";
+import { resolveRunLog } from "../reader/run-logs.js";
 import { runTop } from "../top-loop.js";
 import { renderAll, renderStrip, renderTop } from "../top.js";
 import { tailFile } from "./follow.js";

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { dailyStats, quantile, readHistory, readStats, resetStatsCache, STATS_MAX_DAYS } from "../src/ui/stats.js";
+import { dailyStats, quantile, readHistory, readStats, resetStatsCache, STATS_MAX_DAYS } from "../src/reader/stats.js";
 
 const NOW = Date.parse("2026-10-15T18:00:00Z"); // UTC; tzOffset 0 unless a test says otherwise
 const at = (/** @type {string} */ iso) => iso;

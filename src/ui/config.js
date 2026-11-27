@@ -9,8 +9,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { literalSecrets, validateRawConfig } from "../config/index.js";
 import { listProfiles } from "../heartbeat.js";
-import { profileDir } from "./logs.js";
-import { isObj, readJson, sha256 } from "./rows.js";
+import { profileDir } from "../reader/run-logs.js";
+import { isObj, readJson, sha256 } from "../reader/rows.js";
 import { UI_MAX_BYTES, atomicSave, readCurrent } from "./save.js";
 import { sensitiveChanges } from "../shared/sensitive.js";
 

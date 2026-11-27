@@ -89,7 +89,7 @@ export function dailyStats(events, { now = Date.now(), days = 14, tzOffset = 0, 
   const firstFlag = events.find(isBoardDone);
   const firstFlagMs = firstFlag ? Date.parse(firstFlag.ts) : Infinity;
   const legacy = (/** @type {number} */ ts) => ts < firstFlagMs;
-  /** Refs with a `run_start`/`run_end` so far: a flag `board_done` alone never counts (src/ui/rows.js). @type {Set<string>} */
+  /** Refs with a `run_start`/`run_end` so far: a flag `board_done` alone never counts (src/reader/rows.js). @type {Set<string>} */
   const ran = new Set();
   for (const e of events) {
     const ts = Date.parse(e.ts);

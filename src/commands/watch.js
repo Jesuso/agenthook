@@ -18,7 +18,7 @@ import path from "node:path";
 import { defaultProfileKey, pickProfile, pickProfiles, parseCursorMap, waitForEvents, waitForEventsMulti, eventsCursor, compactEvent } from "../agent-api.js";
 import { isActionable, createSummary, summaryLine } from "../actionable.js";
 import { readProfile } from "../heartbeat.js";
-import { readJson, isObj } from "../ui/rows.js";
+import { readJson, isObj } from "../reader/rows.js";
 
 /** One text line per event. @param {Record<string, any>} e */
 const line = (e) =>

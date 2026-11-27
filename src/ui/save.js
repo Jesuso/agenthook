@@ -7,7 +7,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { sha256 } from "./rows.js";
+import { sha256 } from "../reader/rows.js";
 
 /** Largest file either editor reads or writes (and the PUT body cap). */
 export const UI_MAX_BYTES = 256 * 1024;

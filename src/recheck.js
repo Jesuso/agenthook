@@ -7,7 +7,7 @@
 // Fail-closed: a ref whose task we can't confirm is ours records nothing.
 import { clearHoldOnDone } from "./board-done.js";
 import { repositoryOf } from "./heartbeat.js";
-import { buildRows, lastRerunAt, readProfileState } from "./ui/rows.js";
+import { buildRows, lastRerunAt, readProfileState } from "./reader/rows.js";
 
 /** @typedef {(event: string, ref: string, step: string, extra?: Record<string, any>) => void} Emit */
 

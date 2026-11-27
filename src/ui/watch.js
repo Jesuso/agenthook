@@ -25,13 +25,13 @@ import {
   readJson,
   readStateFile,
   seedEventsTail,
-} from "./rows.js";
+} from "../reader/rows.js";
 
 export const DEBOUNCE_MS = 50;
 
 const SOCK = "control.sock";
 const WATCHED = new Set(["heartbeat.json", "server.pid", MARKER, "events.jsonl", SOCK, ...Object.values(STATE_FILES).map((f) => f[0])]);
-/** @type {[import('./rows.js').StateKey, string][]} */
+/** @type {[import('../reader/rows.js').StateKey, string][]} */
 const STATE_KEYS = /** @type {any} */ (Object.entries(STATE_FILES).map(([k, f]) => [k, f[0]]));
 
 /** @param {any} v */
@@ -49,7 +49,7 @@ const hash = (v) => JSON.stringify(v);
  * @property {boolean} removed
  * @property {any} heartbeat
  * @property {number} pid                     server.pid
- * @property {import('./rows.js').ProfileState} state
+ * @property {import('../reader/rows.js').ProfileState} state
  * @property {number[]} eventBytes            line size of each `state.events` entry (the buffer bound)
  * @property {number} eventTotal
  * @property {number} offset                  events.jsonl bytes consumed

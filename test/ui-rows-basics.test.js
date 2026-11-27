@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { buildRows, readEventsTail, readProfileState } from "../src/ui/rows.js";
+import { buildRows, readEventsTail, readProfileState } from "../src/reader/rows.js";
 import { tmp, writeState, state, row } from "./_ui-rows-helpers.js";
 
 test("buildRows: one status per source, with precedence running > queued > board done > held > failed > idle", () => {

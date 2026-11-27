@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { peekConfig } from "../config/index.js";
 import { readProfile, resolveProfile } from "../heartbeat.js";
-import { readProfileState } from "../ui/rows.js";
+import { readProfileState } from "../reader/rows.js";
 import { createStore } from "../store/index.js";
 import { classifyCgroup } from "../respawn.js";
 import { ago, day } from "./ls.js";

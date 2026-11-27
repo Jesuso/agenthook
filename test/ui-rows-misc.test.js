@@ -4,7 +4,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // `ah ui` uses to print where it's listening.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildRows, profileView, recentRuns } from "../src/ui/rows.js";
+import { buildRows, profileView, recentRuns } from "../src/reader/rows.js";
 import { uiHost, uiUrls } from "../src/commands/ui.js";
 import { state, row } from "./_ui-rows-helpers.js";
 

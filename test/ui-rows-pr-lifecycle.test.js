@@ -4,7 +4,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // fields (failReason, reasonHarness, queuePos, queuedAt) around them.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildRows, isRerunEvent, lastRerunAt } from "../src/ui/rows.js";
+import { buildRows, isRerunEvent, lastRerunAt } from "../src/reader/rows.js";
 import { isNeedsYou, ticketBucket } from "../src/epics.js";
 import { state, row } from "./_ui-rows-helpers.js";
 

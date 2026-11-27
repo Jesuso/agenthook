@@ -652,7 +652,7 @@ Day-by-day history on the Statistics page, plus the **Today** card (cost today v
 #786) and the History strip (tickets done and cost per day, 7 / 14 / 30 day range, collapsed chart by
 default, plus total, per-day average, rework rate (from 10 runs) and best day).
 - **No rollup file, no engine write path.** `events.jsonl` is a complete append-only history (a busy profile's
-  reaches back to July: 12k lines, 1.5 MB, first read ≈ 30 ms), so `src/ui/stats.js` derives the day
+  reaches back to July: 12k lines, 1.5 MB, first read ≈ 30 ms), so `src/reader/stats.js` derives the day
   buckets from it on demand. Only the fields stats need are kept in memory per file and appended by
   byte offset; a shrunk file restarts the read; a history over 64 MB is read from its last 64 MB. A
   rollup file would only become necessary if `events.jsonl` were ever rotated or pruned — it is not.
@@ -736,7 +736,7 @@ default, plus total, per-day average, rework rate (from 10 runs) and best day).
   run's `run_end` event as `options`, only for a `hold` outcome.
 - `TicketRow.options` is the ref's newest `run_end.options`, set only while the row is `held` and
   that run_end's outcome is `hold`; null otherwise (re-validated defensively on the way in,
-  `src/ui/rows.js`).
+  `src/reader/rows.js`).
 - The shared Release panel (`ui/src/ReleasePanel.tsx`, used by Needs you and the epic page) and
   the ticket drawer's held-reason block (`ui/src/TicketDrawer.tsx`) both render the options as
   plain-prose buttons above the free-text fallback (`ui/src/AnswerOptions.tsx`, so the two can't
@@ -1056,7 +1056,7 @@ compact density; muted secondary text; 6-8px radii (we keep `--radius-lg` 8px fo
 - Zones: **Needs you** (hidden when empty) → **Now**, then collapsed drill-downs:
   *All tickets* (the old table, auto-opens while a status filter is active) and an *Activity* panel
   with an "N new" badge for events that arrived while it was collapsed. The right-hand rail is gone.
-- New ticket-row fields (`src/ui/rows.js`, from the events tail / state files): `prState`
+- New ticket-row fields (`src/reader/rows.js`, from the events tail / state files): `prState`
   (`ready` after `pipeline_done`, `merged` after a forge's `merged`, cleared by a re-run; a `ready`
   yields to `refmeta.prState` `merged`/`closed` — written by a merge job, or by the `prs` op, which
   looks up up to 20 known PRs missing from the open list per cache fill via `forge.prState(n)`;

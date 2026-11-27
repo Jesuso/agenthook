@@ -5,7 +5,7 @@
 import path from "node:path";
 import { defaultProfileKey, pickProfile, pickProfiles, live } from "../agent-api.js";
 import { pendingFollowUp, markFollowUpDone } from "../followup.js";
-import { readJson, isObj } from "../ui/rows.js";
+import { readJson, isObj } from "../reader/rows.js";
 import { createStore } from "../store/index.js";
 import { createEmitter } from "../events.js";
 

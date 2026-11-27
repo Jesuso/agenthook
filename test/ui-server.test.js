@@ -191,9 +191,11 @@ function uiWrites(name, src) {
   return bad;
 }
 
-test("src/ui never writes files — except the save.js writer, and only its calls", () => {
-  const dir = fileURLToPath(new URL("../src/ui/", import.meta.url));
-  for (const f of fs.readdirSync(dir)) assert.deepEqual(uiWrites(f, fs.readFileSync(path.join(dir, f), "utf8")), [], f);
+test("src/ui and src/reader never write files — except the save.js writer, and only its calls", () => {
+  for (const rel of ["../src/ui/", "../src/reader/"]) {
+    const dir = fileURLToPath(new URL(rel, import.meta.url));
+    for (const f of fs.readdirSync(dir)) assert.deepEqual(uiWrites(f, fs.readFileSync(path.join(dir, f), "utf8")), [], f);
+  }
   // The rule bites: any write outside save.js, or an unlisted one inside it.
   for (const [f, src] of [
     ["server.js", "fs.writeFileSync(p, x)"],

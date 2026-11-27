@@ -26,7 +26,7 @@ import { getAgent } from "../agents/index.js";
 import { createStore } from "../store/index.js";
 import { remoteProbeArgv, sshClientEnv, shQuote, remoteTranscriptDir } from "../dispatch/executor-ssh.js";
 import { readRuns } from "../agent-api.js";
-import { profileDir, resolveRunLog } from "../ui/logs.js";
+import { profileDir, resolveRunLog } from "../reader/run-logs.js";
 
 /** Transcript dirs that exist for the given repos, per agent the profile runs: each repo's
  * root transcript dir, plus the transcript dir of every cwd under its worktree base

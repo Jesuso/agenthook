@@ -2,16 +2,22 @@
 
 ## Key files
 
+- `src/reader/*.js` — the profile state readers (epic #839 ticket 8), used by the panel below plus
+  the MCP/agent API, the digest, the control ops, and several CLI commands: `rows.js` (pure
+  `buildRows`/`buildSnapshot` over state dirs; events tail-read, last 256 KB), `stats.js`
+  (`dailyStats` pure day buckets + `readStats`: the whole `events.jsonl` history read incrementally
+  by byte offset → `GET /api/stats`: finished/merged/runs/outcomes/cost per day, spend per step,
+  per-ticket cost quantiles; no rollup file), `run-logs.js` (run listing: `listRuns` from the
+  profile's `logs/` dir, `resolveRunLog` name + realpath validation). Read-only, like the rest of
+  `src/ui/`.
 - `src/ui/*.js` — `ah ui` server (docs/web-ui.md), plus `src/shared/contract.js` (JSDoc
   view-model typedefs, also bundled by the browser):
-  `rows.js` (pure `buildRows`/`buildSnapshot` over state dirs; events tail-read, last 256 KB),
   `server.js` (Host guard → token/cookie auth → `/api/snapshot` + `/api/stream` SSE + traversal-safe
-  `ui/dist` static), `stats.js` (`dailyStats` pure day buckets + `readStats`: the whole `events.jsonl` history read incrementally by byte offset → `GET /api/stats`: finished/merged/runs/outcomes/cost per day, spend per step, per-ticket cost quantiles; no rollup file), `watch.js` (lazy on first stream: `fs.watch` on registry + state dirs, 50 ms
+  `ui/dist` static), `watch.js` (lazy on first stream: `fs.watch` on registry + state dirs, 50 ms
   debounce + hash dedupe, torn read keeps last good value, `events.jsonl` byte-offset tail,
   `control.sock` liveness with pidfile fallback — no polling; the 25 s SSE ping is the only interval).
-  `logs.js` (run-log viewer: `listRuns` from the profile's `logs/` dir, `resolveRunLog` name +
-  realpath validation, `createLogTail` byte-offset tail off a `logs/` dir watch → `/api/runs` +
-  `/api/log/stream`). `instructions.js` (v2 editor read side: `listInstructions` /
+  `logs.js` (the live tail: `createLogTail` byte-offset tail off a `logs/` dir watch → `/api/runs` +
+  `/api/log/stream`, run listing from `src/reader/run-logs.js`). `instructions.js` (v2 editor read side: `listInstructions` /
   `readInstructionFile` / `promptPreview` over the heartbeat's `instructions` allowlist + the
   `.prompt.md` sidecars → `/api/instructions[/file]` + `/api/prompt-preview`; `watch.js` watches the
   allowlisted files' parent dirs and emits SSE `instructions` on a sha256 change, `source:'disk'`).
@@ -26,7 +32,7 @@
   confines write calls to it. `src/control/client.js` (shared infrastructure, not a `src/ui/`
   module — it's the client half of `src/control/server.js`) provides `controlRequest` (one NDJSON request over a
   profile's `control.sock`, skipping the `hello` line, resolving `{ok,result|error}` or rejecting
-  `down`/`timeout`; `resolveProfileSock` gates by `listProfiles` like `logs.js`'s `profileDir`)
+  `down`/`timeout`; `resolveProfileSock` gates by `listProfiles` like `src/reader/run-logs.js`'s `profileDir`)
   backs more endpoints that are **not** file writes: `GET /api/discover` (cookie only; 5 s
   timeout), `GET /api/sandbox-readiness` (cookie only; `sandbox.js` runs `src/sandbox/readiness.js`'s
   read-only `sandboxRuntimeChecks` probes (shared with `doctor`) and checks the profile's `.env` for a
@@ -50,7 +56,7 @@
   Otherwise a blind **reader**: never writes any state dir, never loads a config; PR links come
   from the heartbeat's `repository`.
 - `src/shared/identity.js` — a profile's colour + emoji (`ui: {color, emoji}` in config). Import-free so config validation (`identityErrors`),
-  the heartbeat (`ui`), `ui/rows.js` `profileView` (resolved `color`/`emoji`, validated — foreign values never reach the browser) and the
+  the heartbeat (`ui`), `src/reader/rows.js` `profileView` (resolved `color`/`emoji`, validated — foreign values never reach the browser) and the
   browser bundle share one palette (`PROFILE_COLORS`, tokens `--color-profile-<id>` in `ui/src/index.css`) and one curated emoji list.
   Unset → `deriveIdentity(stateKey)` (FNV-1a), so every profile is distinct with no config.
 - `src/shared/config-schema.js` — the one definition of every user config key (epic #344): `CONFIG_SCHEMA` entries

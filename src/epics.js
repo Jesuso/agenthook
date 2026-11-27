@@ -1,8 +1,8 @@
 // Pure stats over an epic + its tickets (no I/O): joins the live members (Adapter.listEpicTickets)
-// with the profile's local state (ui/rows.js buildRows) and event history (ui/stats.js readHistory)
+// with the profile's local state (reader/rows.js buildRows) and event history (reader/stats.js readHistory)
 // into progress-by-bucket, needs-you, and velocity/ETA numbers. The receiver's `epics` op (ops.js)
 // and the `ah ui` receiver-down fallback (`localEpics`, from refmeta.epic) both join through here.
-import { dailyStats } from "./ui/stats.js";
+import { dailyStats } from "./reader/stats.js";
 import { isBoardDone } from "./board-done.js";
 
 const DAY_MS = 24 * 3600 * 1000;
@@ -27,7 +27,7 @@ export const EPIC_REF_RE = /^[A-Za-z0-9._-]{1,64}$/;
  * @property {Record<EpicBucket, number>} byStage
  * @property {string[]} needsYou
  * @property {string|null} startedAt
- * @property {{ days: import('./ui/stats.js').DayStats[], finished14: number, activeDays: number, perDay: number|null }} velocity
+ * @property {{ days: import('./reader/stats.js').DayStats[], finished14: number, activeDays: number, perDay: number|null }} velocity
  * @property {{ days: number, date: string }|null} eta
  */
 

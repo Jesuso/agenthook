@@ -38,7 +38,7 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *           (merged: the forge saw the ref's PR merge — `name`, `url`; `via: "recheck"` when a `recheck` asked the
  *             forge after the webhook was missed instead (step "", no merge bridge ran))
  *           (enqueued: `kind?` = the job's kind ("pipeline" when omitted) — a CI/merge job's enqueue
- *             does not start an agent, so readers (src/ui/rows.js `buildRows`) must not treat it as a
+ *             does not start an agent, so readers (src/reader/rows.js `buildRows`) must not treat it as a
  *             re-run of the ref's last pipeline step;
  *           run_end: `outcome`, `costUsd?`; a local-model run — step `bin` or a non-Claude model — has
  *             `unpriced: true` and no `costUsd`, so it adds nothing to any reported spend sum. `costBasis?` =
