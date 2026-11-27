@@ -23,6 +23,16 @@ const execFileP = promisify(execFile);
  * than HOST_GIT_TIMEOUT_MS's local-only budget. */
 const HUB_GIT_TRANSPORT_TIMEOUT_MS = 30_000;
 
+/** Mutable copy `archiveToWorker` actually reads, so a test can shrink the bound without waiting
+ * out the real 30s. Production code never calls the setter below. */
+let archiveTimeoutMs = HUB_GIT_TRANSPORT_TIMEOUT_MS;
+
+/** Test-only: override (or, passing no argument, reset) the archive-transfer timeout bound.
+ * @param {number} [ms] */
+export function __setArchiveTimeoutMsForTest(ms) {
+  archiveTimeoutMs = ms ?? HUB_GIT_TRANSPORT_TIMEOUT_MS;
+}
+
 /** Cap on one quick hub-side read (dirty check, submodule/LFS probe) before a sync. */
 const HUB_GIT_READ_TIMEOUT_MS = 10_000;
 
@@ -349,15 +359,27 @@ function archiveToWorker(cfg, remote, repoPath, dir) {
     git.stdout.pipe(ssh.stdin);
     let settled = false;
     let pipeBroken = false;
+    const timer = setTimeout(() => fail(new Error(`export to worker failed: timed out after ${archiveTimeoutMs / 1000}s`)), archiveTimeoutMs);
     /** @param {Error} e */
     const fail = (e) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       resolve = () => {}; // past this point only `fail` may settle
       git.kill("SIGKILL");
       ssh.kill("SIGKILL");
       reject(e);
     };
+    // Once ssh's stdin goes away (its own `exit` destroys it — success or failure alike),
+    // `pipe()` auto-unpipes it from `git.stdout`, which pauses that stream for good. Nothing else
+    // resumes it, so if git's own `close` hasn't fired yet it never will (settle() needs both
+    // `close`s). Drain it ourselves the moment the destination is gone so git's `close` always
+    // follows its `exit`, regardless of which side finishes first.
+    const detachGitStdout = () => {
+      git.stdout.unpipe(ssh.stdin);
+      git.stdout.resume();
+    };
+    ssh.stdin.on("close", detachGitStdout);
     // The worker link can die before the tar finishes (a refused/timed-out ssh exits without
     // draining stdin): the pipe then EPIPEs on git.stdout. Never let that EPIPE escape — flag it
     // and let `settle` report ssh's own exit/stderr (by the time ssh's `close` fires its stderr
@@ -383,6 +405,7 @@ function archiveToWorker(cfg, remote, repoPath, dir) {
       else if (pipeBroken) fail(new Error(`export to worker failed: the worker closed the transfer early${sshErr.trim() ? ` — ${sshErr.trim()}` : ""}`));
       else {
         settled = true;
+        clearTimeout(timer);
         resolve();
       }
     };
