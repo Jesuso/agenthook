@@ -1,8 +1,10 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // Publishing trust (src/dispatch/publish.js, #829): a workflow-guard hit that comes only via a
-// merge says so in the held reason, and worker-written mentions are neutralised in the PR
-// title/body and comment — the owner's own login (describe().ownerHint) is exempt, and with no
-// owner known every mention is neutralised (fail closed).
+// merge says so in the held reason, and worker-written mentions are made safe in the PR
+// title/body and comment. These fakes have no `liveMentions`, so every mention falls back to
+// `breakAllMentions` (a zero-width space right after the `@`) — the owner's own login
+// (describe().ownerHint) is exempt, and with no owner known every mention is broken (fail
+// closed). See test/dispatch-publish-mentions.test.js for the renderer-verified path.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { publishOutbox } from "../src/dispatch/publish.js";
@@ -41,26 +43,26 @@ test("a workflow hit only via a merge says so in the held reason; a plain commit
   assert.doesNotMatch(plain.verdict.reason, /include a merge/);
 });
 
-test("mentions in the PR title/body and comment are neutralised; the owner's own login (ownerHint) is exempt", async () => {
+test("mentions in the PR title/body and comment are broken; the owner's own login (ownerHint) is exempt", async () => {
   const r = await rig({ push: () => ({ pushed: ["origin/agent/42"] }), ownerHint: "@octo" })({
     outbox: { pr: { title: "Fix @bob's flake", body: "done by @octo and @bob" }, comment: "see @stranger for details" },
   });
   assert.equal(r.res.pushed, true);
   assert.equal(r.res.comment, true);
-  // the comment posted is the neutralised one
+  // the comment posted has every foreign mention broken (fake forge has no liveMentions)
   const posted = r.lines.find((l) => l.startsWith("comment:")) ?? "";
-  assert.equal(posted, "comment:see `@stranger` for details");
-  // the PR was opened with neutralised title/body (the owner's own mention survives)
-  assert.equal(r.prArg.title, "Fix `@bob`'s flake");
-  assert.equal(r.prArg.body, "done by @octo and `@bob`");
+  assert.equal(posted, "comment:see @\u200bstranger for details");
+  // the PR was opened with broken title/body (the owner's own mention survives)
+  assert.equal(r.prArg.title, "Fix @\u200bbob's flake");
+  assert.equal(r.prArg.body, "done by @octo and @\u200bbob");
 });
 
-test("no owner known → EVERY mention is neutralised (fail closed)", async () => {
+test("no owner known → EVERY mention is broken (fail closed)", async () => {
   const r = await rig({ push: () => ({ pushed: ["origin/agent/42"] }) })({
     outbox: { comment: "thanks @bob and @octo" },
   });
   const posted = r.lines.find((l) => l.startsWith("comment:")) ?? "";
-  assert.equal(posted, "comment:thanks `@bob` and `@octo`");
+  assert.equal(posted, "comment:thanks @\u200bbob and @\u200bocto");
 });
 
 test("an explicit ownerLogin overrides the adapter's ownerHint", async () => {
@@ -69,5 +71,5 @@ test("an explicit ownerLogin overrides the adapter's ownerHint", async () => {
     ownerLogin: "carol",
   });
   const posted = r.lines.find((l) => l.startsWith("comment:")) ?? "";
-  assert.equal(posted, "comment:hi `@bob` `@octo` @carol");
+  assert.equal(posted, "comment:hi @\u200bbob @\u200bocto @carol");
 });

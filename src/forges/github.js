@@ -473,11 +473,38 @@ export function createGithubForge(cfg, store, /** @type {{publishGitTimeoutMs?: 
     return { number: /** @type {number} */ (pr.number), created: true };
   }
 
+  // Ask GitHub's OWN renderer which mentions in `text` are live (hub-side outbox, #829 redesign):
+  // our own mention-breaking (neutralizeMentions/breakAllMentions, src/dispatch/outbox.js) can
+  // disagree with GitHub's Markdown engine about what counts as code — this call settles it
+  // instead of trying to out-guess the renderer. `POST /markdown` never notifies anyone (it's a
+  // render-only preview endpoint). Bounded to 10s; a non-2xx, a timeout, or an unparseable
+  // response all THROW — the caller treats a throw as "assume live, fail closed".
+  /** @param {string} text @returns {Promise<string[]>} lowercase user/team logins the rendered HTML would notify */
+  async function liveMentions(text) {
+    const res = await api("/markdown", {
+      method: "POST",
+      body: JSON.stringify({ text, mode: "gfm", context: `${owner}/${repo}` }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) throw new Error(`render markdown ${res.status}`);
+    const html = await res.text();
+    /** @type {Set<string>} */
+    const logins = new Set();
+    for (const m of html.matchAll(/<a\b([^>]*)>([^<]*)<\/a>/g)) {
+      const cls = /class="([^"]*)"/.exec(m[1])?.[1] ?? "";
+      if (!/\b(?:user|team)-mention\b/.test(cls)) continue;
+      const login = m[2].trim().replace(/^@/, "").toLowerCase();
+      if (login) logins.add(login);
+    }
+    return [...logins];
+  }
+
   return {
     describe: () => ({ name: "github", agentEnv: GITHUB_FORGE_AGENT_ENV, egressHosts: githubForgeEgressHosts() }),
     runCredentials,
     publishBranch,
     openPr,
+    liveMentions,
 
     // No handshake and no opt-out: a missing/bad signature is always a reject.
     authenticate({ rawBody, headers }) {

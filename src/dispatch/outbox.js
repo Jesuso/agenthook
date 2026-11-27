@@ -155,6 +155,44 @@ export function neutralizeMentions(text, ownerLogin) {
   return out + text.slice(last);
 }
 
+/** Any `@` immediately followed by a letter/digit — the character GitHub's mention syntax
+ * needs right after the `@`. No notion of code at all (unlike {@link neutralizeMentions}): this
+ * is the fail-closed fallback used when we can't ask GitHub's own renderer whether a mention is
+ * live (#829 redesign) — reviews found renderer-disagreement bypasses (tab/NBSP fence indent,
+ * CRLF closer, escaped backtick, headings, tables, raw HTML, autolinks…) faster than they could
+ * be special-cased, so the fallback stops trying to tell code from prose. */
+const MENTION_AT = /@(?=[A-Za-z0-9])/g;
+
+/**
+ * Break EVERY GitHub-style mention in `text` by inserting a zero-width space (U+200B) right
+ * after the `@`, so no Markdown structure — code, heading, table, raw HTML, whatever — can turn
+ * it back into something GitHub's renderer notifies (#829). The only exemption is an EXACT
+ * `@<ownerLogin>` mention (case-insensitive), i.e. not followed by another login/path character
+ * (`[A-Za-z0-9/-]`) — `@owner-x` and `@owner/team` are NOT the owner and ARE broken. An email
+ * (`a@b.com`) gets the character too: there is no context-sensitive exemption left to carry a
+ * bypass. With no owner known, every mention is broken. Idempotent on its own output (the
+ * inserted U+200B itself breaks the `@`+alnum adjacency the regex requires). Pure.
+ * @param {string} text
+ * @param {string|undefined|null} [ownerLogin]
+ * @returns {string}
+ */
+export function breakAllMentions(text, ownerLogin) {
+  if (typeof text !== "string") return text;
+  const owner = ownerLogin && String(ownerLogin).length > 0 ? String(ownerLogin).toLowerCase() : null;
+  let out = "";
+  let last = 0;
+  for (const m of text.matchAll(MENTION_AT)) {
+    const at = m.index;
+    if (owner !== null) {
+      const rest = text.slice(at + 1);
+      if (rest.toLowerCase().startsWith(owner) && !/^[A-Za-z0-9/-]/.test(rest.slice(owner.length))) continue; // the owner's own, exact mention
+    }
+    out += text.slice(last, at + 1) + "\u200b";
+    last = at + 1;
+  }
+  return out + text.slice(last);
+}
+
 /**
  * Read and validate `<dir>/outbox/pr.json` and `<dir>/outbox/comment.md`. Pure apart from the fs reads and
  * never throws — every bad case is dropped with exactly ONE log line through `log` naming the

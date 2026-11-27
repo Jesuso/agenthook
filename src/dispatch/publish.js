@@ -10,10 +10,55 @@
 // and the comment is best-effort); a push rejection fails the step (nothing else may
 // publish against a branch that never landed).
 // Worker-written text is untrusted: before publishing, every GitHub-style mention in the PR
-// title/body and the comment is neutralised (wrapped in backticks) so the hub's identity can't
-// be used to @mention arbitrary users (#829); the owner's own login is exempt, and with no
-// owner login known every mention is neutralised (fail closed).
-import { neutralizeMentions } from "./outbox.js";
+// title/body and the comment must be made safe so the hub's identity can't be used to @mention
+// arbitrary users (#829). Our own code-vs-prose detection (neutralizeMentions, wraps in
+// backticks) can disagree with the forge's actual renderer, so when the forge can check
+// (`liveMentions`), that call is the arbiter: only when it reports nothing but the owner's own
+// login does the backtick-wrapped text get published. Any other case — a foreign login still
+// live, the call throwing, or the forge not offering it at all — falls back to
+// `breakAllMentions`, which has no notion of code at all and so cannot be bypassed by one; the
+// owner's own login is exempt there too, and with no owner login known every mention is broken
+// (fail closed). The PR title always goes straight to `breakAllMentions` (no render call — a
+// title has no code context worth preserving).
+import { neutralizeMentions, breakAllMentions } from "./outbox.js";
+
+/**
+ * Make one piece of worker-written text safe to publish under the hub's identity (#829).
+ * @param {string} text
+ * @param {object} o
+ * @param {import('../types.js').Forge} o.forge
+ * @param {string|undefined} o.owner
+ * @param {(line: string) => void} o.say
+ * @param {string} o.label  for the run-log line, e.g. "pr body" / "comment"
+ * @returns {Promise<{ text: string }|{ skip: true }>}
+ */
+async function safeMentions(text, { forge, owner, say, label }) {
+  const isForeign = (/** @type {string[]} */ logins) => logins.some((l) => !owner || l !== owner.toLowerCase());
+  if (typeof forge.liveMentions !== "function") {
+    return { text: breakAllMentions(text, owner) };
+  }
+  const t1 = neutralizeMentions(text, owner);
+  let live;
+  try {
+    live = await forge.liveMentions(t1);
+  } catch (e) {
+    say(`[publish] ${label}: live-mention check failed (${/** @type {Error} */ (e).message}) — mentions broken, not just wrapped`);
+    return { text: breakAllMentions(text, owner) };
+  }
+  if (!isForeign(live)) return { text: t1 };
+  say(`[publish] ${label}: the renderer found a live mention in the wrapped text — mentions broken, not just wrapped`);
+  const t2 = breakAllMentions(text, owner);
+  try {
+    const live2 = await forge.liveMentions(t2);
+    if (isForeign(live2)) {
+      say(`[publish] ${label}: still live after breaking every mention — not publishing it`);
+      return { skip: true };
+    }
+  } catch (e) {
+    say(`[publish] ${label}: live-mention re-check failed (${/** @type {Error} */ (e).message}) — publishing with mentions broken`);
+  }
+  return { text: t2 };
+}
 
 /**
  * @param {object} o
@@ -30,7 +75,7 @@ import { neutralizeMentions } from "./outbox.js";
  * @param {import('../types.js').Store} [o.store]
  * @param {(line: string) => void} [o.log]  one run-log line per skip/failure (finish.js's run log)
  * @param {string} [o.reasonHarness]  remote harness id, recorded on the held entry when one is created
- * @param {string|undefined} [o.ownerLogin]  our tracker login, exempted from mention neutralisation; when omitted, `adapter.describe().ownerHint` is read (a leading `@` is stripped); with no owner known at all, every mention is neutralised
+ * @param {string|undefined} [o.ownerLogin]  our tracker login, the only one exempt when mentions are made safe; when omitted, `adapter.describe().ownerHint` is read (a leading `@` is stripped); with no owner known at all, every mention is broken
  * @returns {Promise<{ skipped?: string, held?: boolean, failed?: string, pushed?: boolean, workflow?: string, pr?: { number: number, created: boolean }, comment?: boolean }>}
  */
 export async function publishOutbox({ forge, adapter, ref, stepId, remote, hasWorktree, worktree, branch, outbox, verdict, store, log, reasonHarness, ownerLogin }) {
@@ -49,8 +94,6 @@ export async function publishOutbox({ forge, adapter, ref, stepId, remote, hasWo
   // The owner login exempted from mention neutralisation: an explicit one, else the tracker's
   // own (ownerHint, e.g. "@octocat"). Unknown = neutralise every mention (fail closed).
   const owner = ownerLogin ?? (adapter.describe().ownerHint ?? undefined)?.replace(/^@/, "");
-  /** @param {string} text */
-  const clean = (text) => neutralizeMentions(text, owner);
   /** @type {{ pushed?: boolean, workflow?: string, pr?: { number: number, created: boolean }, comment?: boolean, held?: boolean, failed?: string }} */
   const res = {};
 
@@ -92,13 +135,19 @@ export async function publishOutbox({ forge, adapter, ref, stepId, remote, hasWo
     } else if (typeof forge.openPr !== "function") {
       say(`[publish] forge ${forgeName} has no openPr — skipping pr.json`);
     } else {
-      try {
-        const pr = await forge.openPr({ branch: /** @type {string} */ (branch), title: clean(box.pr.title), body: clean(box.pr.body) });
-        store?.setRefMeta(ref, { pr: pr.number });
-        res.pr = pr;
-        say(`[publish] ${pr.created ? "opened" : "reusing"} draft PR #${pr.number} for ${ref}`);
-      } catch (e) {
-        say(`[publish] could not open the PR for ${ref}: ${/** @type {Error} */ (e).message}`);
+      const title = breakAllMentions(box.pr.title, owner);
+      const bodyResult = await safeMentions(box.pr.body, { forge, owner, say, label: "pr body" });
+      if ("skip" in bodyResult) {
+        say(`[publish] skipping pr.json for ${ref}: the body still has a live mention after breaking it`);
+      } else {
+        try {
+          const pr = await forge.openPr({ branch: /** @type {string} */ (branch), title, body: bodyResult.text });
+          store?.setRefMeta(ref, { pr: pr.number });
+          res.pr = pr;
+          say(`[publish] ${pr.created ? "opened" : "reusing"} draft PR #${pr.number} for ${ref}`);
+        } catch (e) {
+          say(`[publish] could not open the PR for ${ref}: ${/** @type {Error} */ (e).message}`);
+        }
       }
     }
   }
@@ -108,12 +157,17 @@ export async function publishOutbox({ forge, adapter, ref, stepId, remote, hasWo
     if (typeof adapter.postComment !== "function") {
       say(`[publish] tracker ${adapter.describe().platform} has no postComment — skipping comment.md`);
     } else {
-      try {
-        await adapter.postComment(ref, clean(box.comment));
-        res.comment = true;
-        say(`[publish] posted the outbox comment on ${ref}`);
-      } catch (e) {
-        say(`[publish] could not post the outbox comment on ${ref}: ${/** @type {Error} */ (e).message}`);
+      const commentResult = await safeMentions(box.comment, { forge, owner, say, label: "comment" });
+      if ("skip" in commentResult) {
+        say(`[publish] skipping the outbox comment on ${ref}: it still has a live mention after breaking it`);
+      } else {
+        try {
+          await adapter.postComment(ref, commentResult.text);
+          res.comment = true;
+          say(`[publish] posted the outbox comment on ${ref}`);
+        } catch (e) {
+          say(`[publish] could not post the outbox comment on ${ref}: ${/** @type {Error} */ (e).message}`);
+        }
       }
     }
   }
