@@ -5,8 +5,7 @@ import path from "node:path";
 import { drainWorktree } from "../worktree.js";
 import { CANCELLED_REASON, reportMoveFailure } from "../events.js";
 import { unionPaths } from "../overlap.js";
-import { costOf } from "../shared/pricing.js";
-import { energyFields } from "../shared/energy.js";
+import { runUsageRecord } from "./usage.js";
 import { timeoutReason, NO_VALID_VERDICT, QUESTION_HOLD, ASSUMED_ADVANCE_SUFFIX, endedWithQuestion, guardSandboxVerdict } from "./verdict.js";
 import { harnessesOf, healthTrip } from "./harness.js";
 import { followUpDecision } from "../followup.js";
@@ -95,80 +94,21 @@ export function createFinish(ctx) {
     // dollar figure is made up), so run_end drops the cost and the usage record is tagged.
     // Built even without a result: `unpriced` must still reach run_end.
     const endedAt = new Date().toISOString();
-    const usage = agent.usageRecord(result, { ref: job.ref, stepId: step.id, model, bin: spawnStep.bin, claudeBin: cfg.claudeBin, startedAt, endedAt });
-    // An adapter that reports no `duration_ms` (opencode, hermes) still has a wall time: derive
-    // it from the run's own timestamps. Adapters that report their own (claude, cursor) keep it.
-    if (usage.durationMs === undefined) {
-      const d = Date.parse(endedAt) - Date.parse(startedAt);
-      if (Number.isFinite(d)) usage.durationMs = d;
-    }
-    if (finalized) {
-      for (const k of /** @type {const} */ (["input", "output", "cacheRead", "cacheCreate"])) {
-        if (typeof finalized[k] === "number" && Number.isFinite(finalized[k]) && finalized[k] >= 0) usage[k] = finalized[k];
-      }
-      // Only overlay the model when the step resolved none of its own — the record's model
-      // is still the adapter's unpriced placeholder (hermes: "hermes"), which the rate table
-      // can't match.
-      if (finalized.model && !model) usage.model = finalized.model;
-    }
-    // Per-turn stats the parser saw (#645): turns/firstContext/peakContext/lastContext, only
-    // when the parser counted at least one turn — hermes' `finalize` never sets these.
-    if (turnStats) Object.assign(usage, turnStats);
-    // Verdict-repair (#677): sum each repair turn's usage into this single record — tokens,
-    // cost and duration add; peakContext is the max across every turn; lastContext and
-    // sessionId come from the final turn, so `ah resume` picks up the latest session.
-    if (repair?.results?.length) {
-      for (const r of repair.results) {
-        const ru = agent.usageRecord(r.result, { ref: job.ref, stepId: step.id, model, bin: spawnStep.bin, claudeBin: cfg.claudeBin, startedAt, endedAt });
-        for (const k of /** @type {const} */ (["input", "output", "cacheRead", "cacheCreate"])) usage[k] = (usage[k] || 0) + (ru[k] || 0);
-        if (typeof ru.costUsd === "number") usage.costUsd = (usage.costUsd || 0) + ru.costUsd;
-        if (typeof ru.durationMs === "number") usage.durationMs = (usage.durationMs || 0) + ru.durationMs;
-        if (typeof ru.sessionId === "string") usage.sessionId = ru.sessionId;
-      }
-      for (const ts of repair.turnStats) {
-        usage.turns = (usage.turns || 0) + (ts.turns || 0);
-        if (typeof ts.peakContext === "number") usage.peakContext = Math.max(usage.peakContext ?? 0, ts.peakContext);
-        if (typeof ts.lastContext === "number") usage.lastContext = ts.lastContext;
-        if (typeof ts.compactions === "number") usage.compactions = (usage.compactions || 0) + ts.compactions;
-      }
-    }
-    // Gate-repair turns (#710): summed the same way as verdict-repair's, above.
-    if (gate?.results?.length) {
-      for (const r of gate.results) {
-        const ru = agent.usageRecord(r.result, { ref: job.ref, stepId: step.id, model, bin: spawnStep.bin, claudeBin: cfg.claudeBin, startedAt, endedAt });
-        for (const k of /** @type {const} */ (["input", "output", "cacheRead", "cacheCreate"])) usage[k] = (usage[k] || 0) + (ru[k] || 0);
-        if (typeof ru.costUsd === "number") usage.costUsd = (usage.costUsd || 0) + ru.costUsd;
-        if (typeof ru.durationMs === "number") usage.durationMs = (usage.durationMs || 0) + ru.durationMs;
-        if (typeof ru.sessionId === "string") usage.sessionId = ru.sessionId;
-      }
-      for (const ts of gate.turnStats) {
-        usage.turns = (usage.turns || 0) + (ts.turns || 0);
-        if (typeof ts.peakContext === "number") usage.peakContext = Math.max(usage.peakContext ?? 0, ts.peakContext);
-        if (typeof ts.lastContext === "number") usage.lastContext = ts.lastContext;
-        if (typeof ts.compactions === "number") usage.compactions = (usage.compactions || 0) + ts.compactions;
-      }
-    }
-    // A harness may have switched the agent: name it, so follow/resume find the run's transcript.
-    if (harnessField.harness) usage.agent = agent.describe().name;
-    // ...and the harness itself, so status can sum usage per harness (`harnessUsage`).
-    if (typeof harnessField.harness === "string" && harnessField.harness) usage.harness = harnessField.harness;
-    // A remote run (#830) carries where it lived, so follow/resume can reach the session on the
-    // worker: the host + the worker cwd `executor.paths()` returned. Absent on older records —
-    // those sessions can't be located on the worker (`resume` says so).
-    if (remoteCwd) {
-      const h = typeof harnessField.harness === "string" ? harnessField.harness : undefined;
-      if (h) usage.host = cfg.harnesses?.[h]?.remote?.host;
-      usage.remoteCwd = remoteCwd;
-    }
+    const usage = runUsageRecord({
+      agent,
+      result,
+      meta: { ref: job.ref, stepId: step.id, model, bin: spawnStep.bin, claudeBin: cfg.claudeBin, startedAt, endedAt },
+      finalized,
+      model,
+      turnStats,
+      repair,
+      gate,
+      harness: harnessField,
+      remoteCwd,
+      energy,
+      cfg,
+    });
     const unpriced = !!usage.unpriced;
-    // Stamp the basis (src/shared/pricing.js): a reported run keeps `costUsd` alone; otherwise an
-    // API-equivalent `estUsd` from the rate table, when the model has a rate and tokens.
-    const priced = costOf(usage, cfg.pricing);
-    if (priced.estUsd !== undefined) usage.estUsd = priced.estUsd;
-    if (priced.costBasis) usage.costBasis = priced.costBasis;
-    // A third, independent figure — never folded into costUsd/estUsd/costBasis.
-    const energyRec = energy && cfg.energy ? energyFields(energy.kWh, cfg.energy.usdPerKwh, cfg.energy.source.type) : null;
-    if (energyRec) Object.assign(usage, energyRec);
     if (store && result) store.recordUsage(usage);
 
     // Harness breaker (src/queue.js): a run whose harness backend looks down (healthTrip) says so
@@ -344,7 +284,7 @@ export function createFinish(ctx) {
       ...(unpriced ? { unpriced: true } : {}),
       ...(usage.costBasis ? { costBasis: usage.costBasis } : {}),
       ...(usage.estUsd !== undefined ? { estUsd: usage.estUsd } : {}),
-      ...(energyRec ?? {}),
+      ...(usage.energyKwh !== undefined ? { energyKwh: usage.energyKwh, energyUsd: usage.energyUsd, energySource: usage.energySource } : {}),
       ...tokens,
       ...(repair ? { repaired: !!repair.repaired } : {}),
       ...(gate ? { gate: gate.result } : {}),
