@@ -20,11 +20,6 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
-      - name: ensure sshd is present (test/_sshd-helpers.js, #861)
-        run: |
-          if ! command -v sshd >/dev/null 2>&1 && [ ! -x /usr/sbin/sshd ]; then
-            sudo apt-get update && sudo apt-get install -y openssh-server openssh-client
-          fi
       - name: typecheck (JSDoc + checkJs)
         run: npm run typecheck
       - name: tests
