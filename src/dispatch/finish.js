@@ -488,16 +488,23 @@ export function createFinish(ctx) {
     // itself can't re-fire it (see above), so re-park the bounce if the PR head is still on
     // the sha that went red — read only now, after a remote run's outbox push already
     // happened. `index.js`'s late path then bounces it from wherever the task lands next. A
-    // moved head gets its own CI run and drops this one, same as a failed move.
+    // moved head gets its own CI run and drops this one, same as a failed move. `selfTarget`
+    // was decided on the verdict as it stood right after the run — re-check it here: a later
+    // rewrite (the outbox hold/fail at :431, the follow-up hold at :418) takes the task off the
+    // happy path just like a `changes`/`fail`/`hold` verdict from the run itself, so it drops too.
     if (parked && selfTarget) {
-      const head = moved ? await currentPrHead(forge, store, job.ref) : null;
-      if (head && head === parked.sha) {
-        const newer = store?.takeCiRed(job.ref); // a `ci` job that ran during this finish parked a fresher one
-        store?.setCiRed(job.ref, newer ?? parked);
-        console.log(`[ci] ${job.ref}: ${step.id} advanced with CI still red on ${String(parked.sha).slice(0, 7)} — bounce re-parked`);
+      if (verdict.outcome !== "advance") {
+        console.log(`[ci] drop parked bounce for ${job.ref} (${step.id} -> ${verdict.outcome})`);
       } else {
-        const why = !moved ? "move failed" : head ? `PR head moved to ${head.slice(0, 7)}` : "PR head unreadable";
-        console.log(`[ci] drop parked bounce for ${job.ref} (${step.id} -> ${verdict.outcome}, ${why})`);
+        const head = moved ? await currentPrHead(forge, store, job.ref) : null;
+        if (head && head === parked.sha) {
+          const newer = store?.takeCiRed(job.ref); // a `ci` job that ran during this finish parked a fresher one
+          store?.setCiRed(job.ref, newer ?? parked);
+          console.log(`[ci] ${job.ref}: ${step.id} advanced with CI still red on ${String(parked.sha).slice(0, 7)} — bounce re-parked`);
+        } else {
+          const why = !moved ? "move failed" : head ? `PR head moved to ${head.slice(0, 7)}` : "PR head unreadable";
+          console.log(`[ci] drop parked bounce for ${job.ref} (${step.id} -> ${verdict.outcome}, ${why})`);
+        }
       }
     }
 

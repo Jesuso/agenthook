@@ -240,10 +240,11 @@ bounces `changes` → `forge.ciTarget` (default the `createsWorktree` step) thro
 A park landing on a step downstream of the target turns that step's clean `advance` into the
 bounce on exit (`finishStep`); a park landing on the target step's **own** run can't do that the
 same way (re-entering the source label it's already in fires no webhook), so `finishStep`
-re-parks it instead once that run's own `advance` has landed, but only if the PR head is still on
-the sha that went red — a moved head drops the stale bounce. The late path (`src/dispatch/index.js`,
-`runClaude`'s `finally`) then takes the re-parked bounce and applies it from wherever the task
-lands next.
+re-parks it instead once that run's own move has landed, but only if the *finally-applied* verdict
+(after every rewrite — the outbox hold/fail, the follow-up hold) is still a clean `advance` and the
+PR head is still on the sha that went red; any other outcome, or a moved head, drops the stale
+bounce. The late path (`src/dispatch/index.js`, `runClaude`'s `finally`) then takes the re-parked
+bounce and applies it from wherever the task lands next.
 
 `runMerge` is a **bridge** for boards that can't hear merges. It is skipped (no `enterStage`, no
 `complete`; only the direct drain + per-ref clears, `clearSummaries`, `prState:"merged"`,
