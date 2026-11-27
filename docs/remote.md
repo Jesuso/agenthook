@@ -55,7 +55,11 @@ rewritten git history. What limits that:
   never pushed: the ticket is held for a human instead;
 - the sync-back fast-forwards (`git merge --ff-only`) the hub worktree onto the worker's branch —
   it never force-overwrites. If the worker's history no longer descends from what the hub pushed
-  (rewritten or diverged), the run fails instead of touching the hub worktree;
+  (rewritten or diverged), the run fails instead of touching the hub worktree; the publish push
+  is `--no-force` for the same reason. Every git call on the publish path (fetch, log, diff,
+  push) runs with hooks and fsmonitor disabled (`core.hooksPath=/dev/null`,
+  `core.fsmonitor=false`) and a 60 s timeout — a planted `pre-push` hook or a wedged network
+  cannot hang or side-channel the run;
 - the fetch that pulls the worker's branch back passes `--no-tags`, so a tag the worker plants —
   even one pointing straight at a commit the hub is about to accept — never lands in the hub repo;
 - the agent's prompt and environment travel over the ssh connection's own stdin, never in argv on
@@ -170,18 +174,23 @@ never read (that is where a planted payload shows up without ever being touched)
 `pr.json` must be a JSON object with a single-line string `title` (≤ 200 chars, after trim) and a
 string `body` (≤ 60 KB); `comment.md` must be non-empty (≤ 60 KB) and may **not** start with the
 configured resume trigger — the hub posts it under its OWN identity, so a comment starting with
-`@agent` would self-trigger the resume gate. Every dropped or ignored file is one line in the
-**run log** (and the server log), naming the file and the reason.
+`@agent` would self-trigger the resume gate; every GitHub-style mention in the surviving text is
+made safe (below) before it goes out. Every dropped or ignored file is one line in the **run
+log** (and the server log), naming the file and the reason.
 
 **Publishing, with the hub's own credentials, in the order push → PR → comment.**
 
 1. **Push** (only when the run has a branch): the forge's `publishBranch` pushes the branch
-   `--no-force`, the auth token passed only via git's environment (never argv). The GitHub forge
-   first refuses — `{workflow: <path>}` — when any commit in the run touches
-   `.github/workflows/`: the step is held for a human, nothing is pushed, and no PR or comment
-   is posted. An empty range (nothing new since the last publish — a rework run that changed
-   nothing) publishes nothing. A push **rejection fails the step** (nothing else may publish
-   against a branch that never landed).
+   `--no-force`, the auth token passed only via git's environment (never argv). Every git call
+   on the publish path is time-capped (60 s, then killed) so a wedged push cannot hang the run.
+   The GitHub forge first refuses — `{workflow: <path>, viaMerge}` — when any commit in the run
+   touches `.github/workflows/`: the step is held for a human, nothing is pushed, and no PR or
+   comment is posted. The guard is **merge-aware** — a workflow change brought in by a merge of
+   the base branch (not by the run's own commits) is still refused, and the hold reason says so
+   ("include a merge that brings in changes to …") so the human knows the fix is rebasing on the
+   base, not deleting the run's own work. An empty range (nothing new since the last publish —
+   a rework run that changed nothing) publishes nothing. A push **rejection fails the step**
+   (nothing else may publish against a branch that never landed).
 2. **PR** (when `pr.json` survived): the forge's `openPr` opens a **draft** PR against the repo's
    default branch — or **reuses the already-open PR** on the same head (`{created:false}`) when
    this is a rework run, so a rework never opens a second PR or edits the first one's
@@ -189,6 +198,61 @@ configured resume trigger — the hub posts it under its OWN identity, so a comm
    title/body is the reviewable artifact.
 3. **Comment** (when `comment.md` survived): posted on the ticket by the tracker adapter. Best
    effort — a failure is one line in the run log and never fails the step.
+
+A forge or tracker that **lacks a method** skips just that item — one line in the run log
+(`forge … has no publishBranch — the branch for … was not pushed`, `has no openPr — skipping
+pr.json`) — and never fails the step over it. **GitLab has neither `publishBranch` nor `openPr`**,
+so a remote run under it publishes nothing but the comment.
+
+**Mention safety.** The published PR title/body and the comment are the agent's own untrusted
+text, and the hub posts them under its own identity, so a stranger's `@mention` in that text must
+not reach anyone through it. The ticket's own assignee is the one exemption throughout — the
+tracker's `assigneeLogin`, or its `describe().ownerHint` (a leading `@` stripped) when that is
+unset, matched case-insensitively — so a "please @assignee" from the agent still reaches the
+human it names; with no owner login known, every mention is treated as unsafe (fail-closed).
+
+Two earlier review rounds found that guessing, from the text alone, which `@mention` GitHub would
+actually turn into a notification (fenced code vs. prose, an escaped backtick, a tab-indented
+"fence", a heading, a table cell, raw HTML…) kept disagreeing with GitHub's own renderer in new
+ways — each fix just moved the bypass somewhere else. The design now asks the renderer instead of
+guessing:
+
+1. The text is first wrapped the cheap way — every mention gets backticks, `` `@login` `` — which
+   GitHub renders as code and does not notify. This is `neutralizeMentions`; it is still
+   CommonMark-aware, so it stays readable when it's right.
+2. When the forge can render Markdown without notifying anyone (GitHub: a `POST /markdown`
+   preview call, `liveMentions` on the forge), the hub asks it whether the wrapped text still
+   contains a live mention other than the owner's. If it doesn't, the wrapped text is published —
+   that's the normal case.
+3. If the renderer finds a live mention anyway, if the render call throws (timeout, non-2xx,
+   unparseable response), or if the forge offers no such check at all, the hub falls back to
+   `breakAllMentions`: it inserts a zero-width space (U+200B) right after **every** `@` — literal,
+   or spelled as an HTML entity (`&#64;`, `&#064;`, `&#x40;`, `&commat;`, any case) — with no
+   opinion at all on what follows it, and no notion of code or Markdown structure. An email
+   (`a@b.com`) and text inside a fenced block both get the character too, and so does a literal
+   `@` immediately followed by an HTML-entity-encoded login character (e.g. `@&#111;ctocat`,
+   which GitHub's renderer decodes to `@octocat` before it looks for a mention — the character
+   right after the `@` doesn't have to look like a letter in the raw text for the renderer to read
+   it as one). The owner exemption is strict: only an exact `@<ownerLogin>` followed by
+   end-of-text or whitespace is left intact — `@owner-x`, `@owner/team` and even `@owner&#45;x`
+   are not that exact mention and get the character too, because the renderer would keep reading
+   past that character as part of the login. There is nothing left to disagree with the renderer
+   about, because the rule no longer looks at structure, length, or what follows the `@`, and
+   nothing left for an entity escape to exploit either. When the renderer is available, this
+   broken text is checked once more; if a foreign login is *still* live even after that, the hub
+   does not publish that piece of text at all (one run-log line) — like any other publish failure,
+   this does not fail the step.
+4. The PR **title** always goes straight through `breakAllMentions`, with no render call — a
+   one-line title has no code context worth preserving.
+
+In short: the backtick form is a best-effort readability win, verified against the real renderer
+when possible; `breakAllMentions` is the fallback that cannot be bypassed, because — having no
+notion of code, Markdown structure, or entity-escaping — it has nothing for a bypass to exploit.
+
+The workflow guard covers **`.github/workflows/` only** — nothing else a commit touches is
+refused. And a branch that does get pushed still opens a PR that runs the repo's existing CI on
+the worker-written code (test scripts, build config), exactly like a local agent's PR — the guard
+keeps the worker from *changing* the CI definition, not from being checked by it.
 
 Publishing runs in `finish.js` **after every outcome rewrite has settled** (CI bounce, changes
 review, auto-merge, follow-up) and before the step summary, drain and `adapter.advance` — so the
@@ -210,6 +274,17 @@ connection options the executor itself would) and reports, per harness:
   <https://opencode.ai>, a missing `pi` at `npm i -g @earendil-works/pi-coding-agent`, instead of
   the generic install hint.
 - **`workDir` is writable** (created if missing).
+- **remote trust** (config-only lint, no probe; runs only when the tracker is non-local and at
+  least one `harnesses.<name>.remote` exists): the worker executes ticket text with its own model
+  credentials and no isolation, so the fail-closed assignee scope is the only gate. doctor
+  **fails** when `tracker.assigneeFilter` is `false` (ANY ticket on the tracker runs on the
+  worker) and when no assignee identity is resolvable from the config (App auth without
+  `tracker.assigneeLogin` — the scope has nothing to match, so every ticket is refused and the
+  pipeline never runs); otherwise it **warns once**, naming the remote harness(es) and the
+  identity that is the only gate (`tracker.assigneeLogin`, or the tracker token's own login when
+  that is unset). It also **warns once per step whose harness list is remote-only** (no
+  non-remote fallback): the agent runs on the worker as its ssh user (`remote.user`, or the ssh
+  default user for that host), executing ticket text with that user's credentials.
 - **agent credentials** — claude only (an opencode harness's endpoint/credentials are the
   worker's own OpenCode config's business, not doctor's): whether `ANTHROPIC_API_KEY`,
   `ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN` is set, `~/.claude/.credentials.json` is
@@ -378,6 +453,32 @@ shifts to commit-only, and the hub does the tracker side of the bookkeeping:
   embeds the sha in the prompt; there is no PR for a remote review to look at.
 - The remote-run env allowlist still blocks `GH_TOKEN`/`GITHUB_TOKEN`/`GH_CONFIG_DIR`/
   `GIT_CONFIG_*` — the worker holds no GitHub identity at all.
+
+**The public-tracker case, stated plainly.** A GitHub tracker is public: anyone who can file an
+issue can write ticket text, and a ticket that reaches a remote-harness step runs that text on
+the worker with the worker's own model credentials. The **only gate** between a stranger's ticket
+and code execution on the worker is the fail-closed assignee scope — only tickets assigned to the
+tracker's identity run. `assigneeFilter: false` is therefore a `doctor` failure, not a warning:
+with it off, ANY ticket on the tracker runs on the worker. `assigneeLogin` must be resolvable from
+the config the same way (App auth without it is a `doctor` failure too — with no identity the
+scope has nothing to match and the pipeline never runs).
+
+Worked example: a small always-on hub (a VPS or a Pi) running the receiver, plus a heavier GPU
+desktop that is your day-to-day machine and sleeps most of the night. Give the desktop a
+remote-harness profile and point a step at both:
+
+```jsonc
+{
+  "id": "code",
+  "harness": ["gpu-desktop", "opus"],
+  "routing": "first-free"
+}
+```
+
+While the desktop is awake and idle it takes the run locally; while it's asleep or busy, the job
+spills onto the cloud harness (`opus`) and the ticket keeps moving. When the desktop wakes, the
+`first-free` routing returns to it on the next run. This is the intended shape of a remote
+harness — a capacity valve, not a second always-on machine.
 
 ## Current limits
 

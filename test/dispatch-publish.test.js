@@ -176,11 +176,11 @@ test("a PR open failure and a comment failure each leave one run-log line and ne
   assert.equal(res.comment, undefined);
   assert.equal(r.verdict.outcome, "advance", "PR/comment failures never fail the step");
   assert.deepEqual(r.refMeta, [], "no PR number was cached");
-  assert.equal(r.lines.length, 3, `expected push + two failure lines, got ${JSON.stringify(r.lines)}`);
-  assert.match(r.lines[1], /could not open the PR/);
-  assert.match(r.lines[1], /open PR 403/);
-  assert.match(r.lines[2], /could not post the outbox comment/);
-  assert.match(r.lines[2], /post comment 403/);
+  assert.equal(r.lines.length, 5, `expected push + two mention-fallback lines + two failure lines, got ${JSON.stringify(r.lines)}`);
+  assert.match(r.lines[2], /could not open the PR/);
+  assert.match(r.lines[2], /open PR 403/);
+  assert.match(r.lines[4], /could not post the outbox comment/);
+  assert.match(r.lines[4], /post comment 403/);
   console.log = console.log;
 });
 

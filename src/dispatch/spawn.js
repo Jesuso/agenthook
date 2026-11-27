@@ -160,6 +160,17 @@ export function createSpawn(ctx) {
    */
   async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, allow, deny, bin, agentEnv, creds, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed, executor, resumeSessionId }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
+    // The stream opens lazily on the threadpool: if the log's directory is gone by the time the
+    // open is serviced (a cleanup racing the run, a wiped log dir), the stream errors — and with
+    // no listener that is an uncaught exception that kills the receiver, like the stdin-EPIPE
+    // case right below. A run whose log can't be written still runs; the loss is the log, not
+    // the process.
+    let logBroken = false;
+    logStream.on("error", (e) => {
+      if (logBroken) return;
+      logBroken = true;
+      console.error(`[agenthook] run log ${logPath} unavailable: ${e.message}`);
+    });
     if (promptFile) {
       try {
         fs.writeFileSync(promptFile, prompt, { mode: 0o600 });

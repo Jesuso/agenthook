@@ -230,7 +230,8 @@ export function createStep(ctx) {
       let comments;
       if (typeof adapter.fetchComments === "function") {
         try {
-          comments = formatTicketComments(await adapter.fetchComments(job.ref));
+          const fc = await adapter.fetchComments(job.ref);
+          comments = formatTicketComments(fc.comments, 32 * 1024, fc.omitted);
         } catch (e) {
           comments = "comments could not be loaded; hold if you need them";
           console.error(`[dispatch] ${job.ref}: fetchComments failed for the remote prompt: ${e instanceof Error ? e.message : e}`);

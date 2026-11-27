@@ -43,7 +43,7 @@ export const STATUS_OPTIONS = { "In Progress": "opt_inprog", "In Review": "opt_r
  * tunes the canned item: its Status, assignee logins, viewer login. Returns the captured
  * mutation variables (or null) so advance assertions can read what was set. */
 export function stubGraphql(opts = {}) {
-  const { status = "In Progress", assignees = [], viewer = "bot", items, comments } = opts;
+  const { status = "In Progress", assignees = [], viewer = "bot", items, comments, commentsTotal } = opts;
   const captured = { mutation: /** @type {any} */ (null), assigned: /** @type {any} */ (null), added: /** @type {any} */ (null), calls: 0 };
   const orig = global.fetch;
   const issueNode = {
@@ -89,7 +89,7 @@ export function stubGraphql(opts = {}) {
       return ok({ node: { field: { id: STATUS_FIELD_ID, name: "Status", options: Object.entries(STATUS_OPTIONS).map(([name, id]) => ({ id, name })) } } });
     }
     if (q.includes("fieldValueByName")) return ok({ node: { id: itemNodes[0].id, content: issueNode, status: status ? { name: status } : null } });
-    if (q.includes("comments(last:100")) return ok({ node: { comments: { nodes: comments ?? [] } } });
+    if (q.includes("comments(last:100")) return ok({ node: { comments: { totalCount: commentsTotal, nodes: comments ?? [] } } });
     if (q.includes("viewer")) return ok({ viewer: { login: viewer, id: "U_bot" } });
     if (q.includes("projectV2(number")) return ok({ organization: { projectV2: { id: PROJECT_ID } }, user: null });
     return ok({});

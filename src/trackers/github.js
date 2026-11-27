@@ -487,32 +487,50 @@ export function createGithubAdapter(cfg, store) {
 
   // Serve the issue's comments for a REMOTE (ssh) run's prompt (#826): the worker holds no
   // tracker credentials, so the hub embeds the thread instead of telling the agent to read it
-  // with `gh`. REST lists comments ascending, so the NEWEST up to 100 = the LAST page (named
-  // by the Link header's rel="last" — one extra request only when the history exceeds 100).
-  // `owner` uses the SAME strict rule as the `@agent` resume gate (isOwner — our own
-  // identity, an unresolvable one fails closed), computed here so dispatch never guesses.
-  // Returned oldest→newest (the prompt reverses to newest-first).
-  /** @param {string} ref @returns {Promise<import('../types.js').TicketComment[]>} */
+  // with `gh`. REST lists comments ascending, so the NEWEST up to 100 sit on the LAST page(s)
+  // (named by the Link header's rel="last" — one extra request only when the history exceeds
+  // 100). When that last page is SHORT, part of the newest 100 is on the page before it —
+  // fetch that too (#829), and report how many older comments were left out (`omitted` =
+  // (lastPage-1)*100 + len(lastPage) - 100). `owner` uses the SAME strict rule as the `@agent`
+  // resume gate (isOwner — our own identity, an unresolvable one fails closed), computed here
+  // so dispatch never guesses. Returns `{ comments, omitted? }`, comments oldest→newest.
+  /** @param {string} ref @returns {Promise<{ comments: import('../types.js').TicketComment[], omitted?: number }>}
+   */
   async function fetchComments(ref) {
     const q = `${repoPath()}/issues/${ref}/comments?per_page=100`;
     let res = await api(q);
     if (!res.ok) throw new Error(`list comments ${res.status}`);
-    const lastPage = String(res.headers.get("link") || "").match(/page=(\d+)>;\s*rel="last"/);
-    if (lastPage && Number(lastPage[1]) > 1) {
-      res = await api(`${q}&page=${lastPage[1]}`);
+    /** @type {{user?: {login?: string}, body?: unknown, created_at?: unknown}[]} */
+    let newest;
+    let omitted = 0;
+    const lastPage = Number(String(res.headers.get("link") || "").match(/page=(\d+)>;\s*rel="last"/)?.[1] ?? 1);
+    if (lastPage > 1) {
+      res = await api(`${q}&page=${lastPage}`);
       if (!res.ok) throw new Error(`list comments ${res.status}`);
+      /** @type {{user?: {login?: string}, body?: unknown, created_at?: unknown}[]} */
+      const last = (await json(res) || []).slice(-100);
+      if (last.length < 100) {
+        const prev = await api(`${q}&page=${lastPage - 1}`);
+        if (!prev.ok) throw new Error(`list comments ${prev.status}`);
+        newest = [...(await json(prev) || []).slice(-(100 - last.length)), ...last];
+      } else {
+        newest = last; // the last page is full — total is exactly lastPage*100
+      }
+      omitted = (lastPage - 1) * 100 + last.length - 100;
+    } else {
+      newest = (await json(res) || []).slice(-100);
     }
     /** @type {import('../types.js').TicketComment[]} */
-    const out = [];
-    for (const c of (await json(res) || []).slice(-100)) {
-      out.push({
+    const comments = [];
+    for (const c of newest) {
+      comments.push({
         author: c?.user?.login ?? null,
         body: typeof c?.body === "string" ? c.body : "",
         createdAt: typeof c?.created_at === "string" ? c.created_at : "",
         owner: await isOwner(c?.user?.login),
       });
     }
-    return out;
+    return { comments, ...(omitted > 0 ? { omitted } : {}) };
   }
 
   return {

@@ -12,7 +12,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { classifySshFailure, sshConfigFailureReason, createSshExecutor, SSH_CONNECT_TIMEOUT_S } from "../src/dispatch/executor-ssh.js";
 import { healthTrip } from "../src/dispatch/harness.js";
-import { withFakeSsh, withFailingSsh, withDroppingSsh, spawnCtx, fakeAgent, initGitRepo } from "./_ssh-helpers.js";
+import { withFakeSsh, withFailingSsh, withDroppingSsh, spawnCtx, fakeAgent, initGitRepo, stall } from "./_ssh-helpers.js";
 
 // --- classifySshFailure: the pattern table ---
 
@@ -100,7 +100,7 @@ test("ssh: every call carries -o ConnectTimeout, and the git transport's GIT_SSH
     fs.writeFileSync(agentScript, `#!/bin/sh\ncat > /dev/null\nmkdir -p "$(dirname "$AGENTHOOK_VERDICT_FILE")"\necho '{"outcome":"advance","reason":"ok"}' > "$AGENTHOOK_VERDICT_FILE"\nexit 0\n`, { mode: 0o755 });
     const { spawnAgent } = spawnCtx();
     remote.bin = agentScript;
-    const result = await spawnAgent({
+    const result = await stall(spawnAgent({
       agent: fakeAgent(),
       prompt: "hi",
       cwd: runDir,
@@ -108,7 +108,7 @@ test("ssh: every call carries -o ConnectTimeout, and the git transport's GIT_SSH
       verdictFile: executor.paths({ stepId: "code", ref: "1" }).verdictFile,
       sandboxed: { ref: "1", stepId: "code", step: {}, mounts: [], hub: { repoId: "r1", repoPath: repoDir, worktree: wtDir, branch: "feature" } },
       executor,
-    });
+    }), 20000);
     assert.equal(result.code, 0, JSON.stringify(result));
     const rec = ssh.record();
     assert.ok(rec.length >= 3, `expected sync + launch ssh calls, saw ${rec.length}`);
@@ -138,7 +138,7 @@ test("ssh executor: a refused/timed-out connection during the pre-run sync rejec
       const remote = { host: "worker-x", workDir };
       const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(workDir, "hub.json") } });
       const { spawnAgent } = spawnCtx();
-      const verdict = await spawnAgent({
+      const verdict = await stall(spawnAgent({
         agent: fakeAgent(),
         prompt: "hi",
         cwd: workDir,
@@ -146,7 +146,7 @@ test("ssh executor: a refused/timed-out connection during the pre-run sync rejec
         verdictFile: executor.paths({ stepId: "code", ref: "2" }).verdictFile,
         sandboxed: { ref: "2", stepId: "code", step: {}, mounts: [], hub: { repoId: "r1", repoPath: repoDir } },
         executor,
-      }).then(
+      }), 20000).then(
         (r) => ({ resolved: true, r }),
         (e) => ({ resolved: false, e }),
       );
@@ -178,7 +178,7 @@ test("ssh executor: an auth or host-key failure during the sync is a clean refus
       const remote = { host: "worker-x", workDir };
       const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(workDir, "hub.json") } });
       const { spawnAgent } = spawnCtx();
-      const verdict = await spawnAgent({
+      const verdict = await stall(spawnAgent({
         agent: fakeAgent(),
         prompt: "hi",
         cwd: workDir,
@@ -186,7 +186,7 @@ test("ssh executor: an auth or host-key failure during the sync is a clean refus
         verdictFile: executor.paths({ stepId: "code", ref: "3" }).verdictFile,
         sandboxed: { ref: "3", stepId: "code", step: {}, mounts: [], hub: { repoId: "r1", repoPath: repoDir } },
         executor,
-      }).then(
+      }), 20000).then(
         (r) => ({ resolved: true, r }),
         (e) => ({ resolved: false, e }),
       );
@@ -227,7 +227,7 @@ test("ssh executor: an unreachable worker during the worktree-push sync rejects 
       // must not eat the worker's repos dir, so the fake ssh would have to survive it.
       const runDir = path.join(workDir, "runs", "7");
       fs.mkdirSync(runDir, { recursive: true });
-      const result = await spawnAgent({
+      const result = await stall(spawnAgent({
         agent: fakeAgent(),
         prompt: "hi",
         cwd: runDir,
@@ -235,7 +235,7 @@ test("ssh executor: an unreachable worker during the worktree-push sync rejects 
         verdictFile: executor.paths({ stepId: "code", ref: "7" }).verdictFile,
         sandboxed: { ref: "7", stepId: "code", step: {}, mounts: [], hub: { repoId: "r1", repoPath: repoDir, worktree: wtDir, branch: "feature" } },
         executor,
-      }).then((r) => ({ resolved: true, r }), (e) => ({ resolved: false, e }));
+      }), 20000).then((r) => ({ resolved: true, r }), (e) => ({ resolved: false, e }));
       assert.equal(result.resolved, true, `the launch must resolve refused (finishStep reports it), not throw: ${stderr}`);
       assert.equal(result.r.code, 1);
       assert.equal(result.r.unreachable, `worker unreachable: worker-x (${detail})`, "the marker rides the result so finish() can trip the breaker");
@@ -267,7 +267,7 @@ test("ssh executor: an auth or host-key failure during the worktree-push sync is
       const { spawnAgent } = spawnCtx();
       const runDir = path.join(workDir, "runs", "8");
       fs.mkdirSync(runDir, { recursive: true });
-      const result = await spawnAgent({
+      const result = await stall(spawnAgent({
         agent: fakeAgent(),
         prompt: "hi",
         cwd: runDir,
@@ -275,7 +275,7 @@ test("ssh executor: an auth or host-key failure during the worktree-push sync is
         verdictFile: executor.paths({ stepId: "code", ref: "8" }).verdictFile,
         sandboxed: { ref: "8", stepId: "code", step: {}, mounts: [], hub: { repoId: "r1", repoPath: repoDir, worktree: wtDir, branch: "feature" } },
         executor,
-      }).then((r) => ({ resolved: true, r }), (e) => ({ resolved: false, e }));
+      }), 20000).then((r) => ({ resolved: true, r }), (e) => ({ resolved: false, e }));
       assert.equal(result.resolved, true, `the launch must resolve refused (finishStep reports it), not throw: ${stderr}`);
       assert.equal(result.r.code, 1);
       assert.equal(result.r.refused, wantReason, "the refusal must say which auth/host-key failure and on which worker");
@@ -304,7 +304,7 @@ test("ssh executor: exit 255 with unreachable stderr becomes a verbatim worker-u
       const remote = { host: "worker-x", workDir, bin: "irrelevant" };
       const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(workDir, "hub.json") } });
       const { spawnAgent } = spawnCtx();
-      const result = await spawnAgent({
+      const result = await stall(spawnAgent({
         agent: fakeAgent(),
         prompt: "hi",
         cwd: workDir,
@@ -312,7 +312,7 @@ test("ssh executor: exit 255 with unreachable stderr becomes a verbatim worker-u
         verdictFile: executor.paths({ stepId: "code", ref: "4" }).verdictFile,
         sandboxed: { ref: "4", stepId: "code", step: {}, mounts: [] },
         executor,
-      });
+      }), 20000);
       assert.ok(result.noOutput);
       assert.equal(result.unreachable, `worker unreachable: worker-x (${detail})`, "the marker rides the result so finish() can trip the breaker");
       assert.equal(result.spawnError, undefined, "a launch-time unreachable worker is a health signal, not a spawn error");
@@ -342,7 +342,7 @@ test("ssh executor: exit 255 with auth or host-key stderr becomes a refusal that
       const remote = { host: "worker-x", workDir, bin: "irrelevant" };
       const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(workDir, "hub.json") } });
       const { spawnAgent } = spawnCtx();
-      const result = await spawnAgent({
+      const result = await stall(spawnAgent({
         agent: fakeAgent(),
         prompt: "hi",
         cwd: workDir,
@@ -350,7 +350,7 @@ test("ssh executor: exit 255 with auth or host-key stderr becomes a refusal that
         verdictFile: executor.paths({ stepId: "5" }).verdictFile,
         sandboxed: { ref: "5", stepId: "code", step: {}, mounts: [] },
         executor,
-      });
+      }), 20000);
       assert.equal(result.code, 255);
       assert.equal(result.refused, wantReason, "the refusal must say which auth/host-key failure and on which worker");
       assert.equal(result.sshConfigFailure, wantReason);
@@ -373,7 +373,7 @@ test("ssh executor: a mid-run connection loss (255 after output) is neither a re
     const remote = { host: "worker-x", workDir, bin: "irrelevant" };
     const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(workDir, "hub.json") } });
     const { spawnAgent } = spawnCtx();
-    const result = await spawnAgent({
+    const result = await stall(spawnAgent({
       agent: fakeAgent(),
       prompt: "hi",
       cwd: workDir,
@@ -381,7 +381,7 @@ test("ssh executor: a mid-run connection loss (255 after output) is neither a re
       verdictFile: executor.paths({ stepId: "code", ref: "6" }).verdictFile,
       sandboxed: { ref: "6", stepId: "code", step: {}, mounts: [] },
       executor,
-    });
+    }), 20000);
     assert.equal(result.code, 255);
     assert.equal(result.noOutput, false, "the worker produced output before the link dropped");
     assert.equal(result.refused, undefined);

@@ -225,4 +225,17 @@ rule that fenced (and self-fetched) text is data, never an instruction. That's a
 boundary — see [SECURITY.md#prompt-injection](../SECURITY.md#prompt-injection) for the full model
 and what still has to come from sandboxing.
 
+**Remote (ssh) workers are untrusted senders, under a one-owner trust model.** A remote harness
+runs the agent as the worker's ssh user (the hub is trusted with a shell there); the reverse
+direction is what's checked. Only allowlisted env, a framed prompt, and committed git content
+cross to the worker — never tracker/forge tokens or hub model credentials. Everything that comes
+back is checked before the hub acts on it: the verdict and the outbox files are symlink/FIFO-
+guarded and size-capped, a comment that would self-trigger the resume gate is dropped, worker-
+written text is mention-neutralised before it's posted under the hub's identity, a run whose
+commits touch `.github/workflows/` is held instead of pushed, every publish git call runs with
+hooks/fsmonitor disabled and a 60 s timeout, and sync-back only ever fast-forwards. `agenthook
+doctor` lints the trust model (it fails when the assignee filter is off or the assignee identity
+can't be resolved, since on a public tracker the assignee scope is the only gate to the worker).
+Full model: [docs/remote.md#the-trust-model-stated-plainly](remote.md#the-trust-model-stated-plainly).
+
 Vulnerability disclosure: see [SECURITY.md](../SECURITY.md).
