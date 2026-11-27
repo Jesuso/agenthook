@@ -11,7 +11,8 @@ import net from "node:net";
 import os from "node:os";
 import { claimedPorts, portInUse } from "../port.js";
 import path from "node:path";
-import { execFile, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
+import { execRun, onPath } from "../exec.js";
 import { loadConfig, ensurePrivateDir } from "../config/index.js";
 import { worktreeDir } from "../paths.js";
 import { reposOf, defaultRepo, primaryRepo } from "../repos.js";
@@ -29,7 +30,8 @@ import { isAppAuth, normalizePem, createGithubAuth, mintInstallationToken } from
 import { runTokenPermissions, revokeRunToken, originUrl, RUN_TOKEN_STRIP } from "../github/run-token.js";
 import { parseGithubRemote } from "../forges/github.js";
 import { isSandboxed } from "../sandbox/names.js";
-import { DEFAULT_IMAGE, AGENT_DOCKERFILE, buildImageArgs, serviceImageRemedy } from "../sandbox/image.js";
+import { DEFAULT_IMAGE, serviceImageRemedy } from "../sandbox/image.js";
+import { sandboxRuntimeChecks, buildImage } from "../sandbox/readiness.js";
 import { serviceImages } from "../sandbox/container.js";
 import { claudePermissionArgs, claudePolicyArgs, sandboxCredentialProblem } from "../agents/claude.js";
 import { agentSpawnEnv } from "../dispatch/spawn.js";
@@ -45,22 +47,6 @@ import { isPrivateAddress } from "../sandbox/egress-proxy.mjs";
 
 const UI_SRC_DIR = fileURLToPath(new URL("../../ui/src/", import.meta.url));
 const UI_DIST_DIR = fileURLToPath(new URL("../../ui/dist/", import.meta.url));
-
-/** One CLI call for the sandbox checks: a non-zero exit resolves, a spawn failure rejects.
- * @type {import('../types.js').IngressRun} */
-export const execRun = (bin, args, { timeoutMs }) =>
-  new Promise((resolve, reject) => {
-    execFile(bin, args, { timeout: timeoutMs, encoding: "utf8" }, (err, stdout, stderr) => {
-      if (err && typeof err.code !== "number") return reject(err);
-      resolve({ code: err ? Number(err.code) : 0, stdout, stderr });
-    });
-  });
-
-/** @param {string} bin */
-export function onPath(bin) {
-  const r = spawnSync(process.platform === "win32" ? "where" : "which", [bin], { encoding: "utf8" });
-  return r.status === 0;
-}
 
 /** The distinct agent binaries the pipeline spawns ON THE HOST, resolved exactly like dispatch
  * (`step.bin || agent.defaults.bin || cfg.claudeBin`) for every non-manual step, each with
@@ -904,56 +890,6 @@ export function harnessQuotaLints(profile) {
   return out;
 }
 
-/** The default image builder: `<bin> build -t <image> -` with the Dockerfile on stdin.
- * @param {string} bin @param {string[]} args @param {string} dockerfile */
-const buildImage = (bin, args, dockerfile) => spawnSync(bin, args, { input: dockerfile, stdio: ["pipe", "inherit", "inherit"] });
-
-/**
- * The sandbox runtime + image preflight: the runtime CLI on PATH (`$<TYPE>` overrides it) and
- * reachable — stopping at the first failure — then each of `images` present (fix: build the
- * default recipe). `image` is the profile's agent image; any other entry is labelled the egress
- * proxy's. Shared with `ah ui`'s read-only readiness card (src/ui/sandbox.js).
- * @param {{ type: string, image: string }} sandbox
- * @param {{run: import('../types.js').IngressRun, has?: (bin: string) => boolean, build?: (bin: string, args: string[], dockerfile: string) => { status: number|null }, images?: string[]}} io
- * @returns {Promise<Check[]>}
- */
-export async function sandboxRuntimeChecks({ type: runtime, image }, { run, has = onPath, build = buildImage, images = [image] }) {
-  const env = runtime.toUpperCase();
-  const bin = process.env[env] || runtime;
-  /** @type {Check[]} */
-  const out = [];
-  if (!has(bin)) {
-    out.push({ ok: false, label: `sandbox: ${runtime} binary on PATH`, note: bin, fix: { manual: `install ${runtime} or put it on PATH (or set $${env})` } });
-    return out;
-  }
-  out.push({ ok: true, label: `sandbox: ${runtime} binary on PATH`, note: bin });
-  const info = await run(bin, ["info"], { timeoutMs: 30_000 }).catch((e) => ({ code: 1, stdout: "", stderr: e.message }));
-  const rootNote = runtime === "docker" ? "docker group membership is root-equivalent; prefer rootless podman" : "";
-  if (info.code !== 0) {
-    out.push({ ok: false, label: `sandbox: \`${bin} info\` succeeds`, note: (info.stderr || info.stdout).trim().split("\n")[0], fix: { manual: `start the ${runtime} daemon/socket, or give this user access to it` } });
-    return out;
-  }
-  out.push({ ok: true, label: `sandbox: \`${bin} info\` succeeds`, note: rootNote });
-  for (const img of new Set(images)) {
-    const r = await run(bin, ["image", "inspect", img], { timeoutMs: 30_000 }).catch((e) => ({ code: 1, stdout: "", stderr: e.message }));
-    out.push({
-      ok: r.code === 0,
-      label: `sandbox image present: ${img}${img !== image ? " (egress proxy)" : ""}`,
-      note: r.code === 0 ? "" : "missing",
-      fix: img === DEFAULT_IMAGE
-        ? {
-            describe: `build ${img}`,
-            apply: () => {
-              const b = build(bin, buildImageArgs(runtime, img), AGENT_DOCKERFILE);
-              if (b.status !== 0) throw new Error(`\`${bin} build\` exited ${b.status}`);
-            },
-          }
-        : { manual: `${runtime} build -t ${img} <dir with a Dockerfile that starts FROM ${DEFAULT_IMAGE}> — it needs sh, git, gh and the agent CLI on PATH — see docs/sandbox.md` },
-    });
-  }
-  return out;
-}
-
 /**
  * The per-run sandbox preflight (only with a `sandbox` block): the runtime CLI on PATH and
  * reachable, the image present (fix: build the default recipe), every service image present
@@ -1137,10 +1073,8 @@ export function sharedRepoLint(cfg, others) {
   return out;
 }
 
-/** A check's remedy: a safe local fix (`describe` is its `--dry-run` text) or the manual
- * action for a problem that is never auto-fixed. Only ✗/⚠ checks carry one.
- * @typedef {{ describe: string, apply: () => void|Promise<void> } | { manual: string }} Fix */
-/** @typedef {{ ok: boolean, warn?: boolean, info?: boolean, label: string, note?: string, fix?: Fix }} Check */
+/** @typedef {import('../types.js').Fix} Fix */
+/** @typedef {import('../types.js').Check} Check */
 /** A detector's problem (`info`: a ✓-side note, never a problem). @typedef {{ level: 'fail'|'warn'|'info', label: string, note?: string, fix?: Fix }} Finding */
 /** The child-process seam for the two fixers that shell out (tests inject a recorder).
  * @typedef {(cmd: string, args: string[], opts: {cwd?: string, stdio?: any, env?: Record<string, string>, timeout?: number, encoding?: BufferEncoding}) => { status: number|null, stdout?: string|Buffer }} Spawner */

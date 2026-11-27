@@ -4,7 +4,8 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { agentBinChecks, runChecks, applyFixes, fixableCount, githubAppChecks, sandboxChecks, sandboxRuntimeChecks, egressLints, runTokenLints } from "../src/commands/doctor.js";
+import { agentBinChecks, runChecks, applyFixes, fixableCount, githubAppChecks, sandboxChecks, egressLints, runTokenLints } from "../src/commands/doctor.js";
+import { sandboxRuntimeChecks } from "../src/sandbox/readiness.js";
 import { resetGithubAuthCache } from "../src/github/auth.js";
 import { DEFAULT_IMAGE, serviceImageRemedy } from "../src/sandbox/image.js";
 import { SANDBOX_CREDENTIAL_VARS } from "../src/agents/claude.js";

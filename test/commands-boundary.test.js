@@ -9,7 +9,7 @@ import { ROOT, importSpecifiers, resolveSpec, walk } from "./_import-helpers.js"
 // layer, one file per CLI subcommand, imported only by bin/. No module outside src/commands/
 // may import from it — logic the core needs lives in the core, and commands call it.
 
-const ALLOWED_OUTSIDE = new Set(["src/ui/sandbox.js:../commands/doctor.js"]); // removed by epic #839 ticket 7
+const ALLOWED_OUTSIDE = new Set();
 
 /** Returns violation strings ("<file>: <spec>") for every non-type-only import in a
  * src/**\/*.js file (outside src/commands/) that resolves into src/commands/, unless
@@ -32,12 +32,14 @@ test("commandsViolations: flags an import reaching into src/commands/", () => {
   ]);
 });
 
-test("commandsViolations: allows the ticket-7 exception and ignores type-only imports", () => {
-  assert.deepEqual(commandsViolations("src/ui/sandbox.js", `import { execRun } from "../commands/doctor.js";`), []);
+test("commandsViolations: flags a non-exempt import and ignores type-only imports", () => {
+  assert.deepEqual(commandsViolations("src/ui/sandbox.js", `import { execRun } from "../commands/doctor.js";`), [
+    "src/ui/sandbox.js: ../commands/doctor.js",
+  ]);
   assert.deepEqual(commandsViolations("src/engine/boot.js", `import type { Fix } from "../commands/doctor.js";`), []);
 });
 
-test("src/: no file outside src/commands/ reaches into src/commands/, apart from the ticket-7 exception", () => {
+test("src/: no file outside src/commands/ reaches into src/commands/", () => {
   const violations = [];
   for (const file of walk("src", [".js"])) {
     if (file.startsWith("src/commands/")) continue;
