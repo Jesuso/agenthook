@@ -2,7 +2,7 @@
 // Reads each profile's heartbeat + pidfile; never touches the running process.
 import { listProfiles } from "../heartbeat.js";
 import { tildify } from "../profile.js";
-import { createStore } from "../store.js";
+import { createStore } from "../store/index.js";
 import { formatSpend, pricingOf, sumCosts } from "../shared/pricing.js";
 import { claimedPorts } from "../port.js";
 

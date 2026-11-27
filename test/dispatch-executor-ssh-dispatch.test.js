@@ -11,7 +11,7 @@ import path from "node:path";
 import { shQuote } from "../src/dispatch/executor-ssh.js";
 import { sandboxVerdictPathFor } from "../src/dispatch/spawn.js";
 import { createDispatcher } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { initGitRepo, withFakeSsh } from "./_ssh-helpers.js";
 
 // --- quota pacing / energy are skipped for a remote run (via the real dispatcher + claude agent) ---
@@ -212,7 +212,7 @@ test("dispatch: an ssh run's hub-local verdict file is guarded like a sandboxed 
 
 test("boot: a remote harness's leftover runs are reaped and logged distinctly from the sandbox's", async () => {
   const { createServe } = await import("../src/engine/boot.js");
-  const { createStore: makeStore } = await import("../src/store.js");
+  const { createStore: makeStore } = await import("../src/store/index.js");
   const http = await import("node:http");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-boot-ssh-"));
   const cfg = /** @type {any} */ ({

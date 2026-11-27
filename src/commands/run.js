@@ -14,7 +14,7 @@
 // pushes the step's job from inside the receiver's own process, so with the receiver up
 // the move must happen THERE: `run` is sent over control.sock (the same op MCP/UI use).
 import { loadConfig } from "../config.js";
-import { createStore } from "../store.js";
+import { createStore } from "../store/index.js";
 import { createAdapter } from "../trackers/index.js";
 import { isPipeline, findStep } from "../pipeline.js";
 import { readProfile } from "../heartbeat.js";

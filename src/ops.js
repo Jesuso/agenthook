@@ -16,7 +16,7 @@ import { entryBlock } from "./commands/run.js";
 import { runMergeCatchup, runReconcile } from "./commands/reconcile.js";
 import { readRecheckState, recheckRef } from "./recheck.js";
 import { isRerunEvent } from "./ui/rows.js";
-import { isStateDedupKey } from "./store.js";
+import { isStateDedupKey } from "./store/index.js";
 import { CANCELLED_REASON } from "./events.js";
 import { EPIC_REF_RE, epicDetail, epicStats } from "./epics.js";
 import { repositoryOf } from "./heartbeat.js";

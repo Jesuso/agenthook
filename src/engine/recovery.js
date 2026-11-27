@@ -1,6 +1,6 @@
 // Crash bookkeeping and LOCAL recovery: the fatal-crash record, crash recovery from
 // running.json (never a board poll), the overlapGuard releaser and the `step:` dedup release.
-import { isStateDedupKey } from "../store.js";
+import { isStateDedupKey } from "../store/index.js";
 import { reportMoveFailure } from "../events.js";
 import { disableAutoMergeOnBounce } from "../auto-merge.js";
 

@@ -17,7 +17,7 @@ import { worktreeDir } from "../paths.js";
 import { reposOf, defaultRepo, primaryRepo } from "../repos.js";
 import { listWorktrees, DEFAULT_BRANCH_PREFIX } from "../worktree.js";
 import { readProfile, isAlive, instructionTargets } from "../heartbeat.js";
-import { createStore } from "../store.js";
+import { createStore } from "../store/index.js";
 import { registeredProfiles } from "../profile.js";
 import { systemdScopeAvailable, classifyCgroup } from "../respawn.js";
 import { fileURLToPath } from "node:url";

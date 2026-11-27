@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { createDispatcher } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { createSandbox } from "../src/sandbox/index.js";
 
 const ENV = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };

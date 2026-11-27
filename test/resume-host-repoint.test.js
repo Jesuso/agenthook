@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "../src/config.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { resume } from "../src/commands/resume.js";
 
 let n = 0;

@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createLocalAdapter, seedBoard, localBoardPath, extractRouteKeys, createdJob, normalizeBlockedBy, openBlockersOf } from "../src/trackers/local.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { resolveRepo } from "../src/repos.js";
 
 const pipeline = [

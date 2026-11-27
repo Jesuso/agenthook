@@ -6,7 +6,7 @@
 // (dedup, worktree, PR). See docs/architecture.md. (`reconcile` does this in bulk.)
 import { loadConfig } from "../config.js";
 import { requireStarted } from "../profile.js";
-import { createStore } from "../store.js";
+import { createStore } from "../store/index.js";
 import { createAdapter } from "../trackers/index.js";
 
 /** @param {any} args */

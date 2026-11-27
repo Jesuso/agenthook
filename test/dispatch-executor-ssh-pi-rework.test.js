@@ -14,7 +14,7 @@ import { withFakeSsh, spawnCtx, initGitRepo } from "./_ssh-helpers.js";
 import { createSshExecutor, shQuote } from "../src/dispatch/executor-ssh.js";
 import { pi, buildPiArgs } from "../src/agents/pi.js";
 import { createDispatcher } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { promptPathFor } from "../src/dispatch/prompt.js";
 
 // --- dispatch-level: #731 dedupe on the worker's stdin, piConfigDir never crossing ---

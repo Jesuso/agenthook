@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { createQueue } from "../src/queue.js";
 import { createOps } from "../src/ops.js";
 import { createQuotaPacer } from "../src/shared/quota.js";

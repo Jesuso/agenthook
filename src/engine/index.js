@@ -32,7 +32,7 @@
 // (sync, no network) -> ACK 200 -> processEvents off the response path -> intake.
 // `/forge` goes to the forge (when one is configured); everything else to the tracker.
 import http from "node:http";
-import { createStore, isStateDedupKey } from "../store.js";
+import { createStore, isStateDedupKey } from "../store/index.js";
 import { createAdapter } from "../trackers/index.js";
 import { createIngress } from "../ingress/index.js";
 import { createForge } from "../forges/index.js";

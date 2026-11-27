@@ -16,7 +16,7 @@ import { validateRawConfig } from "../src/config.js";
 import { REMOTE_AGENTS } from "../src/agents/names.js";
 import { remoteHarnessChecks } from "../src/commands/doctor.js";
 import { createDispatcher } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 
 /** A tiny git repo with one commit — a worktree-step dispatch run needs a real hub repo (#690
  * syncs HEAD to the worker before every run). @param {string} dir */

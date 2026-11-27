@@ -44,7 +44,7 @@ import { EPIC_REF_RE } from "../epics.js";
 import { readLocalEpics } from "../agent-api.js";
 import { readStats, READ_CAP_BYTES } from "./stats.js";
 import { runStats } from "../stats.js";
-import { createStore } from "../store.js";
+import { createStore } from "../store/index.js";
 import { pricingOf } from "../shared/pricing.js";
 import crypto from "node:crypto";
 import fs from "node:fs";

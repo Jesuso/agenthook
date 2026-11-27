@@ -8,7 +8,7 @@ import http from "node:http";
 import { intakeEvent, createPushSink } from "../src/engine.js";
 import { createQueue } from "../src/queue.js";
 import { createServe } from "../src/engine/boot.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 
 const job = (ref, stepId = "s") => ({ kind: "pipeline", ref, stepId, dedupKey: `${ref}:${stepId}` });
 

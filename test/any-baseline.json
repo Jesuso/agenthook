@@ -92,7 +92,7 @@
       "src/sinks.js": 5,
       "src/state-move.js": 3,
       "src/stats.js": 10,
-      "src/store.js": 1,
+      "src/store/read-json.js": 1,
       "src/summarize.js": 4,
       "src/trackers/asana.js": 23,
       "src/trackers/github-projects.js": 23,

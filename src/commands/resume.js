@@ -15,7 +15,7 @@
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { loadConfig } from "../config.js";
-import { createStore } from "../store.js";
+import { createStore } from "../store/index.js";
 import { worktreePath } from "../worktree.js";
 import { branchName } from "../worktree.js";
 import { sessionDirs, listSessions, recentRuns, refRepo, agentSessions } from "../sessions.js";

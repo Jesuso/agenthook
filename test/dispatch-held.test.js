@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { createDispatcher, NO_VALID_VERDICT } from "../src/dispatch.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { tmpDir, heldHarness } from "./_dispatch-helpers.js";
 
 // --- held-state lifecycle (the `@agent` resume) through the real dispatcher ---

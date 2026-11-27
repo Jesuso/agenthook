@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 import { createServe } from "../src/engine/boot.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 import { abortableSleep, classifyTrackerError, retryTrackerCall, transientDelayMs } from "../src/engine/boot-retry.js";
 
 const httpErr = (/** @type {number} */ status) => Object.assign(new Error(`HTTP ${status}`), { status });

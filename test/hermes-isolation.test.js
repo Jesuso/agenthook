@@ -20,7 +20,7 @@ const { listSessions } = await import("../src/sessions.js");
 const { resumeCommand, resumeArgs } = await import("../src/commands/resume.js");
 const { hermesLints } = await import("../src/commands/doctor.js");
 const { createDispatcher } = await import("../src/dispatch.js");
-const { createStore } = await import("../src/store.js");
+const { createStore } = await import("../src/store/index.js");
 
 const LOCAL_YAML = `# hermes config
 model:

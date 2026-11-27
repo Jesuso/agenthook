@@ -9,7 +9,7 @@ import path from "node:path";
 import http from "node:http";
 import { fullAutoBanner } from "../src/engine/banner.js";
 import { createServe } from "../src/engine/boot.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 
 const PIPE = [{ id: "triage" }, { id: "code" }, { id: "done", manual: true }];
 

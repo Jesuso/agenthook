@@ -10,7 +10,7 @@ import { resolveHarness, harnessesOf, harnessEntryOf, healthTrip, cooldownFor, m
 import { createSpawn } from "../src/dispatch/spawn.js";
 import { resolveModelEffort, createDispatcher } from "../src/dispatch.js";
 import { agentFor } from "../src/agents/index.js";
-import { createStore } from "../src/store.js";
+import { createStore } from "../src/store/index.js";
 
 const HARNESSES = {
   qwen: { agent: "claude", model: "qwen3-coder", bin: "claude-local", env: { ANTHROPIC_BASE_URL: "http://localhost:11434", SHARED: "harness" }, maxConcurrent: 1 },
