@@ -1,12 +1,70 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
-// Unit tests for verdict.js's peekVerdict/isNoValidVerdict (#864): the guarded-read pair every
-// turn in runStep (step.js) shares, pulled out of five inline call sites.
+// Unit tests for the run-turns.js turn runners pulled out of step.js's runStep (#864):
+// spawnOptions (the three spawnAgent() option variants) and verdict.js's peekVerdict/
+// isNoValidVerdict (the guarded-read pair every turn runner shares).
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnOptions } from "../src/dispatch/run-turns.js";
 import { peekVerdict, isNoValidVerdict, NO_VALID_VERDICT } from "../src/dispatch/verdict.js";
+
+/** @type {any} */
+const baseRc = {
+  agent: { describe: () => ({ name: "claude" }) },
+  cwd: "/tmp/cwd",
+  logPath: "/tmp/run.log",
+  promptFile: undefined,
+  model: "opus",
+  effort: "high",
+  provider: "anthropic",
+  step: { isolated: true, allow: ["Bash"], deny: ["Edit"], idleMinutes: undefined },
+  spawnStep: { toolsets: ["git"], bin: "claude" },
+  agentEnv: { FOO: "bar" },
+  creds: null,
+  verdictFile: "/tmp/verdict.json",
+  sandboxedRun: undefined,
+  executor: { name: "host" },
+  onPid: () => {},
+  onTally: () => {},
+};
+
+test("spawnOptions: the first turn passes no resumeSessionId key at all (absent, not undefined)", () => {
+  const opts = spawnOptions(baseRc, { prompt: "p", maxMs: 123000 });
+  assert.equal(opts.prompt, "p");
+  assert.equal(opts.maxMs, 123000);
+  assert.ok(!("resumeSessionId" in opts), "resumeSessionId must be absent, not just undefined");
+  assert.equal(opts.toolsets, baseRc.spawnStep.toolsets);
+  assert.equal(opts.isolated, true);
+  assert.equal(opts.allow, baseRc.step.allow);
+  assert.equal(opts.deny, baseRc.step.deny);
+  assert.equal(opts.bin, "claude");
+  assert.equal(opts.agentEnv, baseRc.agentEnv);
+  assert.equal(opts.env, undefined); // spawnStep.env was never set here
+  assert.equal(opts.verdictFile, baseRc.verdictFile);
+  assert.equal(opts.sandboxed, baseRc.sandboxedRun);
+  assert.equal(opts.executor, baseRc.executor);
+});
+
+test("spawnOptions: a verdict-repair turn always carries resumeSessionId", () => {
+  const opts = spawnOptions(baseRc, { prompt: "repair", maxMs: 0, resumeSessionId: "sess-1" });
+  assert.equal(opts.resumeSessionId, "sess-1");
+  assert.equal(opts.maxMs, 0);
+});
+
+test("spawnOptions: a gate-repair turn omits resumeSessionId when it can't resume (canResume false)", () => {
+  const opts = spawnOptions(baseRc, { prompt: "gate-repair", maxMs: 5000, resumeSessionId: undefined });
+  assert.ok(!("resumeSessionId" in opts), "resumeSessionId must be absent when canResume is false");
+});
+
+test("spawnOptions: step.idleMinutes becomes idleMs only when set", () => {
+  const withIdle = { ...baseRc, step: { ...baseRc.step, idleMinutes: 5 } };
+  assert.equal(spawnOptions(withIdle, { prompt: "p", maxMs: 1 }).idleMs, 300000);
+  assert.ok(!("idleMs" in spawnOptions(baseRc, { prompt: "p", maxMs: 1 })));
+});
+
+// --- peekVerdict / isNoValidVerdict ---
 
 test("peekVerdict: the sandbox guard (oversize file removal) runs only for a non-host executor", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-peek-verdict-"));

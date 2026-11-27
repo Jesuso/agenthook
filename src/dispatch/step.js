@@ -10,6 +10,7 @@ import { findStep, stepForStage, DEFAULT_MAX_MINUTES, DEFAULT_MAX_ATTEMPTS } fro
 import { runGate } from "./gate.js";
 import { preRunGates } from "./run-gates.js";
 import { buildRunWrap } from "./run-wrap.js";
+import { spawnOptions } from "./run-turns.js";
 import { ensureWorktree, worktreePath, branchName, branchHead, commitsSince, remoteMergeBase } from "../worktree.js";
 import { agentFor } from "../agents/index.js";
 import { executorFor } from "./executor.js";
@@ -341,32 +342,7 @@ export function createStep(ctx) {
         const remainingMs = totalMaxMs ? Math.max(0, totalMaxMs - (Date.now() - Date.parse(startedAt))) : 0;
         if (totalMaxMs && remainingMs < 60000) break; // not enough of maxMinutes left for a repair turn
         turns++;
-        const result = await spawnAgent({
-          agent,
-          prompt: verdictRepairPrompt(verdictFile),
-          cwd,
-          logPath,
-          promptFile,
-          model,
-          effort,
-          provider,
-          toolsets: spawnStep.toolsets,
-          isolated: step.isolated,
-          allow: step.allow,
-          deny: step.deny,
-          bin: spawnStep.bin,
-          agentEnv,
-          creds,
-          env: spawnStep.env,
-          verdictFile,
-          sandboxed: sandboxedRun,
-          executor,
-          maxMs: totalMaxMs ? remainingMs : 0,
-          ...(step.idleMinutes ? { idleMs: step.idleMinutes * 60000 } : {}),
-          resumeSessionId: sessionId,
-          onPid,
-          onTally,
-        });
+        const result = await spawnAgent(spawnOptions({ agent, cwd, logPath, promptFile, model, effort, provider, step, spawnStep, agentEnv, creds, verdictFile, sandboxedRun, executor, onPid, onTally }, { prompt: verdictRepairPrompt(verdictFile), maxMs: totalMaxMs ? remainingMs : 0, resumeSessionId: sessionId }));
         results.push(result);
         if (result.turnStats) turnStats.push(result.turnStats);
         final = result;
@@ -458,32 +434,7 @@ export function createStep(ctx) {
         store?.bumpAttempt(job.ref, step.id);
         const canResume = !!agent.resumeArgs && !!curSessionId && !(sandboxed && agent.describe().sandboxResume === false);
         const repairText = gateRepairPrompt(verdictFile, g.tail, newNonce());
-        const turn = await spawnAgent({
-          agent,
-          prompt: canResume ? repairText : `${prompt}\n\n${repairText}`,
-          cwd,
-          logPath,
-          promptFile,
-          model,
-          effort,
-          provider,
-          toolsets: spawnStep.toolsets,
-          isolated: step.isolated,
-          allow: step.allow,
-          deny: step.deny,
-          bin: spawnStep.bin,
-          agentEnv,
-          creds,
-          env: spawnStep.env,
-          verdictFile,
-          sandboxed: sandboxedRun,
-          executor,
-          maxMs: totalMaxMs ? remainingMs : 0,
-          ...(step.idleMinutes ? { idleMs: step.idleMinutes * 60000 } : {}),
-          ...(canResume ? { resumeSessionId: curSessionId } : {}),
-          onPid,
-          onTally,
-        });
+        const turn = await spawnAgent(spawnOptions({ agent, cwd, logPath, promptFile, model, effort, provider, step, spawnStep, agentEnv, creds, verdictFile, sandboxedRun, executor, onPid, onTally }, { prompt: canResume ? repairText : `${prompt}\n\n${repairText}`, maxMs: totalMaxMs ? remainingMs : 0, ...(canResume ? { resumeSessionId: curSessionId } : {}) }));
         results.push(turn);
         if (turn.turnStats) turnStats.push(turn.turnStats);
         final = turn;
@@ -510,31 +461,7 @@ export function createStep(ctx) {
     /** @type {{result: "pass"|"fail", capExhausted?: boolean, reason?: string, results: any[], turnStats: any[]}|undefined} */
     let gate;
     try {
-      spawned = refused ? { code: 1, result: null, quota: null, timedOut: undefined } : await spawnAgent({
-        agent,
-        prompt,
-        cwd,
-        logPath,
-        promptFile,
-        model,
-        effort,
-        provider,
-        toolsets: spawnStep.toolsets,
-        isolated: step.isolated,
-        allow: step.allow,
-        deny: step.deny,
-        bin: spawnStep.bin,
-        agentEnv,
-        creds,
-        env: spawnStep.env,
-        verdictFile,
-        sandboxed: sandboxedRun,
-        executor,
-        maxMs: maxMinutes * 60000,
-        ...(step.idleMinutes ? { idleMs: step.idleMinutes * 60000 } : {}),
-        onPid,
-        onTally,
-      }).catch(async (e) => {
+      spawned = refused ? { code: 1, result: null, quota: null, timedOut: undefined } : await spawnAgent(spawnOptions({ agent, cwd, logPath, promptFile, model, effort, provider, step, spawnStep, agentEnv, creds, verdictFile, sandboxedRun, executor, onPid, onTally }, { prompt, maxMs: maxMinutes * 60000 })).catch(async (e) => {
         if (energyRun) await stopEnergy(energyRun); // never leave the sampler counting a dead run
         throw e;
       });
