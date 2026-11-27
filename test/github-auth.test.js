@@ -1,11 +1,11 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
-// src/github-auth.js — the GitHub App JWT and the installation-token cache (no network:
+// src/github/auth.js — the GitHub App JWT and the installation-token cache (no network:
 // fetch is injected or stubbed on global).
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import fs from "node:fs";
-import { appJwt, createGithubAuth, githubFetch, normalizePem, resetGithubAuthCache, isAppAuth } from "../src/github-auth.js";
+import { appJwt, createGithubAuth, githubFetch, normalizePem, resetGithubAuthCache, isAppAuth } from "../src/github/auth.js";
 
 const { privateKey, publicKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
 const TEST_PEM = privateKey.export({ type: "pkcs1", format: "pem" }).toString();
@@ -146,8 +146,8 @@ test("githubFetch: under token auth a 401 is returned as-is (no retry)", async (
   assert.equal(n, 1);
 });
 
-test("src/github-auth.js imports only node:crypto (no dependency)", () => {
-  const src = fs.readFileSync(new URL("../src/github-auth.js", import.meta.url), "utf8");
+test("src/github/auth.js imports only node:crypto (no dependency)", () => {
+  const src = fs.readFileSync(new URL("../src/github/auth.js", import.meta.url), "utf8");
   const imports = [...src.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
   assert.deepEqual(imports, ["node:crypto"]);
 });

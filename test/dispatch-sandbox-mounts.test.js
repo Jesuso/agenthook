@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { trustedGitDirs, sandboxMounts, containerEnv, runtimeEnv, gitSandboxEnv, mergeGitConfigEnv, hostOf, checkoutMasks } from "../src/dispatch/sandbox.js";
-import { runGitEnv } from "../src/github-run-token.js";
+import { runGitEnv } from "../src/github/run-token.js";
 import { fixture } from "./_dispatch-sandbox-helpers.js";
 
 test("trustedGitDirs: a git-worktree checkout resolves its admin dir and the main checkout's common dir", () => {

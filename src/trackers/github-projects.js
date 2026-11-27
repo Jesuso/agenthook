@@ -17,7 +17,7 @@
 //     number is resolved back to its project item by scanning the project's items.
 //   - Auth: a PAT (classic `project` + `repo` scopes, or fine-grained Projects:RW +
 //     Issues:R) as `Bearer <token>`, or a GitHub App (`auth: {type: "app", …}`,
-//     src/github-auth.js; org Projects + Webhooks RW, repo Issues RW) — then
+//     src/github/auth.js; org Projects + Webhooks RW, repo Issues RW) — then
 //     assigneeLogin is required and `viewer` is never used for identity. Webhook signed like the `github` tracker
 //     (agenthook-generated secret, or an explicit tracker.webhookSecret; `false`
 //     disables verification), verified via `x-hub-signature-256: sha256=<hex>`.
@@ -50,8 +50,8 @@ import crypto from "node:crypto";
 import { startsWithTrigger, resumeJob } from "../pipeline.js";
 import { MoveRefusedError } from "./owner.js";
 import { isEpicIssue } from "./github.js";
-import { createGithubAuth, githubFetch } from "../github-auth.js";
-import { githubRunCredentials, originUrl } from "../github-run-token.js";
+import { createGithubAuth, githubFetch } from "../github/auth.js";
+import { githubRunCredentials, originUrl } from "../github/run-token.js";
 import { parseGithubRemote } from "../forges/github.js";
 
 /**
@@ -135,7 +135,7 @@ export const githubProjectsEgressHosts = () => ["api.github.com"];
 /** @type {import('../types.js').AdapterFactory} */
 export function createGithubProjectsAdapter(cfg, store) {
   const pc = cfg.providerConfig;
-  // A personal token, or a GitHub App's installation token (src/github-auth.js). Both are
+  // A personal token, or a GitHub App's installation token (src/github/auth.js). Both are
   // resolved from env/.env by loadConfig.
   const auth = createGithubAuth(pc);
   const epicType = pc.epicType || "Epic";

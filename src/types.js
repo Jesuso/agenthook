@@ -328,7 +328,7 @@
  * @property {string} createdAt  ISO timestamp as the platform reports it
  * @property {boolean} owner */
 
-/** Per-run credentials an adapter hands one agent run (#474; src/github-run-token.js).
+/** Per-run credentials an adapter hands one agent run (#474; src/github/run-token.js).
  * @typedef {object} RunCredentials
  * @property {Record<string,string>} env    layered over the #470 allowlisted env, under the step's env
  * @property {string[]} strip               allowlisted names to remove for this run (e.g. GH_TOKEN, GITHUB_TOKEN)
@@ -437,7 +437,7 @@
 
 /**
  * GitHub App auth (`tracker.auth` / `forge.auth`) — an installation token minted from the App's
- * private key replaces the personal token (src/github-auth.js, docs/github-app.md).
+ * private key replaces the personal token (src/github/auth.js, docs/github-app.md).
  * @typedef {object} GithubAuthConfig
  * @property {"app"} type
  * @property {string|number} appId          the App's id (App settings → General)

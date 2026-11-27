@@ -14,7 +14,7 @@ const API = "https://api.github.com";
 // Refetch an installation token this long before its `expires_at`.
 const REFRESH_MS = 5 * 60 * 1000;
 
-/** @typedef {import('./types.js').GithubAuthConfig} GithubAuthConfig */
+/** @typedef {import('../types.js').GithubAuthConfig} GithubAuthConfig */
 /** What every GitHub adapter calls instead of reading the raw token.
  * @typedef {object} GithubAuth
  * @property {boolean} app                     true under GitHub App auth
@@ -44,7 +44,7 @@ export function appJwt({ appId, privateKey, now = Math.floor(Date.now() / 1000) 
 /**
  * POST `/app/installations/{id}/access_tokens`. No `body` = the installation's full permissions on
  * every repo it covers (the receiver's token); a `{repositories, permissions}` body narrows it (a
- * per-run agent token, src/github-run-token.js). Never touches the cache below.
+ * per-run agent token, src/github/run-token.js). Never touches the cache below.
  * @param {GithubAuthConfig} auth @param {{repositories?: string[], permissions?: Record<string,string>}|undefined} body
  * @param {{fetch?: typeof fetch, now?: () => number}} [opts]  `now` in epoch ms
  * @returns {Promise<{token: string, expiresAt: number}>} */

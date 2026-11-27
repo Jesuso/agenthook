@@ -382,7 +382,7 @@ export function loadConfig(opts = {}) {
   if (!cfg.ingress.type) cfg.ingress.type = "manual";
 
   // GitHub App auth: a privateKeyPath is read (relative to the config file) into privateKey,
-  // so src/github-auth.js only ever sees the PEM.
+  // so src/github/auth.js only ever sees the PEM.
   for (const [at, block] of /** @type {const} */ ([["tracker.auth", cfg.tracker], ["forge.auth", cfg.forge]])) {
     const auth = block?.auth;
     if (auth?.type !== "app" || !auth.privateKeyPath) continue;
@@ -892,7 +892,7 @@ export function validateRawConfig(raw) {
   errors.push(...quotaErrors(cfg.quota));
   errors.push(...sandboxErrors(cfg.sandbox));
 
-  // GitHub App auth (src/github-auth.js). Under it the identity can't be derived from the token
+  // GitHub App auth (src/github/auth.js). Under it the identity can't be derived from the token
   // (an installation token is the App's bot), so the tracker's assigneeLogin is required —
   // fail closed rather than fall back to /user or `viewer`.
   if (tracker?.auth != null) {
