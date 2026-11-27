@@ -1,9 +1,9 @@
 // Shared type surface for the engine and adapters. JSDoc-only — no runtime code,
 // so it stays zero-build (checked by `tsc --noEmit`, never compiled). Reference a
-// type from anywhere with `import('./types/index.js').Adapter`.
+// type from anywhere with `import('../types/index.js').Adapter`.
 //
-// The Adapter interface below IS the provider contract. Adding a tracker = writing
-// one object that satisfies it (see src/providers/asana.js for the reference impl).
+// The Adapter interface (see tracker.js) IS the provider contract. Adding a tracker
+// = writing one object that satisfies it (see src/providers/asana.js for the reference impl).
 //
 // Split by domain across this folder's files; this file re-exports every name so
 // outside code never imports a domain file directly.
