@@ -5,7 +5,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // are per-ref, so a second concurrent entry would race the first — the #19 incident).
 import test from "node:test";
 import assert from "node:assert/strict";
-import { entryBlock } from "../src/commands/run.js";
+import { entryBlock } from "../src/pipeline.js";
 
 test("entryBlock: a clean backlog item is allowed (null)", () => {
   assert.equal(entryBlock("42", { stage: null, running: null }), null);

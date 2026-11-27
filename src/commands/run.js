@@ -16,7 +16,7 @@
 import { loadConfig } from "../config/index.js";
 import { createStore } from "../store/index.js";
 import { createAdapter } from "../trackers/index.js";
-import { isPipeline, findStep } from "../pipeline.js";
+import { isPipeline, findStep, entryBlock } from "../pipeline.js";
 import { readProfile } from "../heartbeat.js";
 import { controlRequest } from "../control/client.js";
 
@@ -112,24 +112,6 @@ async function runViaReceiver(cfg, ref, args) {
   if (!reply.ok) die(`run: ${reply.error}`);
   const { step, stage } = reply.result;
   console.log(`${ref} -> step "${step}" (entered stage "${stage}" in the running receiver, which fires the step now).`);
-}
-
-/**
- * The `run` guard, pure so it's unit-testable. Returns a refusal message when the ref
- * is already mid-flow (resting in a pipeline stage, or carrying a running job), or null
- * to allow. `--force` always allows. One ref = one in-flight flow: the worktree and
- * running.json are per-ref by design, so a second concurrent entry would race the first.
- * @param {string} ref
- * @param {{ stage?: string|null, running?: import('../types.js').RunningInfo|null, force?: boolean }} [state]
- * @returns {string|null}
- */
-export function entryBlock(ref, { stage, running, force } = {}) {
-  if (force) return null;
-  const where = [];
-  if (stage) where.push(stage);
-  if (running) where.push(`running${running.stepId ? ` ${running.stepId}` : ""}`);
-  if (!where.length) return null;
-  return `${ref} is already in the pipeline (${where.join(" / ")}) — finish or reset it first, or pass --force.`;
 }
 
 /** @param {string} msg @returns {never} */

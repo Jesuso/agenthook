@@ -96,3 +96,21 @@ export function resumeJob(cfg, store, ref, commentId, body) {
   console.log(`[trigger] ${ref}: owner reply resumes held step "${step.id}"`);
   return { kind: "pipeline", ref, stepId: step.id, dedupKey: `trigger:${commentId}`, comment: body };
 }
+
+/**
+ * The `run` guard, pure so it's unit-testable. Returns a refusal message when the ref
+ * is already mid-flow (resting in a pipeline stage, or carrying a running job), or null
+ * to allow. `--force` always allows. One ref = one in-flight flow: the worktree and
+ * running.json are per-ref by design, so a second concurrent entry would race the first.
+ * @param {string} ref
+ * @param {{ stage?: string|null, running?: import('./types.js').RunningInfo|null, force?: boolean }} [state]
+ * @returns {string|null}
+ */
+export function entryBlock(ref, { stage, running, force } = {}) {
+  if (force) return null;
+  const where = [];
+  if (stage) where.push(stage);
+  if (running) where.push(`running${running.stepId ? ` ${running.stepId}` : ""}`);
+  if (!where.length) return null;
+  return `${ref} is already in the pipeline (${where.join(" / ")}) — finish or reset it first, or pass --force.`;
+}

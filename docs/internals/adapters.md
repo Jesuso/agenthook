@@ -78,7 +78,7 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
   CI and merge jobs this produces.
   **Missed merges:** a PR merged while the receiver was down never sends its webhook, so the
   optional `listMergedAgentPrs(since)` (github only: closed PRs by `updated` desc, paged until one
-  predates `since`, ≤ 5 × 100) lets `runMergeCatchup` (`src/commands/reconcile.js`) replay the same
+  predates `since`, ≤ 5 × 100) lets `runMergeCatchup` (`src/engine/reconcile.js`) replay the same
   `merged:<n>` job (carrying the same `boardCloses`) — unforced, so a merge handled live stays deduped by `seen`. It runs **only**
   from `reconcile` (CLI → `reconcile_merges` op on a webhook tracker; the `reconcile` op/MCP tool)
   and `--reconcile-on-boot` — never a plain boot or a timer — skips a task already `completed`, and

@@ -11,9 +11,8 @@
 import { disableAutoMergeOnBounce } from "./auto-merge.js";
 import fs from "node:fs";
 import path from "node:path";
-import { isPipeline, findStep, resumeJob, queueStageOf } from "./pipeline.js";
-import { entryBlock } from "./commands/run.js";
-import { runMergeCatchup, runReconcile } from "./commands/reconcile.js";
+import { isPipeline, findStep, resumeJob, queueStageOf, entryBlock } from "./pipeline.js";
+import { runMergeCatchup, runReconcile } from "./engine/reconcile.js";
 import { readRecheckState, recheckRef } from "./recheck.js";
 import { isRerunEvent } from "./ui/rows.js";
 import { isStateDedupKey } from "./store/index.js";

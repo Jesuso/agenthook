@@ -16,7 +16,7 @@
 // INVARIANT: one ref = one in-flight flow. Because this path AND store.running are
 // keyed by ref, two concurrent jobs on the same ref would share this worktree and
 // clobber each other's commits + crash-recovery entry. `agenthook run`'s entry guard
-// (src/commands/run.js) enforces it: it refuses to inject a ref already mid-flow.
+// (`entryBlock`, src/pipeline.js) enforces it: it refuses to inject a ref already mid-flow.
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs";
