@@ -15,9 +15,12 @@ function clock() {
   /** @type {Map<number, {fn: () => void, at: number}>} */
   const timers = new Map();
   let id = 0;
+  /** @type {number[]} the `ms` passed to each setTimer call, in order */
+  const delays = [];
   return {
     now: () => t,
-    setTimer: (/** @type {() => void} */ fn, /** @type {number} */ ms) => (timers.set(++id, { fn, at: t + ms }), id),
+    delays,
+    setTimer: (/** @type {() => void} */ fn, /** @type {number} */ ms) => (delays.push(ms), timers.set(++id, { fn, at: t + ms }), id),
     clearTimer: (/** @type {number} */ i) => void timers.delete(i),
     /** Advance to `to`, firing due timers. @param {number} to */
     advance(to) {
@@ -47,7 +50,9 @@ function harness(names = ["A", "B"], seed = {}) {
     onHarnessUp: (n, i) => events.push(["up", n, i]),
     onChange: () => changes++,
   });
-  return { b, c, events, live, persisted: () => persisted, changes: () => changes };
+  const persistedAccessor = () => persisted;
+  persistedAccessor.reset = () => (persisted = null);
+  return { b, c, events, live, persisted: persistedAccessor, changes: () => changes };
 }
 
 test("a health trip marks the harness down, strikes double the cooldown, then a healthy settle on the probing harness brings it up", () => {
@@ -112,14 +117,16 @@ test("closeForQuota never shortens a longer health-down, nor a later quota closu
 
 test("the reopen timer fires onHarnessUp + onChange and re-arms on an early (clamped) fire", () => {
   const { b, c, events, changes } = harness();
-  const until = T0 + 10 * MIN;
+  const MAX_TIMER_MS = 2 ** 31 - 1;
+  const until = T0 + MAX_TIMER_MS + 10 * MIN; // further out than the clamp can wait in one tick
   b.closeForQuota(["A"], { until, reason: "quota" });
   assert.equal(changes(), 1, "closeForQuota fired onChange once");
-  // Simulate the clamp firing early: re-arm manually before the deadline and advance to it.
-  b.arm();
-  c.advance(T0 + 5 * MIN); // before `until` — nothing should open yet
-  assert.equal(b.stateOf("A"), "down");
-  assert.equal(changes(), 1, "an early/no-op tick doesn't fire onChange again");
+  assert.equal(c.delays.at(-1), MAX_TIMER_MS, "the first timer is clamped to MAX_TIMER_MS, not the full wait");
+  // Advancing exactly to the clamped fire point should re-arm, not open — `until` is still ahead.
+  c.advance(T0 + MAX_TIMER_MS);
+  assert.equal(b.stateOf("A"), "down", "the clamped fire is still well before `until`");
+  assert.equal(changes(), 1, "the clamped (early) fire doesn't open anything, so onChange doesn't fire again");
+  assert.equal(c.delays.length, 2, "onQuotaTimer re-armed a second timer for the remainder");
   c.advance(until);
   assert.equal(b.stateOf("A"), "up");
   assert.deepEqual(events.at(-1), ["up", "A", { cause: "quota" }]);
@@ -147,18 +154,29 @@ test("prune drops entries for harnesses no longer configured, and persists even 
   assert.ok(b.entry("B"), "B's entry survives");
   assert.ok(persisted().down.B, "persisted after prune");
   assert.equal(persisted().down.A, undefined);
+  // Now prune again with nothing left to remove — it must still persist unconditionally.
+  persisted.reset();
+  b.prune();
+  assert.ok(persisted(), "prune persists even when no entry was dropped");
+  assert.ok(persisted().down.B, "the surviving entry is still reported");
 });
 
 test("settle and prune never call onChange — only the timer fire, closeForQuota, and reset do", () => {
   const { b, c, changes } = harness();
   b.settle("A", { reason: "x" });
-  assert.equal(changes(), 0, "settle alone never fires onChange");
+  assert.equal(changes(), 0, "settle alone never fires onChange (health-down branch)");
+  // Drive "A" to probing, then settle it healthy — the probing→up branch must not fire onChange either.
+  c.advance(b.entry("A").until);
+  assert.equal(b.stateOf("A"), "probing");
+  b.settle("A", undefined);
+  assert.equal(b.stateOf("A"), "up");
+  assert.equal(changes(), 0, "settle alone never fires onChange (probing→up branch)");
   b.prune();
   assert.equal(changes(), 0, "prune alone never fires onChange");
   b.closeForQuota(["B"], { until: T0 + MIN, reason: "quota" });
   assert.equal(changes(), 1);
   b.reset("B");
   assert.equal(changes(), 2);
-  c.advance(T0 + MIN); // nothing armed (closeForQuota armed, but B was already reset) — no extra fire expected beyond what's armed
-  assert.ok(changes() >= 2);
+  c.advance(T0 + MIN); // B was already reset, so no timer is armed for it — no further fire
+  assert.equal(changes(), 2, "nothing left to fire after B was reset ahead of its deadline");
 });
