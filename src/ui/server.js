@@ -159,7 +159,7 @@ function localAddresses() {
 /**
  * @param {{ port: number, token: string, distDir: string, host?: string, registry?: string,
  *   discoverTimeoutMs?: number, restartTimeoutMs?: number, releaseTimeoutMs?: number, digestTimeoutMs?: number, summaryTimeoutMs?: number, epicsTimeoutMs?: number,
- *   sandboxIo?: { run?: import('../types.js').IngressRun, has?: (bin: string) => boolean,
+ *   sandboxIo?: { run?: import('../types/index.js').IngressRun, has?: (bin: string) => boolean,
  *     build?: (bin: string, args: string[], dockerfile: string) => { status: number|null } } }} opts  `sandboxIo`: the readiness probes (tests stub them)
  * @returns {http.Server}
  */

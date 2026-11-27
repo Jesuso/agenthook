@@ -29,7 +29,7 @@ export function createStep(ctx) {
   const { killNow, spawnAgent, logPathFor, promptFilePathFor, runCredsDirFor, runCredentials, logLine, agentPreflight } = ctx;
   const { startEnergy, stopEnergy, finishStep, readVerdict } = ctx;
 
-  /** @param {import('../types.js').Job} job */
+  /** @param {import('../types/index.js').Job} job */
   async function runStep(job) {
     const step = findStep(cfg, job.stepId);
     if (!step) throw new Error(`unknown pipeline step "${job.stepId}"`);
@@ -329,7 +329,7 @@ export function createStep(ctx) {
     const preflightDown = pre?.health ? pre.reason : undefined;
     // Per-run credentials (#474): the forge's, else the tracker's. One that should have scoped
     // and couldn't refuses the run exactly like a preflight — never the operator's token instead.
-    /** @type {import('../types.js').RunCredentials|null} */
+    /** @type {import('../types/index.js').RunCredentials|null} */
     let creds = null;
     // A remote run mints none (#826): the worker has no credentials of its own, and the
     // hub's per-run token is scoped to the hub (gh/git on it, not on the worker).

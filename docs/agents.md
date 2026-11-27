@@ -340,7 +340,7 @@ remote harness (only claude and opencode do).
 
 ## Adding an adapter
 
-An agent adapter is one module in `src/agents/` implementing `AgentAdapter` (`src/types.js`):
+An agent adapter is one module in `src/agents/` implementing `AgentAdapter` (`src/types/agents.js`):
 
 - `describe()` → `{name, stdout, promptFile?}`. `stdout` is `"stream-json"` or `"text"`.
   `promptFile: true` makes dispatch write the prompt to a file and pass it as `promptFile`.

@@ -38,7 +38,7 @@ export function webAddrFromLog(log) {
   return m ? m[1] : null;
 }
 
-/** @type {import('../types.js').IngressFactory} */
+/** @type {import('../types/index.js').IngressFactory} */
 export function createNgrokIngress(cfg) {
   const opts = cfg.ingress || { type: "ngrok" };
   const webAddr = opts.webAddr || "127.0.0.1:4040";

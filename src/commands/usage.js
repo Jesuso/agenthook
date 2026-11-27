@@ -15,7 +15,7 @@ import { formatEnergy } from "../shared/energy.js";
  * `unestimated` are src/shared/pricing.js `sumCosts` over the rest (the rate-table estimate, and the
  * runs with no rate or no tokens), with the profile's `pricing` overrides. `energyKwh`/`energyUsd`
  * sum the measured runs (`energyRuns` of them, src/shared/energy.js) — apart from both dollar figures.
- * @param {import('../types.js').UsageRecord[]} recs
+ * @param {import('../types/index.js').UsageRecord[]} recs
  * @param {Record<string, import('../shared/pricing.js').Rate>|null} [pricing]
  * @returns {{ input: number, output: number, cacheRead: number, cacheCreate: number, costUsd: number|undefined, est: number, unestimated: number, energyKwh: number, energyUsd: number, energyRuns: number }}
  */
@@ -49,17 +49,17 @@ export function spendCell(t) {
 
 /**
  * Group records by a string key derived from each record.
- * @param {import('../types.js').UsageRecord[]} recs
- * @param {(r: import('../types.js').UsageRecord) => string} keyFn
- * @returns {Map<string, import('../types.js').UsageRecord[]>}
+ * @param {import('../types/index.js').UsageRecord[]} recs
+ * @param {(r: import('../types/index.js').UsageRecord) => string} keyFn
+ * @returns {Map<string, import('../types/index.js').UsageRecord[]>}
  */
 export function groupBy(recs, keyFn) {
-  /** @type {Map<string, import('../types.js').UsageRecord[]>} */
+  /** @type {Map<string, import('../types/index.js').UsageRecord[]>} */
   const m = new Map();
   for (const r of recs) {
     const k = keyFn(r);
     if (!m.has(k)) m.set(k, []);
-    /** @type {import('../types.js').UsageRecord[]} */ (m.get(k)).push(r);
+    /** @type {import('../types/index.js').UsageRecord[]} */ (m.get(k)).push(r);
   }
   return m;
 }
@@ -91,7 +91,7 @@ export function isoWeek(iso) {
 
 /**
  * Per-model breakdown string from a group of records.
- * @param {import('../types.js').UsageRecord[]} recs
+ * @param {import('../types/index.js').UsageRecord[]} recs
  * @returns {string}
  */
 export function modelSplit(recs) {
@@ -113,7 +113,7 @@ function fmtCost(usd) {
  * A per-run cost cell: the reported `$0.1234`, else the rate-table `~$0.0400 est.`, else
  * `unpriced` for a run with no real cost and no estimate (no rate, or no tokens); a measured run
  * appends ` · energy $0.00029 (1.9 Wh)` (src/shared/energy.js). Exported for tests.
- * @param {import('../types.js').UsageRecord} r @param {Record<string, import('../shared/pricing.js').Rate>|null} [pricing]
+ * @param {import('../types/index.js').UsageRecord} r @param {Record<string, import('../shared/pricing.js').Rate>|null} [pricing]
  */
 export function runCost(r, pricing) {
   const c = costOf(r, pricing);
@@ -159,7 +159,7 @@ export async function usage(args) {
   const byWeek = args.week;
 
   if (byWeek || byDay) {
-    const keyFn = byWeek ? (/** @type {import('../types.js').UsageRecord} */ r) => isoWeek(r.startedAt) : (/** @type {import('../types.js').UsageRecord} */ r) => utcDay(r.startedAt);
+    const keyFn = byWeek ? (/** @type {import('../types/index.js').UsageRecord} */ r) => isoWeek(r.startedAt) : (/** @type {import('../types/index.js').UsageRecord} */ r) => utcDay(r.startedAt);
     const groups = groupBy(recs, keyFn);
     const header = ["Period", "Runs", "Input", "Output", "CacheRead", "CacheCreate", "$", "No est.", "Models"];
     const rows = [header];

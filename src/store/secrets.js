@@ -5,7 +5,7 @@ import { readJson } from "./read-json.js";
 /**
  * handshake secrets, keyed by webhook path. secrets.json, mode 0600.
  * @param {string} dataDir
- * @returns {Pick<import('../types.js').Store, 'getSecret'|'setSecret'|'secretCount'>}
+ * @returns {Pick<import('../types/index.js').Store, 'getSecret'|'setSecret'|'secretCount'>}
  */
 export function secretsSlice(dataDir) {
   const secretsFile = path.join(dataDir, "secrets.json");

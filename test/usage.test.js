@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { sumRecords, groupBy, utcDay, isoWeek, modelSplit, runCost, spendCell, energyTotalLine } from "../src/commands/usage.js";
 
-/** @type {() => import('../src/types.js').UsageRecord} */
+/** @type {() => import('../src/types/index.js').UsageRecord} */
 function rec(overrides = {}) {
   return {
     ref: "1",

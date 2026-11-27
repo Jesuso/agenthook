@@ -75,7 +75,7 @@ function displayIdOf(customFields, displayIdField) {
 
 /** Whether `t` IS an epic, and the epic it belongs to (its parent, when the parent is typed as
  * an epic). A plain (untyped) parent never counts as an epic.
- * @param {any} t @param {string} epicType @returns {{isEpic: boolean, epic?: import('../types.js').EpicRef}} */
+ * @param {any} t @param {string} epicType @returns {{isEpic: boolean, epic?: import('../types/index.js').EpicRef}} */
 export function mapEpicFields(t, epicType) {
   const isEpic = t?.custom_type?.name === epicType;
   if (t?.parent?.custom_type?.name !== epicType) return { isEpic };
@@ -83,7 +83,7 @@ export function mapEpicFields(t, epicType) {
 }
 
 /** Rows whose custom type is `epicType`, mapped to Epic[]. Pure — drives listEpics.
- * @param {any[]} data @param {string} epicType @returns {import('../types.js').Epic[]} */
+ * @param {any[]} data @param {string} epicType @returns {import('../types/index.js').Epic[]} */
 export function mapEpics(data, epicType) {
   return (Array.isArray(data) ? data : [])
     .filter((t) => t?.custom_type?.name === epicType)
@@ -98,9 +98,9 @@ export function mapEpics(data, epicType) {
 
 /** Subtasks resting in `projectGid`, mapped to EpicTicket[]. Pure — drives listEpicTickets.
  * @param {any[]} data @param {string | undefined} projectGid @param {string | undefined} displayIdField
- * @returns {import('../types.js').EpicTicket[]} */
+ * @returns {import('../types/index.js').EpicTicket[]} */
 export function mapEpicTickets(data, projectGid, displayIdField) {
-  /** @type {import('../types.js').EpicTicket[]} */
+  /** @type {import('../types/index.js').EpicTicket[]} */
   const out = [];
   for (const t of Array.isArray(data) ? data : []) {
     const membership = (t.memberships || []).find((/** @type {any} */ m) => m.project?.gid === projectGid);
@@ -122,7 +122,7 @@ export const ASANA_AGENT_ENV = /** @type {string[]} */ (["ASANA_TOKEN"]);
 /** The API host commentHowTo / readCommentsHowTo call: a sandboxed run's egress allows it. */
 export const asanaEgressHosts = () => ["app.asana.com"];
 
-/** @type {import('../types.js').AdapterFactory} */
+/** @type {import('../types/index.js').AdapterFactory} */
 export function createAsanaAdapter(cfg, store) {
   const pc = cfg.providerConfig;
   const token = pc.token; // resolved from env/.env by loadConfig
@@ -271,7 +271,7 @@ export function createAsanaAdapter(cfg, store) {
    * userGid rejects), the task passes the assignee gate, and it is held on a runnable
    * step still under its attempt cap (resumeJob). Dedup: `trigger:<storyGid>`.
    * @param {any} story @param {string} storyGid @param {string|undefined} taskGid
-   * @returns {Promise<import('../types.js').Job|null>} */
+   * @returns {Promise<import('../types/index.js').Job|null>} */
   async function resumeFromComment(story, storyGid, taskGid) {
     if (!taskGid || !startsWithTrigger(cfg.trigger, story.text)) return null;
     const author = story.created_by?.gid;
@@ -287,7 +287,7 @@ export function createAsanaAdapter(cfg, store) {
   }
 
   // The project's sections — live. Shared by the init wizard's stage picks and listStages.
-  /** @param {string|undefined} projectGid @returns {Promise<import('../types.js').StageOption[]>} */
+  /** @param {string|undefined} projectGid @returns {Promise<import('../types/index.js').StageOption[]>} */
   const fetchSections = async (projectGid) => {
     if (!projectGid) throw new Error("asana: no projectGid configured");
     const res = await api(`/projects/${projectGid}/sections?opt_fields=name&limit=100`);
@@ -358,7 +358,7 @@ export function createAsanaAdapter(cfg, store) {
         console.error("[parse]", e.message);
         return [];
       }
-      /** @type {import('../types.js').Job[]} */
+      /** @type {import('../types/index.js').Job[]} */
       const jobs = [];
       for (const ev of events) {
         const rt = ev.resource?.resource_type;
@@ -541,7 +541,7 @@ export function createAsanaAdapter(cfg, store) {
     // (incl. a cross-project blocker whose completion never reached our project hook).
     async listResting() {
       if (!pipeline) return [];
-      /** @type {import('../types.js').Job[]} */
+      /** @type {import('../types/index.js').Job[]} */
       const jobs = [];
       const seenGids = new Set();
       for (const step of pipeline) {

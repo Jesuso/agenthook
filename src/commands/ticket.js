@@ -34,7 +34,7 @@ export async function ticket(args) {
   return sub === "add" ? add(cfg, args) : ls(cfg, args);
 }
 
-/** @param {import('../types.js').Config} cfg @param {any} args */
+/** @param {import('../types/index.js').Config} cfg @param {any} args */
 async function add(cfg, args) {
   const title = args._.slice(1).join(" ").trim(); // quoted or not
   if (!title) die(`usage: agenthook ticket add "<title>" [--body <text> | --file <path>] [--step <id>] [--blocked-by <ref,ref>]`);
@@ -109,7 +109,7 @@ const refList = (refs) => refs.map((r) => `#${r}`).join(", ");
  * @param {Record<string, {name?: string, stage?: string, blockedBy?: string[]}>} board
  * @param {Record<string, {stepId?: string}>} running
  * @param {Record<string, {stepId?: string}>} held
- * @param {import('../types.js').Config} [cfg]  the pipeline that decides which stages are done (absent: every blocker counts as open)
+ * @param {import('../types/index.js').Config} [cfg]  the pipeline that decides which stages are done (absent: every blocker counts as open)
  * @returns {TicketRow[]}
  */
 export function ticketRows(board, running, held, cfg) {
@@ -135,7 +135,7 @@ export function ticketRows(board, running, held, cfg) {
     });
 }
 
-/** @param {import('../types.js').Config} cfg @param {any} args */
+/** @param {import('../types/index.js').Config} cfg @param {any} args */
 function ls(cfg, args) {
   /** @type {Record<string, any>} */
   let board = {};

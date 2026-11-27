@@ -12,15 +12,15 @@ import { DEFAULT_COOLDOWN_MINUTES, cooldownFor } from "./dispatch/harness.js";
  * which to drop (ref was mid-run at boot — recovery failed it — or step is gone). A
  * non-pipeline job (`merge`, `ci`) is always kept: the forge event happened regardless,
  * its key is already in `seen` (a redelivery won't re-fire it), and its stepId may be "".
- * @param {import('./types.js').Job[]} queued
+ * @param {import('./types/index.js').Job[]} queued
  * @param {Iterable<string>} runningRefs
  * @param {Iterable<string>} stepIds
  */
 export function planRestore(queued, runningRefs, stepIds) {
   const running = new Set(runningRefs);
   const steps = new Set(stepIds);
-  /** @type {import('./types.js').Job[]} */ const keep = [];
-  /** @type {import('./types.js').Job[]} */ const drop = [];
+  /** @type {import('./types/index.js').Job[]} */ const keep = [];
+  /** @type {import('./types/index.js').Job[]} */ const drop = [];
   for (const j of queued) {
     const stale = (j.kind ?? "pipeline") === "pipeline" && (running.has(j.ref) || !steps.has(j.stepId));
     (stale ? drop : keep).push(j);
@@ -30,11 +30,11 @@ export function planRestore(queued, runningRefs, stepIds) {
 
 /**
  * @param {number} initialMax
- * @param {(job: import('./types.js').Job) => Promise<{kind:string,ref:string,name:string,url:string,code:number,health?:{harness:string,reason:string,requeue:boolean}}>} run
+ * @param {(job: import('./types/index.js').Job) => Promise<{kind:string,ref:string,name:string,url:string,code:number,health?:{harness:string,reason:string,requeue:boolean}}>} run
  *   its `health` (a harnessed run only) trips the job's harness breaker; `requeue` puts the job
  *   back at the front of the wait list instead of finishing it
  * @param {(state: {active:number, queued:number, capped?:number, harnesses?: Record<string, HarnessSlots>}) => void} [onChange]  called after every state change (heartbeat)
- * @param {{onAdd?: (job: import('./types.js').Job, opts?: {front?: boolean}) => void, onRemove?: (job: import('./types.js').Job) => void, onSettle?: () => void}} [persist]
+ * @param {{onAdd?: (job: import('./types/index.js').Job, opts?: {front?: boolean}) => void, onRemove?: (job: import('./types/index.js').Job) => void, onSettle?: () => void}} [persist]
  *   persistence hooks: onAdd once a job is accepted (`front` for a requeued one, back at index 0),
  *   onRemove when it leaves the wait list to run, onSettle after a job settles and its slot is
  *   released (the engine's queue-stage pull trigger)
@@ -178,9 +178,9 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
   const activeByAgent = new Map();
   /** @type {Map<string, number>} stepId → its round-robin cursor (the next list index to try) */
   const rrNext = new Map();
-  /** @param {import('./types.js').Job} job */
+  /** @param {import('./types/index.js').Job} job */
   const isPipeline = (job) => (job.kind ?? "pipeline") === "pipeline";
-  /** @param {import('./types.js').Job} job  true while `job`'s step is at its cap (it must wait) */
+  /** @param {import('./types/index.js').Job} job  true while `job`'s step is at its cap (it must wait) */
   const atCap = (job) => {
     const cap = isPipeline(job) ? caps.get(job.stepId) : undefined;
     return cap != null && (activeByStep.get(job.stepId) ?? 0) >= cap;
@@ -217,7 +217,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
       harnessing?.onHarnessUp?.(name, { cause: "health" });
     }
   };
-  /** @param {import('./types.js').Job} job  its step's harness routing, when it has one */
+  /** @param {import('./types/index.js').Job} job  its step's harness routing, when it has one */
   const routingOf = (job) => (isPipeline(job) ? harnessSteps.get(job.stepId) : undefined);
   /** @param {string} name  true while `name` is not down (probing counts as open) and not drained to 0 — an alternative a job may still spill into, even while full */
   const harnessOpen = (name) => {
@@ -225,7 +225,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
     const cap = Object.hasOwn(harnessCaps, name) ? harnessCaps[name] : undefined;
     return cap !== 0;
   };
-  /** @param {import('./types.js').Job} job @param {string} name  true while `job`'s step lists another harness besides `name` that is open right now (#745) */
+  /** @param {import('./types/index.js').Job} job @param {string} name  true while `job`'s step lists another harness besides `name` that is open right now (#745) */
   const openAlt = (job, name) => {
     const r = routingOf(job);
     return !!r?.harnesses.some((n) => n !== name && harnessOpen(n));
@@ -235,7 +235,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
    * harness `name` may take a slot there only while `active+1` still fits under its live cap
    * minus its reserve. A job with no open alternative, or a non-exclusive/uncapped harness, is
    * unaffected — same as plain `hasRoom`.
-   * @param {import('./types.js').Job} job @param {string} name
+   * @param {import('./types/index.js').Job} job @param {string} name
    */
   const roomFor = (job, name) => {
     if (!hasRoom(name)) return false;
@@ -245,12 +245,12 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
     const reserve = reserves[name] ?? 0;
     return (activeByHarness.get(name) ?? 0) + 1 <= cap - reserve;
   };
-  /** @param {import('./types.js').Job} job  true while `job` must wait: its step's cap, every one of its harnesses full or reserved against it, or the unharnessed quota gate holds its shared step */
+  /** @param {import('./types/index.js').Job} job  true while `job` must wait: its step's cap, every one of its harnesses full or reserved against it, or the unharnessed quota gate holds its shared step */
   const blocked = (job) => atCap(job) || !!routingOf(job)?.harnesses.every((n) => !roomFor(job, n)) || (isPipeline(job) && unharnessedUntil !== null && now() < unharnessedUntil && unharnessedShared.has(job.stepId));
   /**
    * True while `job` is blocked ONLY by a reserve (#745): some harness in its list has a free
    * slot, but none of them clears `roomFor` for this job, and no step cap or quota gate applies.
-   * @param {import('./types.js').Job} job
+   * @param {import('./types/index.js').Job} job
    */
   const reserveWait = (job) => {
     if (atCap(job)) return false;
@@ -265,7 +265,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
    * skips full ones, then moves the cursor past its pick. `commit` false peeks the pick without
    * advancing the round-robin cursor (#745's Rule 2 checks where a job WOULD land before
    * deciding whether to start it this pass).
-   * @param {import('./types.js').Job} job @param {{commit?: boolean}} [opts]
+   * @param {import('./types/index.js').Job} job @param {{commit?: boolean}} [opts]
    */
   const pickHarness = (job, { commit = true } = {}) => {
     const r = routingOf(job);
@@ -302,7 +302,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
     return out;
   };
   const cappedCount = () => (capping() ? queue.filter(blocked).length : 0);
-  /** @type {import('./types.js').Job[]} */
+  /** @type {import('./types/index.js').Job[]} */
   const queue = [];
   // Work-level coalescing: one (ref,stepId) may be queued-or-active at most once.
   // The engine's `seen` set dedups by EVENT key, but a single user action can emit
@@ -315,7 +315,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
   // step, and that step's own pipeline job must not be coalesced away behind it. A `ci`
   // job is keyed by its run+attempt: two red workflows on one ref each get handled.
   const inflight = new Set();
-  /** @param {import('./types.js').Job} job */
+  /** @param {import('./types/index.js').Job} job */
   const workKey = (job) =>
     job.kind === "ci" ? job.dedupKey : `${job.kind === "pipeline" ? "" : `${job.kind}:`}${job.ref}:${job.stepId ?? job.dedupKey}`;
   /** @type {Map<string, (() => void)[]>} work key -> waiters for that key to leave the queue/finish */
@@ -472,7 +472,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
   }
 
   return {
-    /** @param {import('./types.js').Job} job @returns {boolean} accepted */
+    /** @param {import('./types/index.js').Job} job @returns {boolean} accepted */
     enqueue(job) {
       if (closed) {
         console.warn(`[drain] refusing ${job.kind} ${job.ref} — shutting down`);
@@ -504,7 +504,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
       paused = false;
       pump();
     },
-    /** True while `job`'s (ref, step) is queued or running — an enqueue of it would be coalesced away. @param {import('./types.js').Job} job */
+    /** True while `job`'s (ref, step) is queued or running — an enqueue of it would be coalesced away. @param {import('./types/index.js').Job} job */
     has: (job) => inflight.has(workKey(job)),
     /** True once `close()` has been called — a refused enqueue past this point is draining, not a coalesced duplicate. */
     isClosed: () => closed,
@@ -513,7 +513,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
      * false after `timeoutMs`. Event-driven: woken by the run settling, no polling. For a caller that
      * must enqueue right after an event announcing the previous run's verdict, which lands a few
      * hundred ms before the run's own cleanup (label move) finishes.
-     * @param {import('./types.js').Job} job @param {number} timeoutMs @returns {Promise<boolean>}
+     * @param {import('./types/index.js').Job} job @param {number} timeoutMs @returns {Promise<boolean>}
      */
     whenFree(job, timeoutMs) {
       const key = workKey(job);
@@ -693,10 +693,10 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
      * `onRemove` per job so queue.json follows. Returns the dropped jobs. `only` narrows it
      * further (e.g. pipeline jobs only).
      * @param {string} ref @param {string} [stepId]
-     * @param {(job: import('./types.js').Job) => boolean} [only]
+     * @param {(job: import('./types/index.js').Job) => boolean} [only]
      */
     remove(ref, stepId, only) {
-      /** @type {import('./types.js').Job[]} */
+      /** @type {import('./types/index.js').Job[]} */
       const dropped = [];
       for (let i = queue.length - 1; i >= 0; i--) {
         const j = queue[i];

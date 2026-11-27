@@ -24,7 +24,7 @@ export function descriptionHasHeadings(description, headings) {
  * Resolve the effective model and effort for a step: base, then `lite` (when the task
  * description already carries the spec headings), then difficulty escalation on top.
  * Pure — no I/O. Exported for unit tests.
- * @param {import('../types.js').Step} step
+ * @param {import('../types/index.js').Step} step
  * @param {string|undefined} difficulty  the stored difficulty for this ref (may be absent)
  * @param {string} [description]  the task description, for `lite` gating
  * @returns {{model?: string, effort?: string}}

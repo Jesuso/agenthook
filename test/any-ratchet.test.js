@@ -251,7 +251,7 @@ describe('any-ratchet', () => {
   });
 
   test('countJsdocBlock — prose after the type is skipped', () => {
-    // Real lines: src/types.js — "any" in the description, not the type.
+    // Real lines: src/types/pipeline.js — "any" in the description, not the type.
     assert.strictEqual(
       countJsdocBlock(
         "@property {string[]} [followUp]  approves and records them, any other tier holds",

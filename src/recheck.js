@@ -12,7 +12,7 @@ import { buildRows, lastRerunAt, readProfileState } from "./reader/rows.js";
 /** @typedef {(event: string, ref: string, step: string, extra?: Record<string, any>) => void} Emit */
 
 /** This profile's rows (with PR urls, so `prNeeds` is computed) and the events tail they came from.
- * @param {import('./types.js').Config} cfg */
+ * @param {import('./types/index.js').Config} cfg */
 export function readRecheckState(cfg) {
   const state = readProfileState(cfg.stateDir);
   return { rows: buildRows(cfg.name, state, { repository: repositoryOf(cfg) }), events: state.events };
@@ -22,7 +22,7 @@ export function readRecheckState(cfg) {
  * Record the board's done flag learned by asking: a `board_done` with `via: "recheck"`. Deduped
  * on `seen` per ref and its last re-run, so a repeat records nothing but a later re-run (whose
  * done no longer stands) can record it again.
- * @param {{store: import('./types.js').Store, emit: Emit}} deps
+ * @param {{store: import('./types/index.js').Store, emit: Emit}} deps
  * @param {string} ref @param {Record<string, any>[]} events  the events tail (readRecheckState)
  * @returns {boolean} true when emitted
  */
@@ -46,13 +46,13 @@ export function recordBoardDone({ store, emit }, ref, events) {
  *     skipped when the live `merged:<pr>` key is seen, and deduped on its own `recheck-merged:<pr>`
  *     key, never on `merged:<pr>` — marking that would dedup away a later merge job's bridge.
  * A failed PR lookup is reported (`prError`) and changes no PR fact.
- * @param {{store: import('./types.js').Store, adapter: import('./types.js').Adapter, forge: import('./types.js').Forge|null|undefined, emit: Emit}} deps
+ * @param {{store: import('./types/index.js').Store, adapter: import('./types/index.js').Adapter, forge: import('./types/index.js').Forge|null|undefined, emit: Emit}} deps
  * @param {string} ref
  * @param {{row: import('./shared/contract.js').TicketRow|undefined, events: Record<string, any>[]}} local
  * @returns {Promise<{ref: string, changed: string[], unchanged: boolean, prError?: string}>}
  */
 export async function recheckRef({ store, adapter, forge, emit }, ref, { row, events }) {
-  /** @type {import('./types.js').Task} */
+  /** @type {import('./types/index.js').Task} */
   let task;
   try {
     task = await adapter.fetchTask(ref);
