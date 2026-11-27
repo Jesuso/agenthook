@@ -5,7 +5,7 @@
 // Equivalent for users of the `skills` CLI: `npx skills add <owner>/agenthook`.
 import fs from "node:fs";
 import path from "node:path";
-import { peekConfig } from "../config.js";
+import { peekConfig } from "../config/index.js";
 import { AGENT_DIRS, detectAgents, installedSkills, installSkillInto, linkSkillInto, packageVersion, planSkillInstall } from "../skill-install.js";
 
 /** @param {any} args */

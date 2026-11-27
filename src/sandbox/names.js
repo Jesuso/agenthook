@@ -1,4 +1,4 @@
-// The sandbox backend names, import-free on purpose: src/config.js validates `sandbox.type`
+// The sandbox backend names, import-free on purpose: src/config/validate/ validates `sandbox.type`
 // against them and must not pull the Node-side registry (src/sandbox/index.js). A test holds
 // the two equal (like src/agents/names.js).
 

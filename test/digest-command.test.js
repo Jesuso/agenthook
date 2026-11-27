@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { registryDir } from "../src/config.js";
+import { registryDir } from "../src/config/index.js";
 import { digest } from "../src/commands/digest.js";
 
 // Like test/rename.test.js: a profile's config file lives anywhere, but its state dir must be

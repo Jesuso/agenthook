@@ -1,7 +1,7 @@
 // Shared server ↔ browser contract for `ah ui` (docs/web-ui.md). JSDoc typedefs plus one
 // runtime constant (SENSITIVE_FIELDS) — the frontend imports these so the two sides can't
 // drift. Keep it import-free: the browser bundles this file, so it must never pull in a Node
-// module (src/config.js drags in node:fs). Everything here is what the UI server is willing to
+// module (src/config/ drags in node:fs). Everything here is what the UI server is willing to
 // expose: no ingress URL, no paths beyond the instruction-file allowlist and the profile's
 // config file, no resolved secrets (the config editor sees the raw file, `${VAR}` refs unresolved).
 
@@ -11,7 +11,7 @@
  * binary/env/allow/deny policy, the energy command (it runs a shell command), the sandbox
  * backend/image/egress mode and a step's opt-out of it (and its egress mode), each service's image
  * and env and a step's services, each harness's binary/env/image, the tracker identity that
- * scopes which items are ours, and every src/config.js SECRET_FIELDS path (a test keeps that
+ * scopes which items are ours, and every src/config/validate/ SECRET_FIELDS path (a test keeps that
  * list a subset of this one).
  * `[*]` expands every element of an array, a `*` segment every key of an object.
  */

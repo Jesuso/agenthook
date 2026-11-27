@@ -9,7 +9,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { registryDir } from "../src/config.js";
+import { registryDir } from "../src/config/index.js";
 import { controlSockPath } from "../src/paths.js";
 import { cancel, release, dismiss, retry, pull, harnessReset } from "../src/commands/control-ops.js";
 import { concurrency, setControlRequest } from "../src/commands/pause.js";

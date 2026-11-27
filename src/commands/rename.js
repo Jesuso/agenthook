@@ -8,7 +8,7 @@
 // "stateId" (src/state-move.js): a running receiver does it itself in a restart-when-idle
 // (`restart {moveTo}` over the control socket); a stopped one has it done here directly.
 import path from "node:path";
-import { ensurePrivateDir, peekConfig, registryDir, validName, validateRawConfig } from "../config.js";
+import { ensurePrivateDir, peekConfig, registryDir, validName, validateRawConfig } from "../config/index.js";
 import { listProfiles, readProfile } from "../heartbeat.js";
 import { renameInConfigText } from "../json-edit.js";
 import { controlSockPath } from "../paths.js";

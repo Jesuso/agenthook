@@ -988,8 +988,8 @@ describe("harnesses: add / rename / remove keep the steps' references valid (#62
   });
 
   it("a config edited this way (add + rename a harness, pick it on a step) passes validateRawConfig", async () => {
-    // A non-literal specifier: src/config.js reaches node-only modules the UI typecheck must not follow.
-    const configJs = new URL("../../src/config.js", import.meta.url).href;
+    // A non-literal specifier: src/config/index.js reaches node-only modules the UI typecheck must not follow.
+    const configJs = new URL("../../src/config/index.js", import.meta.url).href;
     const { validateRawConfig } = await import(/* @vite-ignore */ configJs);
     const added = addHarness(text);
     let next = renameHarness(added.text, added.name, "deepseek");

@@ -2,7 +2,7 @@
 // profile discovered from the current dir's agenthook.config.json.
 import fs from "node:fs";
 import path from "node:path";
-import { peekConfig } from "../config.js";
+import { peekConfig } from "../config/index.js";
 import { readProfile, resolveProfile } from "../heartbeat.js";
 import { readProfileState } from "../ui/rows.js";
 import { createStore } from "../store/index.js";

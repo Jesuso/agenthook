@@ -1,7 +1,7 @@
 // A profile's visible identity (docs/web-ui.md § v4): a colour and an emoji the UI shows on its
 // Home card and app bar. Both are optional config (`ui: { color, emoji }`); unset, they derive
 // deterministically from the state key, so every profile is distinct out of the box.
-// Import-free on purpose: src/config.js validates with it, the heartbeat/rows project it, and the
+// Import-free on purpose: src/config/validate/ validates with it, the heartbeat/rows project it, and the
 // browser bundles it (like contract.js). The palette's ids map to CSS tokens in ui/src/index.css
 // (`--color-profile-<id>`); the values live there, tuned per colour scheme.
 

@@ -7,7 +7,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { registryDir, peekConfig, loadConfig } from "./config.js";
+import { registryDir, peekConfig, loadConfig } from "./config/index.js";
 import { listProfiles } from "./heartbeat.js";
 import { HIDDEN_BY_DEFAULT } from "./events.js";
 import { EPIC_REF_RE, epicDetail, epicStats, localEpics } from "./epics.js";

@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadConfig } from "../src/config.js";
+import { loadConfig } from "../src/config/index.js";
 
 /** Minimal valid raw config; `over` replaces top-level keys (undefined deletes).
  * @param {any} [over] @param {any[]} [pipeline] @returns {any} */

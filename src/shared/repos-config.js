@@ -3,7 +3,7 @@
 // the browser bundles it.
 
 /** Config validation for the optional `repos` array (the per-card checks; "repoPath required
- * unless repos is set" is a cross-field rule and stays in src/config.js). @param {any} repos @returns {string[]} */
+ * unless repos is set" is a cross-field rule and stays in src/config/validate/). @param {any} repos @returns {string[]} */
 export function reposErrors(repos) {
   if (repos == null) return [];
   if (!Array.isArray(repos) || !repos.length) return [`config: "repos" must be a non-empty array.`];

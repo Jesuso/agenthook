@@ -80,7 +80,7 @@ export function quotaFromRateLimitEvent(ev) {
 }
 
 /**
- * The `quota` config block's errors (src/config.js and the config editor run it). Each key is an
+ * The `quota` config block's errors (src/config/validate/ and the config editor run it). Each key is an
  * optional number in (0, 1]; unset = that window never pauses.
  * @param {unknown} quota @returns {string[]}
  */

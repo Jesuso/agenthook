@@ -121,7 +121,7 @@ Per-area detail lives in `docs/internals/` — read the relevant file when a tic
 area; don't read all of them for every ticket.
 
 - [docs/internals/cli.md](docs/internals/cli.md) — full CLI command list, `bin/agenthook.js`, `src/commands/*`, `src/sessions.js`.
-- [docs/internals/engine.md](docs/internals/engine.md) — request/boot flow detail, `src/engine/*`, `queue.js`, `heartbeat.js`, `profile.js`, `config.js`, `paths.js`, `prompts.js`, `wizard.js`.
+- [docs/internals/engine.md](docs/internals/engine.md) — request/boot flow detail, `src/engine/*`, `queue.js`, `heartbeat.js`, `profile.js`, `config/`, `paths.js`, `prompts.js`, `wizard.js`.
 - [docs/internals/dispatch.md](docs/internals/dispatch.md) — `src/dispatch/*`, verdict rules, the `changes` cap, CI/merge jobs, agent adapters, the `@agent` resume gate.
 - [docs/internals/adapters.md](docs/internals/adapters.md) — tracker/ingress/forge adapter interfaces + registries, pipeline + worktree + queue-stage pull, multi-repo routing.
 - [docs/internals/trackers.md](docs/internals/trackers.md) — Asana, Jira, GitHub, GitHub Projects v2 provider specifics.

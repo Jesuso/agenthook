@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { start } from "../src/commands/start.js";
-import { loadConfig, registryDir } from "../src/config.js";
+import { loadConfig, registryDir } from "../src/config/index.js";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "ah-start-port-"));
 let seq = 0;

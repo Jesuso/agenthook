@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadConfig, peekConfig, validateRawConfig, registryDir } from "../src/config.js";
+import { loadConfig, peekConfig, validateRawConfig, registryDir } from "../src/config/index.js";
 import { controlSockPath } from "../src/paths.js";
 import { createHeartbeat } from "../src/heartbeat.js";
 import { createEngine } from "../src/engine.js";

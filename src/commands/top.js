@@ -15,7 +15,7 @@
 // and exits. Always local state only: no board/PR reads, never through `live(...)` — the
 // no-polling rule.
 import { defaultProfileKey, eventsCursor, pickProfile, pickProfiles, readRuns, readTick, waitForEvents, waitForEventsMulti } from "../agent-api.js";
-import { registryDir } from "../config.js";
+import { registryDir } from "../config/index.js";
 import { resolveRunLog } from "../ui/logs.js";
 import { runTop } from "../top-loop.js";
 import { renderAll, renderStrip, renderTop } from "../top.js";

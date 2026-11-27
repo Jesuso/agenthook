@@ -14,7 +14,7 @@
 // Under the unit (`AGENTHOOK_SERVICE=1`) a refusal — already running, control socket owned, port
 // in use — exits REFUSED_EXIT_CODE instead of 1: the unit's `RestartPreventExitStatus=` keeps
 // systemd from retrying it until the start limit trips. It is the operator's to resolve.
-import { loadConfig } from "../config.js";
+import { loadConfig } from "../config/index.js";
 import { createEngine } from "../engine.js";
 import { readProfile } from "../heartbeat.js";
 import { claimStateDir } from "../profile.js";

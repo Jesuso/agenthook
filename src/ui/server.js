@@ -51,7 +51,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { archiveRoot, archiveStateDir } from "../archive.js";
-import { registryDir } from "../config.js";
+import { registryDir } from "../config/index.js";
 import { TICKET_BODY_MAX } from "../ops.js";
 import { normalizeBlockedBy } from "../trackers/local.js";
 import { readProfile } from "../heartbeat.js";

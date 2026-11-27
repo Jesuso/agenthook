@@ -212,7 +212,7 @@ A `${ENV}` ref in the config didn't resolve. Export the var, or put it in a `.en
 
 ## Overriding the state/registry root (`AGENTHOOK_HOME`)
 
-`~/.agenthook` is where every profile's runtime state lives (`registryDir` in `src/config.js`).
+`~/.agenthook` is where every profile's runtime state lives (`registryDir` in `src/config/locations.js`).
 Set `AGENTHOOK_HOME=/some/dir` to point the whole CLI at a different root instead — useful for an
 isolated or throwaway profile, or test runs that shouldn't touch your real `~/.agenthook`. `ah ls`
 and `ah ui` only see profiles under whichever root is active, so a profile created under an

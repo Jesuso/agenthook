@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadConfig, registryDir } from "../src/config.js";
+import { loadConfig, registryDir } from "../src/config/index.js";
 import { claimStateDir, readMarker } from "../src/profile.js";
 import { spawnDetached } from "../src/respawn.js";
 import { checkMove, moveStateDir } from "../src/state-move.js";

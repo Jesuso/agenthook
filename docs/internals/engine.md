@@ -62,7 +62,7 @@ and takes the boot-failure path above, so the ingress is downed rather than orph
 - `src/prompts.js` — blind prompt builders; platform words come from `adapter.describe()`.
 - `src/wizard.js` — zero-dep prompt runner used by `init`; adapters contribute `WizardStep[]`.
 - `src/paths.js` — derived paths (Claude transcript dir mangled from `repoPath`; worktree base).
-- `src/config.js` — discovers `agenthook.config.json` (cwd walk-up / `--config`), interpolates
+- `src/config/` — discovers `agenthook.config.json` (cwd walk-up / `--config`), interpolates
   `${VAR}` refs from the environment (auto-loads `.env` beside the config and in cwd), and resolves
   the **four distinct locations**: install dir, config dir, central state dir (`~/.agenthook/<stateKey>`,
   `stateKey = stateId ?? name`; also `dataDir`/`logDir`/pidfile/heartbeat), and `repoPath`. The active `tracker` block is mirrored

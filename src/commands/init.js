@@ -17,7 +17,7 @@ import { parseGitlabRemote, forgeOffer as gitlabForgeOffer, forgeBlock as gitlab
 import { installAh } from "./alias.js";
 import { start } from "./start.js";
 import { claimedPorts, formatSkipped, pickPort, portInUse } from "../port.js";
-import { registryDir, loadEnv } from "../config.js";
+import { registryDir, loadEnv } from "../config/index.js";
 import { tildify } from "../profile.js";
 
 /** @type {Record<string, string>} */

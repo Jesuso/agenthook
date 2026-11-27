@@ -8,7 +8,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { registryDir } from "../src/config.js";
+import { registryDir } from "../src/config/index.js";
 import { controlSockPath } from "../src/paths.js";
 import { pause, unpause } from "../src/commands/pause.js";
 

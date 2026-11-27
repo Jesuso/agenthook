@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { registryDir } from "../src/config.js";
+import { registryDir } from "../src/config/index.js";
 import { provenanceLines, refForLog, status } from "../src/commands/status.js";
 
 test("refForLog resolves the ref from a run-log filename among known refs", () => {

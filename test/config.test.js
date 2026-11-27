@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileEnvKeys, loadConfig, loadEnv, peekConfig, rawAgentBins, registryDir, withoutFileEnv } from "../src/config.js";
+import { fileEnvKeys, installDir, loadConfig, loadEnv, peekConfig, rawAgentBins, registryDir, withoutFileEnv } from "../src/config/index.js";
 import { detachedEnv } from "../src/respawn.js";
 
 /** Write a config and load it. @param {any} over @param {any[]} pipeline */
@@ -17,6 +17,11 @@ function load(pipeline, over = {}) {
   fs.writeFileSync(file, JSON.stringify({ name: "ah-cfg-test", repoPath: dir, tracker: { type: "asana", pipeline }, ...over }));
   return () => loadConfig({ configPath: file });
 }
+
+test("installDir resolves to the package root", () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(installDir, "package.json"), "utf8"));
+  assert.ok(pkg.name.endsWith("/agenthook") || pkg.name === "agenthook", pkg.name);
+});
 
 test("completeOnMerge on a non-manual step is rejected", () => {
   assert.throws(load([{ id: "code", completeOnMerge: true }]), /completeOnMerge requires manual/);

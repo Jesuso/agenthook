@@ -12,7 +12,7 @@ import { execFileSync } from "node:child_process";
 import { withFakeSsh, spawnCtx } from "./_ssh-helpers.js";
 import { createSshExecutor } from "../src/dispatch/executor-ssh.js";
 import { opencode, buildOpencodeArgs } from "../src/agents/opencode.js";
-import { validateRawConfig } from "../src/config.js";
+import { validateRawConfig } from "../src/config/index.js";
 import { REMOTE_AGENTS } from "../src/agents/names.js";
 import { remoteHarnessChecks } from "../src/commands/doctor.js";
 import { createDispatcher } from "../src/dispatch.js";

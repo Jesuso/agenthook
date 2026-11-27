@@ -27,7 +27,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { loadConfig } from "../../src/config.js";
+import { loadConfig } from "../../src/config/index.js";
 import { createStore } from "../../src/store/index.js";
 import { createAdapter } from "../../src/trackers/index.js";
 import { seedBoard, localBoardPath } from "../../src/trackers/local.js";

@@ -14,7 +14,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { peekConfig, installDir as defaultInstallDir, registryDir } from "../config.js";
+import { peekConfig, installDir as defaultInstallDir, registryDir } from "../config/index.js";
 import { resolveProfile } from "../heartbeat.js";
 import { unitName, userUnitDir, renderUnit, defaultRunner, lingerEnabled, unsupportedReason, staleUnits } from "../service.js";
 

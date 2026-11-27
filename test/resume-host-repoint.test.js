@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadConfig } from "../src/config.js";
+import { loadConfig } from "../src/config/index.js";
 import { createStore } from "../src/store/index.js";
 import { resume } from "../src/commands/resume.js";
 
