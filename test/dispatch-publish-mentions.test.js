@@ -4,8 +4,8 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // on PR #838 found renderer bypasses faster than they could be special-cased. The fix stops
 // trying to tell code from prose at all:
 //   - `breakAllMentions` (src/dispatch/outbox.js) inserts a zero-width space right after every
-//     `@` followed by a letter/digit, with no notion of code — nothing can bypass a rule that
-//     doesn't look at structure.
+//     `@` (literal or HTML-entity-encoded), whatever follows it, with no notion of code — nothing
+//     can bypass a rule that doesn't look at structure or at what comes next.
 //   - `liveMentions` (src/forges/github.js) asks GitHub's own `/markdown` renderer which logins
 //     a piece of text would actually notify (a render-only call — it never notifies anyone).
 //   - `publishOutbox` (src/dispatch/publish.js) uses the renderer as the arbiter when the forge
@@ -55,6 +55,18 @@ test("breakAllMentions: HTML-entity-encoded @ (decimal, hex, named) gets the cha
   expect("&#X40;octocat", "owner", "&#X40;​octocat", "uppercase hex marker");
   expect("&commat;octocat", "owner", "&commat;​octocat");
   expect("&COMMAT;octocat", "owner", "&COMMAT;​octocat", "matched case-insensitively");
+});
+
+test("breakAllMentions: a literal @ followed by an entity-encoded login character is broken too — GitHub's renderer decodes that letter before it looks for a mention, so `@&#111;ctocat` renders exactly like `@octocat`", () => {
+  expect("@&#111;ctocat", "owner", "@​&#111;ctocat");
+  expect("@&#x6f;ctocat", "owner", "@​&#x6f;ctocat");
+});
+
+test("breakAllMentions: the owner exemption is strict — only @<owner> followed by end-of-text or whitespace is exempt; anything else right after it, including an HTML entity, is broken", () => {
+  expect("@owner&#45;x", "owner", "@​owner&#45;x");
+  expect("@owner&#x2F;team", "owner", "@​owner&#x2F;team");
+  expect("hi @owner and bye", "owner", "hi @owner and bye");
+  expect("@owner", "owner", "@owner");
 });
 
 test("breakAllMentions: idempotent on its own output", () => {

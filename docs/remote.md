@@ -227,15 +227,21 @@ guessing:
 3. If the renderer finds a live mention anyway, if the render call throws (timeout, non-2xx,
    unparseable response), or if the forge offers no such check at all, the hub falls back to
    `breakAllMentions`: it inserts a zero-width space (U+200B) right after **every** `@` — literal,
-   or spelled as an HTML entity (`&#64;`, `&#064;`, `&#x40;`, `&commat;`, any case) — that is
-   followed by a letter or digit, with no notion of code or Markdown structure at all — an email
-   (`a@b.com`) and text inside a fenced block both get the character too, and so does an
-   entity-encoded mention sitting inside what looks like code. There is nothing left to disagree
-   with the renderer about, because the rule no longer looks at structure, and nothing left for an
-   entity escape to exploit either. When the renderer is available, this broken text is checked
-   once more; if a foreign login is *still* live even after that, the hub does not publish that
-   piece of text at all (one run-log line) — like any other publish failure, this does not fail
-   the step.
+   or spelled as an HTML entity (`&#64;`, `&#064;`, `&#x40;`, `&commat;`, any case) — with no
+   opinion at all on what follows it, and no notion of code or Markdown structure. An email
+   (`a@b.com`) and text inside a fenced block both get the character too, and so does a literal
+   `@` immediately followed by an HTML-entity-encoded login character (e.g. `@&#111;ctocat`,
+   which GitHub's renderer decodes to `@octocat` before it looks for a mention — the character
+   right after the `@` doesn't have to look like a letter in the raw text for the renderer to read
+   it as one). The owner exemption is strict: only an exact `@<ownerLogin>` followed by
+   end-of-text or whitespace is left intact — `@owner-x`, `@owner/team` and even `@owner&#45;x`
+   are not that exact mention and get the character too, because the renderer would keep reading
+   past that character as part of the login. There is nothing left to disagree with the renderer
+   about, because the rule no longer looks at structure, length, or what follows the `@`, and
+   nothing left for an entity escape to exploit either. When the renderer is available, this
+   broken text is checked once more; if a foreign login is *still* live even after that, the hub
+   does not publish that piece of text at all (one run-log line) — like any other publish failure,
+   this does not fail the step.
 4. The PR **title** always goes straight through `breakAllMentions`, with no render call — a
    one-line title has no code context worth preserving.
 

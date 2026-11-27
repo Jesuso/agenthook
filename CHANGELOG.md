@@ -18,10 +18,13 @@ All notable changes to this project are documented here. The format is based on
   notify), and — when the forge can render Markdown without notifying anyone (GitHub's
   `liveMentions`) — that render call is the arbiter; a live mention surviving the wrap, a failed
   render call, or a forge without the check all fall back to `breakAllMentions`, which inserts a
-  zero-width space right after every `@`+alphanumeric — literal or HTML-entity-encoded (`&#64;`,
-  `&#x40;`, `&commat;`, any case) — with no notion of code at all, so it cannot be bypassed by a
-  Markdown construct, or an entity escape, our own code-vs-prose guess disagreed with the renderer
-  about. The PR title always goes straight through `breakAllMentions`. Our own tracker login is
+  zero-width space right after every `@` — literal or HTML-entity-encoded (`&#64;`, `&#x40;`,
+  `&commat;`, any case) — whatever follows it (including a literal `@` immediately followed by an
+  HTML-entity-encoded login character, e.g. `@&#111;ctocat`, which the renderer decodes to
+  `@octocat`), with no notion of code at all, so it cannot be bypassed by a Markdown construct or
+  an entity escape our own code-vs-prose guess disagreed with the renderer about. The owner
+  exemption is strict: only an exact `@<ownerLogin>` followed by end-of-text or whitespace is left
+  intact. The PR title always goes straight through `breakAllMentions`. Our own tracker login is
   exempt case-insensitively throughout, and with no owner login known every mention is broken
   (fail closed).
 - New: `agenthook doctor` lints the remote trust model (config-only, no probe; non-local tracker +
