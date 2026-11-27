@@ -1,6 +1,6 @@
 // Per-pipeline-step structural checks: queue-stage keys and the (large) per-step check,
-// extracted verbatim from the old src/config.js forEach body so validateRawConfig stays a
-// one-line `.forEach` call over it.
+// extracted verbatim from the old single-file config module's forEach body so validateRawConfig
+// stays a one-line `.forEach` call over it.
 import { HARNESS_ROUTINGS } from "../../shared/config-schema.js";
 import { label, KNOB_ERRORS, envErrors } from "./common.js";
 import { remoteHarnessErrors } from "./harnesses.js";
