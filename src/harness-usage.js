@@ -1,5 +1,5 @@
 // Per-harness token totals (named harnesses, #620). Import-free and pure, so the read model
-// (src/agent-api.js), the CLI (`status`) and the digest snapshot can all share it.
+// (src/agent-api/), the CLI (`status`) and the digest snapshot can all share it.
 
 /** @typedef {{ runs: number, input: number, output: number, cacheRead: number, cacheCreate: number }} HarnessTotal */
 

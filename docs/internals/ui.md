@@ -49,7 +49,7 @@
   POSTs (a 503 reads "start the receiver to add tickets"; a 502 strips the local adapter's `local: ` prefix) and
   audits `{action:'ticket-add', profile, status[, ref]}` without the title/body. `GET /api/epics[/<ref>]` (cookie only, like discover; `<ref>` must match
   `EPIC_REF_RE` → else 400; 20 s `epicsTimeoutMs`) relays the receiver's `epics` op; down (503) → 200 `live:false`
-  via `agent-api.js` `readLocalEpics` (shared with the MCP `epics` tool/CLI fallback; no tracker call, no write). `POST /api/profile/remove` (same guards; cookie-only `GET /api/profile/remove-preview` is its
+  via `agent-api/` `readLocalEpics` (shared with the MCP `epics` tool/CLI fallback; no tracker call, no write). `POST /api/profile/remove` (same guards; cookie-only `GET /api/profile/remove-preview` is its
   read side) sends `decommission {when:'idle'}` → 202, or — socket down, no live pid — archives the
   stopped profile via `src/archive.js` `archiveStateDir` → 200: the one state-dir change outside
   `src/atomic-save.js`, made from `server.js` (a live pid behind a dead socket → 409, never an archive).

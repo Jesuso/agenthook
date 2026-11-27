@@ -1,4 +1,4 @@
-// The agenthook MCP tool set (docs/mcp.md). Reads come from the state dir (src/agent-api.js) and
+// The agenthook MCP tool set (docs/mcp.md). Reads come from the state dir (src/agent-api/) and
 // work with the receiver down; `board`/`prs` and every write go to the live receiver over its
 // control socket (src/ops.js), which audits writes. `readOnly` omits the write tools entirely —
 // they are neither listed nor callable.
@@ -23,7 +23,7 @@ import {
   etagOf,
   live,
   readEpics,
-} from "../agent-api.js";
+} from "../agent-api/index.js";
 import { readEventsTail } from "../reader/rows.js";
 import { validateArgs } from "./schema.js";
 import { listProfiles } from "../heartbeat.js";

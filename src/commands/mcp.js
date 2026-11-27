@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { createMcpServer, serveStdio } from "../mcp/server.js";
 import { createTools } from "../mcp/tools.js";
-import { defaultProfileKey } from "../agent-api.js";
+import { defaultProfileKey } from "../agent-api/index.js";
 
 const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
 

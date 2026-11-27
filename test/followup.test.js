@@ -10,7 +10,7 @@ import { parseFollowUp, followUpDecision, followUpTiers, pendingFollowUp, markFo
 import { createDispatcher, parseVerdict } from "../src/dispatch.js";
 import { createStore } from "../src/store/index.js";
 import { registryDir } from "../src/config/index.js";
-import { readStatus } from "../src/agent-api.js";
+import { readStatus } from "../src/agent-api/index.js";
 import { readProfile } from "../src/heartbeat.js";
 import { followup } from "../src/commands/followup.js";
 

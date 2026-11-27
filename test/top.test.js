@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { renderTop } from "../src/top.js";
-import { readStatus } from "../src/agent-api.js";
+import { readStatus } from "../src/agent-api/index.js";
 import { readProfile } from "../src/heartbeat.js";
 
 const NOW = Date.parse("2025-06-01T12:00:00Z");

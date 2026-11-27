@@ -42,7 +42,7 @@ import net from "node:net";
 import os from "node:os";
 import { canonicalLang } from "../shared/digest-config.js";
 import { EPIC_REF_RE } from "../epics.js";
-import { readLocalEpics } from "../agent-api.js";
+import { readLocalEpics } from "../agent-api/index.js";
 import { readStats, READ_CAP_BYTES } from "../reader/stats.js";
 import { runStats } from "../stats.js";
 import { createStore } from "../store/index.js";

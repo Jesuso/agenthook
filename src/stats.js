@@ -1,6 +1,6 @@
 // Per-harness / per-model / per-step / per-agent run statistics (#646, follow-up to the named-
 // harnesses epic #618). Pure, no fs: callers hand it the usage.jsonl records and the raw events
-// (`src/commands/stats.js` reads disk; `src/agent-api.js` reads the state dir for the MCP tool;
+// (`src/commands/stats.js` reads disk; `src/agent-api/` reads the state dir for the MCP tool;
 // `src/ui/server.js` for the dashboard). The run set is every `run_end` event plus any usage row
 // it couldn't join to one (a timeout/spawn-error/breaker-trip run writes no usage row — if the
 // aggregator only walked usage.jsonl it would silently drop exactly the failures this exists to

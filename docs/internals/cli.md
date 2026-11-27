@@ -84,7 +84,7 @@ lint config.
   already means agent-session resume. `set-concurrency` is an alias of `concurrency`. The run-control
   ops — `cancel`/`release`/`dismiss`/`retry`/`pull`/`harness-reset` (`src/commands/control-ops.js`) —
   are the same thin front-end over the same socket, with the MCP path's per-op timeouts
-  (`liveTimeoutMs`, `src/agent-api.js`) instead of the 5 s override default, and `--json` in all of them. `reload` (`src/commands/reload.js`) sends the `reload` op the
+  (`liveTimeoutMs`, `src/agent-api/`) instead of the 5 s override default, and `--json` in all of them. `reload` (`src/commands/reload.js`) sends the `reload` op the
   same way (with a longer timeout for the optional sandbox image check) and prints the reloaded keys.
 - `src/sessions.js` — ref → worktree → Claude transcript dir resolution, plus `recentRuns` (last-N
   from the per-run logs) and `listSessions` (every session a ref has, each labelled with its pipeline

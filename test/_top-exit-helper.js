@@ -2,7 +2,7 @@
 // way src/commands/top.js wires it, but with piped stdin as the loop's input. A resumed stdin
 // keeps the event loop alive, so this child only exits on its own if the quit path pauses it —
 // the pty repro from the #795 rework without needing a pty.
-import { defaultProfileKey, eventsCursor, pickProfile, readTick, waitForEvents } from "../src/agent-api.js";
+import { defaultProfileKey, eventsCursor, pickProfile, readTick, waitForEvents } from "../src/agent-api/index.js";
 import { runTop } from "../src/top-loop.js";
 
 const name = process.argv[2];
