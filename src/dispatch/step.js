@@ -4,7 +4,7 @@ import { summarizeDescription } from "../ticket-summary.js";
 import fs from "node:fs";
 import path from "node:path";
 import { stepPrompt, verdictRepairPrompt, gateRepairPrompt, formatTicketComments } from "../prompts.js";
-import { guardSandboxVerdict, endedWithQuestion, NO_VALID_VERDICT } from "./verdict.js";
+import { endedWithQuestion, NO_VALID_VERDICT, peekVerdict, isNoValidVerdict } from "./verdict.js";
 import { newNonce } from "../untrusted.js";
 import { findStep, stepForStage, DEFAULT_MAX_MINUTES, DEFAULT_MAX_ATTEMPTS } from "../pipeline.js";
 import { runGate } from "./gate.js";
@@ -460,9 +460,8 @@ export function createStep(ctx) {
       const successStage = key ? /** @type {Record<string, unknown>} */ (step)[key] : undefined;
       const target = typeof successStage === "string" ? stepForStage(cfg, successStage) : null;
       if (!target || target.manual) return undefined;
-      if (executor.name !== "host") guardSandboxVerdict(localVerdictFile);
-      const first = readVerdict(firstSpawned.code, localVerdictFile, step, agent);
-      if (!(first.outcome === "hold" && first.reason === NO_VALID_VERDICT)) return undefined;
+      const first = peekVerdict({ executor, localVerdictFile, step, agent, readVerdict }, firstSpawned.code);
+      if (!isNoValidVerdict(first)) return undefined;
       if (endedWithQuestion(firstSpawned.lastText)) return undefined;
       const commits = commitsSince(cfg, worktree, headBefore);
       if (commits < 1) return undefined;
@@ -492,9 +491,8 @@ export function createStep(ctx) {
       if (sandboxed && agent.describe().sandboxResume === false) return undefined;
       let sessionId = typeof firstSpawned.result?.session_id === "string" ? firstSpawned.result.session_id : undefined;
       if (!sessionId) return undefined;
-      if (executor.name !== "host") guardSandboxVerdict(localVerdictFile);
-      const first = readVerdict(firstSpawned.code, localVerdictFile, step, agent);
-      if (!(first.outcome === "hold" && first.reason === NO_VALID_VERDICT)) return undefined;
+      const first = peekVerdict({ executor, localVerdictFile, step, agent, readVerdict }, firstSpawned.code);
+      if (!isNoValidVerdict(first)) return undefined;
 
       const totalMaxMs = maxMinutes ? maxMinutes * 60000 : 0;
       /** @type {any[]} */
@@ -541,9 +539,8 @@ export function createStep(ctx) {
         // no further repair turns (finishStep reads this turn's code/timedOut as the run's).
         if (result.spawnError || result.code !== 0 || result.timedOut) break;
         if (typeof result.result?.session_id === "string") sessionId = result.result.session_id;
-        if (executor.name !== "host") guardSandboxVerdict(localVerdictFile);
-        const after = readVerdict(result.code, localVerdictFile, step, agent);
-        if (!(after.outcome === "hold" && after.reason === NO_VALID_VERDICT)) return { turns, repaired: true, results, turnStats, final };
+        const after = peekVerdict({ executor, localVerdictFile, step, agent, readVerdict }, result.code);
+        if (!isNoValidVerdict(after)) return { turns, repaired: true, results, turnStats, final };
       }
       // Zero turns (a pre-loop cancel, or under 60s of maxMinutes left before the first turn) is
       // not a repair attempt at all — fall through to the pre-feature hold, byte-identical to
@@ -657,8 +654,7 @@ export function createStep(ctx) {
         final = turn;
         if (turn.spawnError || turn.code !== 0 || turn.timedOut) return { gate: { result: "fail" }, final, results, turnStats };
         if (typeof turn.result?.session_id === "string") curSessionId = turn.result.session_id;
-        if (executor.name !== "host") guardSandboxVerdict(localVerdictFile);
-        const after = readVerdict(turn.code, localVerdictFile, step, agent);
+        const after = peekVerdict({ executor, localVerdictFile, step, agent, readVerdict }, turn.code);
         if (after.outcome !== "advance") {
           // A DEDUCED run (#680) whose repair turn, like the first, wrote no verdict file: finish.js
           // would deduce the advance from `deduced` + missing-verdict and pass the failing gate —
@@ -726,8 +722,7 @@ export function createStep(ctx) {
         if (step.gate) {
           const cleanExit = spawned.code === 0 && !spawned.timedOut && !spawned.spawnError && !cancelled.has(job.ref) && !spawned.sandboxReport?.failed;
           if (cleanExit) {
-            if (executor.name !== "host") guardSandboxVerdict(localVerdictFile);
-            const peeked = readVerdict(spawned.code, localVerdictFile, step, agent);
+            const peeked = peekVerdict({ executor, localVerdictFile, step, agent, readVerdict }, spawned.code);
             if (deduced || peeked.outcome === "advance") {
               let sessionId = typeof spawned.result?.session_id === "string" ? spawned.result.session_id : undefined;
               if (repair?.results?.length) {
