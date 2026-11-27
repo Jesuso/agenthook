@@ -381,14 +381,16 @@ export function createStep(ctx) {
       // export instead.
       const hub = { repoId: repo.id, repoPath: repo.path, ...(hasWorktree ? { worktree, branch } : {}) };
       sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts: [], hub };
-      // An agent with a `remote` hook (opencode, #739) needs files/env on the worker beyond the
-      // synced code — the contract/standing files and a generated OpenCode config pointed at by
-      // `OPENCODE_CONFIG`, written into the per-run dir the ssh executor's `paths()` computed.
-      // claude has no `remote` hook, so this is a no-op for it — same as before this feature.
+      // An agent with a `remote` hook (opencode #739, pi #827) needs files/env on the worker
+      // beyond the synced code — the contract/standing files (and, for opencode, a generated
+      // config pointed at by `OPENCODE_CONFIG`), written into the per-run dir the ssh executor's
+      // `paths()` computed. `args` (pi: the `--append-system-prompt` flags) are spliced before
+      // the argv's `--` by spawn.js, resume turns included. claude has no `remote` hook, so this
+      // is a no-op for it — same as before the feature.
       if (agent.remote) {
         try {
           const own = agent.remote({ cfg, step: spawnStep, dir: /** @type {string} */ (remoteConfigDir), verdictFile, standing });
-          sandboxedRun = { ...sandboxedRun, env: own.env, ...(own.files ? { files: own.files } : {}) };
+          sandboxedRun = { ...sandboxedRun, env: own.env, ...(own.files ? { files: own.files } : {}), ...(own.args ? { args: own.args } : {}) };
           // #731: the standing text is already in a remote `instructions` file — drop it from the
           // run prompt so the model doesn't see it twice, same dedupe the sandbox branch does.
           if (own.standingInInstructions) prompt = `=== TICKET ===\n\n${base}`;

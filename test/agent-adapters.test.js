@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { AGENTS, getAgent, agentFor } from "../src/agents/index.js";
-import { AGENT_NAMES, AGENT_DEFAULT_BINS, DEFAULT_AGENT } from "../src/agents/names.js";
+import { AGENT_NAMES, AGENT_DEFAULT_BINS, DEFAULT_AGENT, REMOTE_AGENTS } from "../src/agents/names.js";
 import { claude, buildClaudeArgs } from "../src/agents/claude.js";
 import { claudeProjectDir } from "../src/paths.js";
 import { createDispatcher, NO_VALID_VERDICT } from "../src/dispatch.js";
@@ -26,6 +26,10 @@ test("registry: keys equal the import-free AGENT_NAMES; claude is the default", 
 
 test("AGENT_DEFAULT_BINS matches each adapter's defaults.bin (claude → \"claude\")", () => {
   assert.deepEqual(AGENT_DEFAULT_BINS, Object.fromEntries(Object.entries(AGENTS).map(([n, a]) => [n, a.defaults.bin ?? "claude"])));
+});
+
+test("REMOTE_AGENTS: claude (no remote hook of its own) plus every adapter that ships one (#689/#739/#827)", () => {
+  assert.deepEqual([...REMOTE_AGENTS], ["claude", ...Object.keys(AGENTS).filter((n) => n !== "claude" && !!AGENTS[n].remote)]);
 });
 
 test("getAgent: an unknown name throws (prototype keys too)", () => {

@@ -12,3 +12,8 @@ export const DEFAULT_AGENT = "claude";
  * "claude"), import-free so peekConfig can list them for `agents`' ps match. A test holds it
  * equal to the registry. */
 export const AGENT_DEFAULT_BINS = /** @type {const} */ ({ claude: "claude", cursor: "agent", hermes: "hermes", opencode: "opencode", pi: "pi" });
+
+/** The agents a remote (ssh) harness can run (#689/#739/#827), import-free: `config.js`
+ * validates against it before the adapter registry loads. A test holds it equal to the
+ * registry's `remote` hooks (claude needs none). */
+export const REMOTE_AGENTS = /** @type {const} */ (["claude", "opencode", "pi"]);

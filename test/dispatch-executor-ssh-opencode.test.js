@@ -13,6 +13,7 @@ import { withFakeSsh, spawnCtx } from "./_ssh-helpers.js";
 import { createSshExecutor } from "../src/dispatch/executor-ssh.js";
 import { opencode, buildOpencodeArgs } from "../src/agents/opencode.js";
 import { validateRawConfig } from "../src/config.js";
+import { REMOTE_AGENTS } from "../src/agents/names.js";
 import { remoteHarnessChecks } from "../src/commands/doctor.js";
 import { createDispatcher } from "../src/dispatch.js";
 import { createStore } from "../src/store.js";
@@ -53,7 +54,7 @@ for (const bad of ["cursor", "hermes"]) {
     const cfg = baseConfig({ harnesses: { worker: { agent: bad, remote: { host: "h", workDir: "/w" } } } });
     const v = validateRawConfig(cfg);
     assert.equal(v.ok, false);
-    assert.ok(v.errors.some((e) => e.includes(`resolves to agent ${JSON.stringify(bad)}`) && e.includes("claude and opencode")), v.errors.join("\n"));
+    assert.ok(v.errors.some((e) => e.includes(`resolves to agent ${JSON.stringify(bad)}`) && e.includes(`supported on a remote worker: ${REMOTE_AGENTS.join(", ")}`)), v.errors.join("\n"));
   });
 }
 
