@@ -25,6 +25,8 @@ export function importSpecifiers(source) {
   }
   const callRe = /\bimport\(\s*["']([^"']+)["']/g;
   for (const m of source.matchAll(callRe)) out.push({ spec: m[1], typeOnly: false });
+  const bareRe = /\bimport\s*["']([^"']+)["']/g;
+  for (const m of source.matchAll(bareRe)) out.push({ spec: m[1], typeOnly: false });
   return out;
 }
 
@@ -97,6 +99,7 @@ export { c } from "./c.js";
 export type { D } from "./d.js";
 const e = await import("./e.js");
 /** @type {import('./f.js').F} */
+import "./g.js";
 `;
   const specs = importSpecifiers(src).map((s) => [s.spec, s.typeOnly]);
   assert.deepEqual(specs.sort(), [
@@ -106,6 +109,7 @@ const e = await import("./e.js");
     ["./d.js", true],
     ["./e.js", false],
     ["./f.js", false],
+    ["./g.js", false],
   ].sort());
 });
 
@@ -129,6 +133,15 @@ test("sharedViolations: flags a node: import, a bare package, and an outside rel
   ]);
 });
 
+test("sharedViolations: flags a bare side-effect import (no `from` clause)", () => {
+  assert.deepEqual(sharedViolations("src/shared/quota.js", `import "node:fs";`), [
+    "src/shared/quota.js: node:fs (not relative)",
+  ]);
+  assert.deepEqual(sharedViolations("src/shared/quota.js", `import "../store.js";`), [
+    "src/shared/quota.js: ../store.js",
+  ]);
+});
+
 test("sharedViolations: allows imports within src/shared/ and the two allow-listed name lists", () => {
   assert.deepEqual(sharedViolations("src/shared/sensitive.js", `import { X } from "./contract.js";`), []);
   assert.deepEqual(
@@ -141,6 +154,13 @@ test("uiViolations: flags a runtime import reaching into src/ outside src/shared
   assert.deepEqual(uiViolations("ui/src/foo.ts", `import { isNeedsYou } from "../../src/epics.js";`), [
     "ui/src/foo.ts: ../../src/epics.js",
   ]);
+});
+
+test("uiViolations: flags a bare side-effect import reaching into src/ outside src/shared/", () => {
+  assert.deepEqual(uiViolations("ui/src/foo.ts", `import "../../src/stats.js";`), [
+    "ui/src/foo.ts: ../../src/stats.js",
+  ]);
+  assert.deepEqual(uiViolations("ui/src/main.tsx", `import "./index.css";`), []);
 });
 
 test("uiViolations: allows type-only imports, src/shared/ imports, and the summary.test.ts exception", () => {
