@@ -211,9 +211,15 @@ GitHub-style `@login` (or `@org/team`) mention in that text is wrapped in **back
 ticket's own assignee — the tracker's `assigneeLogin`, or its `describe().ownerHint` (a leading
 `@` stripped) when that is unset — matched case-insensitively, whose mentions stay active: a
 "please @assignee" from the agent still reaches the human it names. When no owner login is known,
-**every** mention is neutralised (fail-closed). Code — fenced blocks and inline spans, including
-an inline span spanning lines — is left untouched, as are lookalikes (an email, where a word char
-precedes the `@`).
+**every** mention is neutralised (fail-closed). Genuine code — fenced blocks and inline spans,
+including an inline span spanning lines — is left untouched, as are lookalikes (an email, where
+a word char precedes the `@`). Which text counts as code is decided CommonMark-style, mirroring
+GitHub's renderer, and **every ambiguous case errs the safe way (neutralise)**: a fence opens
+only on a line indented 0–3 *spaces* — a tab or a lookalike space (U+00A0) is an indented code
+block, not a fence; a backtick fence whose info string contains a backtick never opens; a
+CRLF/CR line ending still closes a fence; and an unmatched or backslash-escaped backtick (\`) is
+literal text that cannot open a span — so none of them can be used to smuggle a live mention
+through.
 
 The workflow guard covers **`.github/workflows/` only** — nothing else a commit touches is
 refused. And a branch that does get pushed still opens a PR that runs the repo's existing CI on

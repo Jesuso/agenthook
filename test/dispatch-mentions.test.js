@@ -54,3 +54,19 @@ test("no mentions, no owner, and empty text are identity", () => {
   expect("@bob", undefined, "`@bob`");
   expect("", undefined, "");
 });
+
+test("renderer bypasses are neutralised: when we and GitHub might disagree about code, we neutralise", () => {
+  // A TAB-indented "```" is an indented code block in CommonMark (a tab is 4 columns), not a
+  // fence — the line after it is a live-mention paragraph on GitHub. (Red before: the FENCE
+  // regex matched tabs via \s{0,3}, opened a never-closing fence, and the mention passed.)
+  expect("\t\u0060\u0060\u0060\n@octocat\n\t\u0060\u0060\u0060", "me", "\t\u0060\u0060\u0060\n`@octocat`\n\t\u0060\u0060\u0060");
+  // Same for a U+00A0 (NBSP) indent: \s matched it, CommonMark only counts U+0020 spaces.
+  expect("\u00a0\u0060\u0060\u0060\n@octocat\n\u0060\u0060\u0060", "me", "\u00a0\u0060\u0060\u0060\n`@octocat`\n\u0060\u0060\u0060");
+  // A CRLF closing fence: the line is "```\r" when split on \n only, and "." does not match \r —
+  // the block "never closed" and every later mention passed. GitHub treats \r\n as a line
+  // ending. (Red before: the CRLF split kept the closer from matching the FENCE regex.)
+  expect("\u0060\u0060\u0060\nx\n\u0060\u0060\u0060\r\n@octocat\r\n", "me", "\u0060\u0060\u0060\nx\n\u0060\u0060\u0060\r\n`@octocat`\r\n");
+  // A backslash-escaped backtick (\`) is a literal backtick that never opens a code span
+  // (CommonMark 2.4) — before, it paired with the unescaped one and protected the mention.
+  expect("see \\\u0060 x @octocat \u0060 here", "me", "see \\\u0060 x `@octocat` \u0060 here");
+});
