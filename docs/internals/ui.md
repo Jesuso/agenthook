@@ -28,7 +28,7 @@
   `literalSecrets`; `PUT /api/config` = same guards, 422 on invalid (nothing written), backup in
   `config-bak/`, audit `sensitive` = changed `src/shared/contract.js` `SENSITIVE_FIELDS` via the import-free `src/shared/sensitive.js`
   the browser also bundles; SSE `config`) are the
-  **only** UI file writes — both go through `save.js` (`atomicSave`), and `test/ui-server.test.js`
+  **only** UI file writes — both go through `src/atomic-save.js` (`atomicSave`), and `test/ui-server.test.js`
   confines write calls to it. `src/control/client.js` (shared infrastructure, not a `src/ui/`
   module — it's the client half of `src/control/server.js`) provides `controlRequest` (one NDJSON request over a
   profile's `control.sock`, skipping the `hello` line, resolving `{ok,result|error}` or rejecting
@@ -40,7 +40,7 @@
   `sandboxIo` stubs the probes in tests), `POST /api/restart` (the v2/v3 write-guard chain; sends `{when:'idle'}`, 2 s
   timeout) and `POST /api/pause` / `/api/resume` (same guards; `args:{}`) — all map the receiver's
   reply to 503 (down) / 504 (timeout) / 502 (`ok:false`) / 200, and the three POSTs audit their
-  outcome via `save.js`'s `appendAudit` (also used by `atomicSave`).
+  outcome via `src/atomic-save.js`'s `appendAudit` (also used by `atomicSave`).
    `POST /api/release` (same guards; `{profile, ref, comment?}`, 20 s timeout, audited without the comment) answers a held
   ticket via the receiver's `release` op. `POST /api/ticket` (same guards; `{profile, title, body?, step?,
   blockedBy?}`, the release timeout) creates a ticket on a local-board profile via the receiver's `ticket_add` op —
@@ -52,7 +52,7 @@
   via `agent-api.js` `readLocalEpics` (shared with the MCP `epics` tool/CLI fallback; no tracker call, no write). `POST /api/profile/remove` (same guards; cookie-only `GET /api/profile/remove-preview` is its
   read side) sends `decommission {when:'idle'}` → 202, or — socket down, no live pid — archives the
   stopped profile via `src/archive.js` `archiveStateDir` → 200: the one state-dir change outside
-  `save.js`, made from `server.js` (a live pid behind a dead socket → 409, never an archive).
+  `src/atomic-save.js`, made from `server.js` (a live pid behind a dead socket → 409, never an archive).
   Otherwise a blind **reader**: never writes any state dir, never loads a config; PR links come
   from the heartbeat's `repository`.
 - `src/shared/identity.js` — a profile's colour + emoji (`ui: {color, emoji}` in config). Import-free so config validation (`identityErrors`),

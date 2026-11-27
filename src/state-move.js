@@ -11,7 +11,7 @@ import { registryDir, validName, validateRawConfig } from "./config/index.js";
 import { listProfiles } from "./heartbeat.js";
 import { setStateIdInConfigText } from "./json-edit.js";
 import { writeProfileMarker } from "./profile.js";
-import { atomicSave, readCurrent } from "./ui/save.js";
+import { atomicSave, readCurrent } from "./atomic-save.js";
 
 /**
  * Throw a clear error unless moving `from` → `to` is safe right now: a valid, different name;

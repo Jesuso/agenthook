@@ -14,7 +14,8 @@ import path from "node:path";
 import { SECRET_FIELDS } from "../src/config/index.js";
 import { readConfigFile, sensitiveChanges, writeConfigFile } from "../src/ui/config.js";
 import { SENSITIVE_FIELDS } from "../src/shared/contract.js";
-import { UI_MAX_BYTES, backupPathFor } from "../src/ui/save.js";
+import { UI_MAX_BYTES } from "../src/ui/limits.js";
+import { backupPathFor } from "../src/atomic-save.js";
 import { createUiServer } from "../src/ui/server.js";
 
 const TOKEN = "t0k3n-abcdefghijklmnopqrstuvwxyz0123456789";

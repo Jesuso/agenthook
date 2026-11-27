@@ -10,13 +10,13 @@
 // `/api/instructions*` + `/api/prompt-preview` are the instructions editor's read side
 // (src/ui/instructions.js); `PUT /api/instructions/file` is its write side — an allowlisted
 // instruction file. `GET /api/config` reads the profile's config (src/ui/config.js) and `PUT
-// /api/config` saves it — the second file write. Both file writes go through save.js (the
+// /api/config` saves it — the second file write. Both file writes go through src/atomic-save.js (the
 // file, its backup in the state dir, a line in the profile's `ui-audit.jsonl`) and both
 // additionally require a same-origin `Origin`, `X-AH-UI: 1` and a JSON body ≤ 256 KB.
 // `GET /api/discover` and `POST /api/restart` are v3's control-socket actions (src/control/
 // client.js, src/control/server.js): no file write, just a request over the profile's control.sock,
 // mapped to 503/504/502 when the receiver is down, times out, or answers `ok:false`. `restart`
-// reuses the PUT guard chain and audits its outcome via save.js's `appendAudit`; so do `POST
+// reuses the PUT guard chain and audits its outcome via atomic-save.js's `appendAudit`; so do `POST
 // /api/pause` and `POST /api/resume` (the dashboard row's operator pause — persisted in
 // overrides.json). `POST
 // /api/profile/remove` (same guards) retires a profile: a running receiver gets `decommission
@@ -64,7 +64,8 @@ import { createLogTail } from "./logs.js";
 import { listRuns, profileDir, resolveRunLog } from "../reader/run-logs.js";
 import { buildSnapshot, readEventsTail } from "../reader/rows.js";
 import { sandboxReadiness } from "./sandbox.js";
-import { appendAudit, UI_MAX_BYTES } from "./save.js";
+import { appendAudit } from "../atomic-save.js";
+import { UI_MAX_BYTES } from "./limits.js";
 import { SANDBOX_NAMES } from "../sandbox/names.js";
 import { createWatcher } from "./watch.js";
 
@@ -294,7 +295,7 @@ export function createUiServer({ port, token, distDir, host: listenHost = "127.0
    * a string) → else 400; unknown profile → 404 (socket never contacted); else sends
    * `{cmd:'restart', args:{when:'idle'[, moveTo]}}` — `moveTo` = `rename --move`, the receiver
    * validates it — and maps the reply via `callControl`. Always audits the outcome (`{ts,
-   * action:'restart', profile, status[, moveTo]}`) once the profile is known, via save.js's `appendAudit`.
+   * action:'restart', profile, status[, moveTo]}`) once the profile is known, via atomic-save.js's `appendAudit`.
    * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {string} host the validated Host
    */
   const postRestart = (req, res, host) =>

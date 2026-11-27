@@ -10,7 +10,8 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { INSTRUCTIONS_MAX_BYTES, backupPathFor, writeInstructionFile } from "../src/ui/instructions.js";
+import { INSTRUCTIONS_MAX_BYTES, writeInstructionFile } from "../src/ui/instructions.js";
+import { backupPathFor } from "../src/atomic-save.js";
 import { createUiServer } from "../src/ui/server.js";
 
 const TOKEN = "t0k3n-abcdefghijklmnopqrstuvwxyz0123456789";

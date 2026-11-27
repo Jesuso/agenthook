@@ -9,6 +9,7 @@
       "src/agents/hermes.js": 3,
       "src/agents/opencode.js": 3,
       "src/agents/pi.js": 11,
+      "src/atomic-save.js": 2,
       "src/auto-merge.js": 8,
       "src/board-done.js": 3,
       "src/ci-green.js": 2,
@@ -115,7 +116,6 @@
       "src/types.js": 6,
       "src/ui/config.js": 2,
       "src/ui/sandbox.js": 1,
-      "src/ui/save.js": 2,
       "src/ui/server.js": 7,
       "src/ui/watch.js": 6,
       "src/wizard.js": 14

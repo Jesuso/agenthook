@@ -9,12 +9,7 @@ import { ROOT, importSpecifiers, resolveSpec, walk } from "./_import-helpers.js"
 // server, entered only through src/commands/ui.js; src/reader/ holds the profile state readers
 // every other area pulls from, and must not reach back into either the panel or the CLI layer.
 
-const ALLOWED_INTO_UI = new Set([
-  "src/commands/ui.js:../ui/server.js",
-  "src/archive.js:./ui/save.js", // removed by epic #839 ticket 9
-  "src/state-move.js:./ui/save.js", // removed by epic #839 ticket 9
-  "src/commands/rename.js:../ui/save.js", // removed by epic #839 ticket 9
-]);
+const ALLOWED_INTO_UI = new Set(["src/commands/ui.js:../ui/server.js"]);
 
 /** Rule A: no non-type-only import in a src/**\/*.js file outside src/ui/ may resolve into
  * src/ui/, unless allow-listed. Returns violation strings ("<file>: <spec>"), empty when
@@ -51,9 +46,9 @@ test("uiViolations: flags a non-exempt import reaching into src/ui/ and ignores 
   assert.deepEqual(uiViolations("src/ops.js", `import type { Foo } from "./ui/server.js";`), []);
 });
 
-test("uiViolations: allow-lists the save.js removal exceptions and the ui entrypoint", () => {
+test("uiViolations: allow-lists the ui entrypoint and flags the former save.js removal exceptions", () => {
   assert.deepEqual(uiViolations("src/commands/ui.js", `import { createUiServer } from "../ui/server.js";`), []);
-  assert.deepEqual(uiViolations("src/archive.js", `import { atomicSave } from "./ui/save.js";`), []);
+  assert.deepEqual(uiViolations("src/archive.js", `import { atomicSave } from "./ui/save.js";`), ["src/archive.js: ./ui/save.js"]);
 });
 
 test("readerViolations: flags a src/reader/ import reaching into src/ui/ or src/commands/, type-only included", () => {

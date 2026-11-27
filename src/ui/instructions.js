@@ -3,17 +3,16 @@
 // reads one of them, and splits a step's last real prompt (the `<log>.prompt.md` sidecar
 // dispatch.js writes) into its standing and ticket halves. Blind reader: no config load,
 // never builds a path from a request param. The one exception is writeInstructionFile, which
-// saves an allowlisted instruction file through save.js (atomically, backup under the
-// profile's `instructions-bak/`, a line in its `ui-audit.jsonl`).
+// saves an allowlisted instruction file through src/atomic-save.js (atomically, backup under
+// the profile's `instructions-bak/`, a line in its `ui-audit.jsonl`).
 import fs from "node:fs";
 import path from "node:path";
 import { RUN_PREFIX_RE, profileDir } from "../reader/run-logs.js";
 import { instructionEntries, isObj, readEventsTail, readJson, readStateFile, sha256 } from "../reader/rows.js";
-import { UI_MAX_BYTES, atomicSave, readCurrent } from "./save.js";
+import { atomicSave, readCurrent } from "../atomic-save.js";
+import { UI_MAX_BYTES } from "./limits.js";
 
-export { backupPathFor } from "./save.js";
-
-/** Largest instruction file the editor reads or writes — alias of save.js UI_MAX_BYTES. */
+/** Largest instruction file the editor reads or writes — alias of limits.js UI_MAX_BYTES. */
 export const INSTRUCTIONS_MAX_BYTES = UI_MAX_BYTES;
 
 /** dispatch.js's join between the standing instructions and the ticket prompt. */
@@ -101,7 +100,7 @@ export function readInstructionFile(registry, profile, p) {
 /**
  * Save one allowlisted instruction file (`PUT /api/instructions/file`). Sequence: resolve (as
  * readInstructionFile) → size cap → `baseHash` must equal the current sha256 (else 409 with the
- * current file) → save.js atomicSave (temp + rename keeping the mode, backup under the profile's
+ * current file) → atomic-save.js atomicSave (temp + rename keeping the mode, backup under the profile's
  * `instructions-bak/`, a `{ ts, path, oldHash, newHash, bytes }` line in `ui-audit.jsonl`). Fully
  * synchronous, so concurrent saves with one `baseHash` get exactly one 200 and one 409.
  * @param {string} registry @param {string} profile @param {string} p

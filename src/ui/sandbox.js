@@ -17,7 +17,7 @@ import { DEFAULT_IMAGE } from "../sandbox/image.js";
 import { SANDBOX_NAMES } from "../sandbox/names.js";
 import { resolveConfigFile } from "./config.js";
 import { isObj } from "../reader/rows.js";
-import { UI_MAX_BYTES } from "./save.js";
+import { UI_MAX_BYTES } from "./limits.js";
 
 /** @typedef {import('../shared/contract.js').SandboxReadiness} SandboxReadiness */
 /** @typedef {SandboxReadiness['rows'][number]} ReadinessRow */
