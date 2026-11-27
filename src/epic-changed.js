@@ -5,11 +5,11 @@
 
 /**
  * @param {{
- *   store: import('./types.js').Store,
+ *   store: import('./types/index.js').Store,
  *   emit?: (event: string, ref: string, step: string, extra?: Record<string, any>) => void,
  *   invalidate?: () => void,
  * }} deps  invalidate: drops the cached epics read (ops' `onEpicChanged` reset)
- * @returns {(job: import('./types.js').Job) => boolean}  true when `epic_changed` was emitted
+ * @returns {(job: import('./types/index.js').Job) => boolean}  true when `epic_changed` was emitted
  */
 export function createEpicChanged({ store, emit, invalidate }) {
   return function epicChanged(job) {

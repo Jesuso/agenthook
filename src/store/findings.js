@@ -5,7 +5,7 @@ import { readJson } from "./read-json.js";
 /**
  * per-ref review findings (findings.json): set on a `changes` bounce, read by the target step.
  * @param {string} dataDir
- * @returns {Pick<import('../types.js').Store, 'getFindings'|'setFindings'|'clearFindings'>}
+ * @returns {Pick<import('../types/index.js').Store, 'getFindings'|'setFindings'|'clearFindings'>}
  */
 export function findingsSlice(dataDir) {
   const findingsFile = path.join(dataDir, "findings.json");

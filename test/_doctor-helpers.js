@@ -62,6 +62,6 @@ export function recorder(run = false) {
  * sandbox's injected GIT_CONFIG_*), which would otherwise plant an unplanned problem. @param {any} [over] */
 export const io = (over = {}) => ({ userClaudeSettings: null, onPath: () => true, portInUse: async () => false, uiBundle: () => ({ state: "fresh" }), skills: () => [], spawn: recorder().spawn, env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" }, ...over });
 
-/** @param {import('../src/types.js').Check} c */
+/** @param {import('../src/types/index.js').Check} c */
 export const problem = (c) => !c.info && (!c.ok || !!c.warn);
 export const silent = { log: () => {} };

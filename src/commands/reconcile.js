@@ -41,7 +41,7 @@ export async function reconcile(args) {
 }
 
 /** Merges missed while down: only the receiver can intake them, so ask it. Best-effort — a
- * failure warns and leaves the exit code alone. @param {import('../types.js').Config} cfg */
+ * failure warns and leaves the exit code alone. @param {import('../types/index.js').Config} cfg */
 async function reconcileMergesOverControl(cfg) {
   try {
     const reply = await controlRequest(cfg.controlSock, "reconcile_merges", {}, { timeoutMs: 60000 });
@@ -52,7 +52,7 @@ async function reconcileMergesOverControl(cfg) {
   }
 }
 
-/** Ask the live receiver to reconcile (in-process trackers). @param {import('../types.js').Config} cfg */
+/** Ask the live receiver to reconcile (in-process trackers). @param {import('../types/index.js').Config} cfg */
 async function reconcileOverControl(cfg) {
   let reply;
   try {

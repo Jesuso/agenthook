@@ -3,7 +3,7 @@
 // `result` event, how that result becomes a usage record, and where its session
 // transcripts live (`~/.claude/projects/<mangle(cwd)>`, resumed with `claude -r <id>`).
 // dispatch / follow / resume reach all of it through the AgentAdapter interface
-// (src/types.js) — this is the reference adapter.
+// (src/types/index.js) — this is the reference adapter.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -26,7 +26,7 @@ const bashRules = (cmds = []) => cmds.flatMap((c) => [`Bash(${c})`, `Bash(${c} *
  * to each `allow.paths` glob and to the verdict file. `deny` lists `--disallowedTools`, which hold
  * in every mode, bypass included. Paths are cwd-relative globs made absolute (`//<cwd>/<glob>`).
  * Neither set → []. The flags are variadic, so nothing positional may follow this tail.
- * @param {{allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, cwd?: string, verdictFile?: string}} o
+ * @param {{allow?: import('../types/index.js').StepPolicy, deny?: import('../types/index.js').StepPolicy, cwd?: string, verdictFile?: string}} o
  * @returns {string[]}
  */
 export function claudePolicyArgs({ allow, deny, cwd = "", verdictFile }) {
@@ -65,7 +65,7 @@ export function claudeSettingsGuardArgs({ cwd }) {
  * --permission-mode dontAsk`, the `allow` policy's rules (or just the verdict file), then one
  * `--disallowedTools` group with the deny rules and the settings-file guard. A flag whose list is
  * empty is omitted. The flags are variadic, so nothing positional may follow this tail.
- * @param {{fullAuto?: boolean, allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, cwd?: string, verdictFile?: string}} o
+ * @param {{fullAuto?: boolean, allow?: import('../types/index.js').StepPolicy, deny?: import('../types/index.js').StepPolicy, cwd?: string, verdictFile?: string}} o
  * @returns {string[]}
  */
 export function claudePermissionArgs({ fullAuto, allow, deny, cwd, verdictFile }) {
@@ -127,7 +127,7 @@ const ATTRIBUTION_OFF_SETTINGS = JSON.stringify({ attribution: { commit: "", pr:
  * Build the `claude -p` argv (pure, exported so the flag wiring is unit-testable
  * without a real spawn). Order is stable: prompt, then --model, --effort, --settings (when
  * `attribution` is `false`), then the permission tail (claudePermissionArgs) last.
- * @param {{prompt: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, attribution?: boolean, maxMs?: number, allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, cwd?: string, verdictFile?: string}} o
+ * @param {{prompt: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, attribution?: boolean, maxMs?: number, allow?: import('../types/index.js').StepPolicy, deny?: import('../types/index.js').StepPolicy, cwd?: string, verdictFile?: string}} o
  * @returns {string[]}
  */
 export function buildClaudeArgs({ prompt, model, effort, provider, fullAuto, attribution, allow, deny, cwd, verdictFile }) {
@@ -348,7 +348,7 @@ export function isUnpriced({ model, bin, claudeBin }) {
  * `isUnpriced` keeps its raw `costUsd` (audit) but is tagged `unpriced: true` (+ `bin` when
  * it overrides `claudeBin`) so readers leave it out of spend; priced records keep the old shape.
  * @param {{ref:string, stepId:string, model?:string, bin?:string, claudeBin?:string, startedAt:string, endedAt:string, result:any}} o
- * @returns {import('../types.js').UsageRecord}
+ * @returns {import('../types/index.js').UsageRecord}
  */
 export function buildUsageRecord({ ref, stepId, model, bin, claudeBin, startedAt, endedAt, result }) {
   const u = (result && result.usage) || {};
@@ -426,7 +426,7 @@ export function claudeEgressHosts(env) {
   return out;
 }
 
-/** @type {import('../types.js').AgentAdapter} */
+/** @type {import('../types/index.js').AgentAdapter} */
 export const claude = {
   describe: () => ({ name: "claude", stdout: "stream-json", policy: { allow: true, deny: true } }),
   envPassthrough: ["ANTHROPIC_*", "CLAUDE_*"],

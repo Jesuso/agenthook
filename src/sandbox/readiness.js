@@ -12,13 +12,13 @@ export const buildImage = (bin, args, dockerfile) => spawnSync(bin, args, { inpu
  * default recipe). `image` is the profile's agent image; any other entry is labelled the egress
  * proxy's. Shared with `ah ui`'s read-only readiness card (src/ui/sandbox.js).
  * @param {{ type: string, image: string }} sandbox
- * @param {{run: import('../types.js').IngressRun, has?: (bin: string) => boolean, build?: (bin: string, args: string[], dockerfile: string) => { status: number|null }, images?: string[]}} io
- * @returns {Promise<import('../types.js').Check[]>}
+ * @param {{run: import('../types/index.js').IngressRun, has?: (bin: string) => boolean, build?: (bin: string, args: string[], dockerfile: string) => { status: number|null }, images?: string[]}} io
+ * @returns {Promise<import('../types/index.js').Check[]>}
  */
 export async function sandboxRuntimeChecks({ type: runtime, image }, { run, has = onPath, build = buildImage, images = [image] }) {
   const env = runtime.toUpperCase();
   const bin = process.env[env] || runtime;
-  /** @type {import('../types.js').Check[]} */
+  /** @type {import('../types/index.js').Check[]} */
   const out = [];
   if (!has(bin)) {
     out.push({ ok: false, label: `sandbox: ${runtime} binary on PATH`, note: bin, fix: { manual: `install ${runtime} or put it on PATH (or set $${env})` } });

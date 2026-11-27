@@ -75,7 +75,7 @@ export { createRestartRequester, createDecommissionRequester, createQuotaControl
 export { unregisterAll, runDecommission, waitForExit, finishTeardown } from "./teardown.js";
 
 /**
- * @param {import('../types.js').Config} cfg
+ * @param {import('../types/index.js').Config} cfg
  * @param {{reconcileOnBoot?: boolean}} [opts]  reconcileOnBoot: run one reconcile after boot (set by a `restart` respawn)
  */
 export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
@@ -171,7 +171,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   // the task already rests in the step's source section), so moving on enqueue would
   // yank tasks the dispatcher then skips.
   /**
-   * @param {import('../types.js').Job[]} [jobs]
+   * @param {import('../types/index.js').Job[]} [jobs]
    * @param {{force?: boolean}} [opts]  force skips the dedup gate (explicit replay/reconcile)
    * @returns {number} how many jobs the queue accepted (a coalesced duplicate is not accepted)
    */

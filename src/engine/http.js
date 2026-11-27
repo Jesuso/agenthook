@@ -8,13 +8,13 @@ const SIGNAL_KINDS = new Set(["ci_green", "epic_changed", "board_done", "pr_push
 
 /**
  * @param {{
- *   adapter: import('../types.js').Adapter,
- *   forge: import('../types.js').Forge | null,
- *   intake: (jobs: import('../types.js').Job[]) => unknown,
- *   ciGreen: (job: import('../types.js').Job) => unknown,
- *   epicChanged: (job: import('../types.js').Job) => unknown,
- *   boardDone: (job: import('../types.js').Job) => unknown,
- *   prPush?: (job: import('../types.js').Job) => Promise<unknown>,
+ *   adapter: import('../types/index.js').Adapter,
+ *   forge: import('../types/index.js').Forge | null,
+ *   intake: (jobs: import('../types/index.js').Job[]) => unknown,
+ *   ciGreen: (job: import('../types/index.js').Job) => unknown,
+ *   epicChanged: (job: import('../types/index.js').Job) => unknown,
+ *   boardDone: (job: import('../types/index.js').Job) => unknown,
+ *   prPush?: (job: import('../types/index.js').Job) => Promise<unknown>,
  * }} deps
  * @returns {import('node:http').RequestListener}
  */

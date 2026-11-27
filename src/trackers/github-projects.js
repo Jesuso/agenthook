@@ -83,9 +83,9 @@ const sameRepo = (a, b) => typeof a === "string" && typeof b === "string" && a.t
  * = the card's Status option name (null when unset); closed epics stay (completed:true).
  * Pure — drives listEpics.
  * @param {Array<{issue: any, status: string|null}>} items @param {string} epicType @param {string} epicLabel
- * @returns {import('../types.js').Epic[]} */
+ * @returns {import('../types/index.js').Epic[]} */
 export function mapProjectEpics(items, epicType, epicLabel) {
-  /** @type {import('../types.js').Epic[]} */
+  /** @type {import('../types/index.js').Epic[]} */
   const out = [];
   const seen = new Set();
   for (const it of Array.isArray(items) ? items : []) {
@@ -105,9 +105,9 @@ export function mapProjectEpics(items, epicType, epicLabel) {
  * by issue node id in `stageByIssueId` (a card with no Status → "" = backlog); a child not
  * on the board → null (untracked). Pure — drives listEpicTickets.
  * @param {any[]} children @param {string|null|undefined} epicRepo @param {Map<string, string|null>} stageByIssueId
- * @returns {import('../types.js').EpicTicket[]} */
+ * @returns {import('../types/index.js').EpicTicket[]} */
 export function mapProjectEpicTickets(children, epicRepo, stageByIssueId) {
-  /** @type {import('../types.js').EpicTicket[]} */
+  /** @type {import('../types/index.js').EpicTicket[]} */
   const out = [];
   for (const c of Array.isArray(children) ? children : []) {
     if (c?.number == null) continue;
@@ -132,7 +132,7 @@ export const GITHUB_PROJECTS_AGENT_ENV = /** @type {string[]} */ (["GITHUB_TOKEN
 /** The API host `gh issue …` (commentHowTo / readCommentsHowTo) calls: a sandboxed run's egress allows it. */
 export const githubProjectsEgressHosts = () => ["api.github.com"];
 
-/** @type {import('../types.js').AdapterFactory} */
+/** @type {import('../types/index.js').AdapterFactory} */
 export function createGithubProjectsAdapter(cfg, store) {
   const pc = cfg.providerConfig;
   // A personal token, or a GitHub App's installation token (src/github/auth.js). Both are
@@ -461,7 +461,7 @@ export function createGithubProjectsAdapter(cfg, store) {
    * board scan), assigned to us, held on a runnable step under its attempt cap
    * (resumeJob) — and, when that step has a holdStatus, whose card still rests in it (a
    * human may have moved it on). No holdStatus → the card never moved; the held record rules.
-   * @param {any} ev @returns {Promise<import('../types.js').Job[]>} */
+   * @param {any} ev @returns {Promise<import('../types/index.js').Job[]>} */
   async function resumeFromComment(ev) {
     if (ev.action !== "created") return [];
     if (!ev.issue || ev.issue.pull_request) return []; // issue_comment also fires for PR conversation comments
@@ -578,7 +578,7 @@ export function createGithubProjectsAdapter(cfg, store) {
 
   // The Status single-select options of a project ("owner/number"). Shared by the init
   // wizard's stage picks and listStages.
-  /** @param {string|undefined} projectRef @returns {Promise<import('../types.js').StageOption[]>} */
+  /** @param {string|undefined} projectRef @returns {Promise<import('../types/index.js').StageOption[]>} */
   const fetchStatusOptions = async (projectRef) => {
     if (!projectRef) throw new Error("github-projects: no project configured");
     const { owner, number } = parseProject(projectRef);
@@ -612,7 +612,7 @@ export function createGithubProjectsAdapter(cfg, store) {
   // (assigneeLogin under App auth, else the viewer's login; an unresolvable author/identity
   // fails closed), computed here so dispatch never guesses. Returns `{ comments, omitted? }`,
   // comments oldest→newest.
-  /** @param {string} ref @returns {Promise<{ comments: import('../types.js').TicketComment[], omitted?: number }>} */
+  /** @param {string} ref @returns {Promise<{ comments: import('../types/index.js').TicketComment[], omitted?: number }>} */
   async function fetchComments(ref) {
     const item = await findItem(ref);
     const subjectId = item?.issue?.id || (await issueNodeId(ref));
@@ -620,7 +620,7 @@ export function createGithubProjectsAdapter(cfg, store) {
       `query($id:ID!){ node(id:$id){ ... on Issue { comments(last:100){ totalCount nodes{ author{ login } body createdAt } } } } }`,
       { id: subjectId },
     );
-    /** @type {import('../types.js').TicketComment[]} */
+    /** @type {import('../types/index.js').TicketComment[]} */
     const comments = [];
     for (const c of body?.data?.node?.comments?.nodes || []) {
       comments.push({
@@ -851,7 +851,7 @@ export function createGithubProjectsAdapter(cfg, store) {
     // step. One full item scan; the assignee gate keeps it to our issues.
     async listResting() {
       if (!pipeline) return [];
-      /** @type {import('../types.js').Job[]} */
+      /** @type {import('../types/index.js').Job[]} */
       const jobs = [];
       const seen = new Set();
       for (const it of await fetchItems()) {

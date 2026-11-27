@@ -61,7 +61,7 @@ export const LINEAR_AGENT_ENV = /** @type {string[]} */ (["LINEAR_API_KEY"]);
 /** The API host commentHowTo / readCommentsHowTo call: a sandboxed run's egress allows it. */
 export const linearEgressHosts = () => ["api.linear.app"];
 
-/** @type {import('../types.js').AdapterFactory} */
+/** @type {import('../types/index.js').AdapterFactory} */
 export function createLinearAdapter(cfg, store) {
   const pc = cfg.providerConfig;
   const token = pc.token; // resolved from env/.env by loadConfig
@@ -249,7 +249,7 @@ export function createLinearAdapter(cfg, store) {
   /** A pipeline job for an Issue create / state-change delivery, or [] when it isn't ours to run.
    * A state change into a `completed`/`canceled` state (the board's done flag) also yields a
    * signal-only `board_done` job, step or not — the engine emits it outside the queue.
-   * @param {any} ev @returns {Promise<import('../types.js').Job[]>} */
+   * @param {any} ev @returns {Promise<import('../types/index.js').Job[]>} */
   async function jobFromIssue(ev) {
     const d = ev.data || {};
     const ref = d.identifier;
@@ -270,7 +270,7 @@ export function createLinearAdapter(cfg, store) {
     // updatedAt moves with every change → dedups retries of THIS move yet lets a later
     // re-entry into the same state (the rework loop) fire again.
     const at = d.updatedAt ?? ev.webhookTimestamp;
-    /** @type {import('../types.js').Job[]} */
+    /** @type {import('../types/index.js').Job[]} */
     const jobs = done ? [{ kind: "board_done", ref, stepId: "", dedupKey: `done:${d.id}:${at}` }] : [];
     if (step) jobs.push({ kind: "pipeline", ref, stepId: step.id, dedupKey: `secmove:${d.id}:${at}` });
     return jobs;
@@ -280,7 +280,7 @@ export function createLinearAdapter(cfg, store) {
    * → no job): a newly created comment whose body starts with cfg.trigger, authored by the
    * viewer (strict — assigneeFilter:false does NOT open this up), on an issue that passes the
    * assignee gate, which is held on a runnable step under its attempt cap (resumeJob).
-   * @param {any} ev @returns {Promise<import('../types.js').Job[]>} */
+   * @param {any} ev @returns {Promise<import('../types/index.js').Job[]>} */
   async function resumeFromComment(ev) {
     if (ev.action !== "create") return [];
     const c = ev.data || {};
@@ -442,7 +442,7 @@ export function createLinearAdapter(cfg, store) {
     async listResting() {
       if (!pipeline) return [];
       const t = await team();
-      /** @type {import('../types.js').Job[]} */
+      /** @type {import('../types/index.js').Job[]} */
       const jobs = [];
       const seen = new Set();
       for (const step of pipeline) {

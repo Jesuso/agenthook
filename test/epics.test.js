@@ -12,7 +12,7 @@ function row(o) {
   return { profile: "p", ref: "1", displayId: "1", title: null, summary: null, step: null, status: "idle", model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, heldReason: null, heldAt: null, failReason: null, prState: null, prNeeds: null, finishedAt: null, queuePos: null, queuedAt: null, epic: null, ...o };
 }
 
-/** @param {Partial<import('../src/types.js').EpicTicket>} o */
+/** @param {Partial<import('../src/types/index.js').EpicTicket>} o */
 function ticket(o) {
   return { ref: "1", name: "t", completed: false, stage: "To do", ...o };
 }

@@ -152,7 +152,7 @@ export function endedWithQuestion(text) {
  * can't write its verdict has not finished) unless the step opts out with
  * `requireVerdict: false`, which restores the old "clean exit advances" default.
  * @param {number} code @param {string|null} text @param {{requireVerdict?: boolean}} [opts]
- * @returns {import('../types.js').Verdict}
+ * @returns {import('../types/index.js').Verdict}
  */
 export function parseVerdict(code, text, { requireVerdict = true } = {}) {
   if (code !== 0) return { outcome: "fail", reason: `non-zero exit (${code})` };
@@ -198,9 +198,9 @@ export function parseVerdict(code, text, { requireVerdict = true } = {}) {
 /** @param {import('./context.js').DispatchState} ctx */
 export function createVerdictOps(ctx) {
   const { cfg, store } = ctx;
-  /** @param {number} code @param {string} verdictFile @param {import('../types.js').Step} step
-   * @param {import('../types.js').AgentAdapter} agent  its `defaults.requireVerdict` applies when the step sets none
-   * @returns {import('../types.js').Verdict} */
+  /** @param {number} code @param {string} verdictFile @param {import('../types/index.js').Step} step
+   * @param {import('../types/index.js').AgentAdapter} agent  its `defaults.requireVerdict` applies when the step sets none
+   * @returns {import('../types/index.js').Verdict} */
   function readVerdict(code, verdictFile, step, agent) {
     let text = null;
     try {
@@ -218,7 +218,7 @@ export function createVerdictOps(ctx) {
    * concrete id for the adapter) and stores the findings for the target's next prompt.
    * @param {string} ref
    * @param {string} stepId  the step the verdict moves the task out of
-   * @param {import('../types.js').Verdict} verdict
+   * @param {import('../types/index.js').Verdict} verdict
    * @param {string} fromStep  who the findings are attributed to in the rework prompt
    */
   function guardChanges(ref, stepId, verdict, fromStep) {

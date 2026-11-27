@@ -76,9 +76,9 @@ export function epicChangeFromEvent(kind, ev, { epicType, epicLabel, repoApiUrl 
 
 /** Rows that ARE epics (typed or labelled), PRs dropped, deduped by number. Pure —
  * drives listEpics. @param {any[]} items @param {string} epicType @param {string} epicLabel
- * @returns {import('../types.js').Epic[]} */
+ * @returns {import('../types/index.js').Epic[]} */
 export function mapEpics(items, epicType, epicLabel) {
-  /** @type {import('../types.js').Epic[]} */
+  /** @type {import('../types/index.js').Epic[]} */
   const out = [];
   const seen = new Set();
   for (const it of Array.isArray(items) ? items : []) {
@@ -107,9 +107,9 @@ export function mapEpics(items, epicType, epicLabel) {
  * view → untracked; also never joins a local row with the same bare number). Pure — drives
  * listEpicTickets.
  * @param {any[]} items @param {string} repoApiUrl @param {Map<string,string>} stageLabels
- * @returns {import('../types.js').EpicTicket[]} */
+ * @returns {import('../types/index.js').EpicTicket[]} */
 export function mapEpicTickets(items, repoApiUrl, stageLabels) {
-  /** @type {import('../types.js').EpicTicket[]} */
+  /** @type {import('../types/index.js').EpicTicket[]} */
   const out = [];
   for (const it of Array.isArray(items) ? items : []) {
     if (it?.pull_request) continue;
@@ -168,7 +168,7 @@ export const GITHUB_AGENT_ENV = /** @type {string[]} */ (["GITHUB_TOKEN"]);
 /** The API host commentHowTo / readCommentsHowTo call: a sandboxed run's egress allows it. */
 export const githubEgressHosts = () => ["api.github.com"];
 
-/** @type {import('../types.js').AdapterFactory} */
+/** @type {import('../types/index.js').AdapterFactory} */
 export function createGithubAdapter(cfg, store) {
   const pc = cfg.providerConfig;
   // A personal token, or a GitHub App's installation token (src/github/auth.js). Both are
@@ -456,7 +456,7 @@ export function createGithubAdapter(cfg, store) {
    * starts with cfg.trigger, authored by the token owner (strict — assigneeFilter:false
    * does NOT open this up), on an issue that passes the assignee gate, which is held on
    * a runnable step still under its attempt cap (resumeJob).
-   * @param {any} ev @param {string} ref @returns {Promise<import('../types.js').Job[]>} */
+   * @param {any} ev @param {string} ref @returns {Promise<import('../types/index.js').Job[]>} */
   async function resumeFromComment(ev, ref) {
     if (ev.action !== "created") return [];
     if (ev.issue.pull_request) return []; // issue_comment also fires for PR conversation comments
@@ -477,7 +477,7 @@ export function createGithubAdapter(cfg, store) {
   // The repo's existing labels — live. Shared by the init wizard's stage picks (which
   // prepend the agenthook DEFAULTS as a nicety) and listStages (existing labels only —
   // boot's ensureLabels() already creates every pipeline label, so those aren't synthetic).
-  /** @param {string|undefined} o @param {string|undefined} r @returns {Promise<import('../types.js').StageOption[]>} */
+  /** @param {string|undefined} o @param {string|undefined} r @returns {Promise<import('../types/index.js').StageOption[]>} */
   const fetchLabels = async (o, r) => {
     if (!o || !r) throw new Error("github: no repository configured");
     const res = await api(`/repos/${o}/${r}/labels?per_page=100`);
@@ -494,7 +494,7 @@ export function createGithubAdapter(cfg, store) {
   // (lastPage-1)*100 + len(lastPage) - 100). `owner` uses the SAME strict rule as the `@agent`
   // resume gate (isOwner — our own identity, an unresolvable one fails closed), computed here
   // so dispatch never guesses. Returns `{ comments, omitted? }`, comments oldest→newest.
-  /** @param {string} ref @returns {Promise<{ comments: import('../types.js').TicketComment[], omitted?: number }>}
+  /** @param {string} ref @returns {Promise<{ comments: import('../types/index.js').TicketComment[], omitted?: number }>}
    */
   async function fetchComments(ref) {
     const q = `${repoPath()}/issues/${ref}/comments?per_page=100`;
@@ -520,7 +520,7 @@ export function createGithubAdapter(cfg, store) {
     } else {
       newest = (await json(res) || []).slice(-100);
     }
-    /** @type {import('../types.js').TicketComment[]} */
+    /** @type {import('../types/index.js').TicketComment[]} */
     const comments = [];
     for (const c of newest) {
       comments.push({
@@ -617,7 +617,7 @@ export function createGithubAdapter(cfg, store) {
       // The close is also the board's done flag: an issue of OURS yields a signal-only
       // `board_done` job, which the engine emits outside the queue (src/board-done.js).
       if (ev.action === "closed") {
-        /** @type {import('../types.js').Job[]} */
+        /** @type {import('../types/index.js').Job[]} */
         const jobs = [];
         if (await issueIsOurs(issue)) {
           const delivery = Array.isArray(headers["x-github-delivery"]) ? headers["x-github-delivery"][0] : headers["x-github-delivery"];
@@ -681,7 +681,7 @@ export function createGithubAdapter(cfg, store) {
       const res = await api(`${repoPath()}/issues/${ref}`);
       if (!res.ok) throw new Error(`issue fetch ${res.status}`);
       const issue = await json(res);
-      /** @type {import('../types.js').EpicRef | undefined} */
+      /** @type {import('../types/index.js').EpicRef | undefined} */
       let epic;
       if (issue.parent_issue_url) {
         try {
@@ -837,7 +837,7 @@ export function createGithubAdapter(cfg, store) {
     // single page (per_page 100) — reconcile is a recovery poll, not exhaustive paging.
     async listResting() {
       if (!pipeline) return [];
-      /** @type {import('../types.js').Job[]} */
+      /** @type {import('../types/index.js').Job[]} */
       const jobs = [];
       const seen = new Set();
       const assigneeQ = scopeToUser ? `&assignee=${encodeURIComponent(await ourLogin())}` : "";

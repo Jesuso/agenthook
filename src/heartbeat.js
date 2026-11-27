@@ -25,7 +25,7 @@ const repoOf = (b) => (b?.repository ? String(b.repository) : b?.owner && b?.rep
 /**
  * The GitHub repository a profile's PRs live in — the forge's, else a github /
  * github-projects tracker's — so a config-less reader (`ah ui`) can build PR links.
- * @param {import('./types.js').Config} cfg
+ * @param {import('./types/index.js').Config} cfg
  * @returns {string|null}
  */
 export function repositoryOf(cfg) {
@@ -41,7 +41,7 @@ export function repositoryOf(cfg) {
  * when one path serves several roles is step > default > repo — first occurrence wins
  * the scope, later roles only add their ids. Pure (no fs); paths are already absolute
  * from config.js, `path.resolve` is defensive for hand-built test fixtures.
- * @param {import('./types.js').Config} cfg
+ * @param {import('./types/index.js').Config} cfg
  * @returns {{ path: string, scope: 'step'|'default'|'repo'|'soul', ids: string[] }[]}
  */
 export function instructionTargets(cfg) {
@@ -77,7 +77,7 @@ export function instructionTargets(cfg) {
 /**
  * A heartbeat writer bound to one config. Holds the merged record in memory and
  * flushes the whole thing on every update.
- * @param {import('./types.js').Config} cfg
+ * @param {import('./types/index.js').Config} cfg
  */
 export function createHeartbeat(cfg) {
   /** @type {Record<string, any>} */

@@ -63,7 +63,7 @@
   (`path` with `"*"` for any index/record key, `type`, `label`, one-line `help` ≤120 chars, `section`, `default`,
   `options`, `min`/`max`, `scope`, `sensitive`, `editor:"pending"` = no form yet) + `NO_FORM` (load-derived keys,
   each with a reason). Import-free; the config editor renders its fields from it (label, raw key, `HelpTip`,
-  placeholder). `test/config-schema.test.js` parses `src/types.js` and fails when a config `@property` has neither
+  placeholder). `test/config-schema.test.js` parses `src/types/` and fails when a config `@property` has neither
   an entry nor a `NO_FORM` reason, and holds the `sensitive` set equal to `SENSITIVE_FIELDS`.
 
 **The `src/shared/` rule.** Anything the browser bundle imports at runtime lives in `src/shared/`

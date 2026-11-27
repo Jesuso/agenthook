@@ -43,7 +43,7 @@ fs.mkdirSync(path.join(registry, "nohb"), { recursive: true });
 function stubRun(codes = {}) {
   /** @type {{ bin: string, args: string[] }[]} */
   const calls = [];
-  const run = /** @type {import('../src/types.js').IngressRun} */ (
+  const run = /** @type {import('../src/types/index.js').IngressRun} */ (
     async (bin, args) => (calls.push({ bin, args }), { code: codes[args.slice(0, 2).join(" ")] ?? codes[args[0]] ?? 0, stdout: "", stderr: "Cannot connect to the Docker daemon" })
   );
   return { run, calls };

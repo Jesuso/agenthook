@@ -3,7 +3,7 @@
 // emits a `merge` job, and for a failed / successful pipeline on such a branch and
 // emits a `ci` / `ci_green` job. Dispatch handles those jobs exactly as it does GitHub's.
 //
-// Implements the Forge contract (src/types.js):
+// Implements the Forge contract (src/types/index.js):
 //   describe()                 -> { name, agentEnv }
 //   authenticate(ctx)          -> {type:'accept'} | {type:'reject'}   (sync, no network)
 //   processEvents(ctx)         -> [job]   (merge + ci + ci_green jobs only; everything else is [])
@@ -75,14 +75,14 @@ export function forgeOffer({ remoteUrl } = {}) {
 
 /** The forge config block `init` writes; `baseUrl` only when it isn't gitlab.com.
  * @param {{project: string, baseUrl?: string, tokenEnv: string}} opts
- * @returns {import('../types.js').ForgeConfig} */
+ * @returns {import('../types/index.js').ForgeConfig} */
 export function forgeBlock({ project, baseUrl, tokenEnv }) {
   const base = String(baseUrl || "").replace(/\/+$/, "");
   return { type: "gitlab", project, ...(base && base !== DEFAULT_BASE_URL ? { baseUrl: base } : {}), token: `\${${tokenEnv}}` };
 }
 
 /** CI roll-up of one MR's head pipeline (GitLab pipeline status → AgentPr ci).
- * @param {any} pipeline @returns {import('../types.js').AgentPr['ci']} */
+ * @param {any} pipeline @returns {import('../types/index.js').AgentPr['ci']} */
 function ciFromPipeline(pipeline) {
   const st = pipeline?.status;
   if (!st) return "none";
@@ -100,9 +100,9 @@ export const gitlabForgeEgressHosts = (fc) => {
   return rule ? [rule] : [];
 };
 
-/** @type {import('../types.js').ForgeFactory} */
+/** @type {import('../types/index.js').ForgeFactory} */
 export function createGitlabForge(cfg, store) {
-  const fc = cfg.forge || /** @type {import('../types.js').ForgeConfig} */ ({ type: "gitlab" });
+  const fc = cfg.forge || /** @type {import('../types/index.js').ForgeConfig} */ ({ type: "gitlab" });
   const prefix = cfg.branchPrefix || DEFAULT_BRANCH_PREFIX;
   const token = fc.token;
   const project = String(fc.project || "");
@@ -188,7 +188,7 @@ export function createGitlabForge(cfg, store) {
   /** A failed pipeline on one of this project's agent branches → one `ci` job; a successful
    * one → one `ci_green` candidate. Everything else (other statuses, a tag, a non-agent or
    * fork branch, another project, the matching flag off) → [].
-   * @param {any} ev @returns {import('../types.js').Job[]} */
+   * @param {any} ev @returns {import('../types/index.js').Job[]} */
   function ciJobs(ev) {
     const p = ev?.object_attributes;
     const green = p?.status === GREEN;
@@ -227,7 +227,7 @@ export function createGitlabForge(cfg, store) {
   /** CI roll-up + mergeability for one MR, from the single-MR endpoint (the list endpoint
    * carries no head_pipeline). A `sha` the head pipeline didn't test reads as pending.
    * @param {number} iid @param {string} [sha]
-   * @returns {Promise<{mergeable: boolean|null, mergeState: string|null, ci: import('../types.js').AgentPr['ci']}>} */
+   * @returns {Promise<{mergeable: boolean|null, mergeState: string|null, ci: import('../types/index.js').AgentPr['ci']}>} */
   async function mrStatus(iid, sha) {
     /** @type {any} */
     const d = await api(`${projPath()}/merge_requests/${iid}`)

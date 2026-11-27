@@ -146,7 +146,7 @@ export function createCursorStreamParser() {
  * cost and agenthook has no Cursor price table. `bin` is tagged only when the step's `bin`
  * overrides the `agent` default.
  * @param {{ref:string, stepId:string, model?:string, bin?:string, startedAt:string, endedAt:string, result:any}} o
- * @returns {import('../types.js').UsageRecord}
+ * @returns {import('../types/index.js').UsageRecord}
  */
 export function buildCursorUsageRecord({ ref, stepId, model, bin, startedAt, endedAt, result }) {
   const u = (result && result.usage) || {};
@@ -201,7 +201,7 @@ export function cursorSessionFiles(dir) {
   return out;
 }
 
-/** @type {import('../types.js').AgentAdapter} */
+/** @type {import('../types/index.js').AgentAdapter} */
 export const cursor = {
   describe: () => ({ name: "cursor", stdout: "stream-json" }),
   envPassthrough: ["CURSOR_API_KEY"],

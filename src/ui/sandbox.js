@@ -23,7 +23,7 @@ import { UI_MAX_BYTES } from "./limits.js";
 /** @typedef {SandboxReadiness['rows'][number]} ReadinessRow */
 
 /** doctor's fix as a CLI remedy: a manual one as-is, the image build as `doctor --fix`.
- * @param {import('../types.js').Fix|undefined} fix */
+ * @param {import('../types/index.js').Fix|undefined} fix */
 const remedyOf = (fix) => (!fix ? undefined : "manual" in fix ? fix.manual : "agenthook doctor --fix");
 
 /** The parsed `.env` beside the config, or {} when it's missing, not a regular file, or too big.
@@ -45,7 +45,7 @@ function readDotEnv(file) {
  * config's (else DEFAULT_IMAGE), never the request's.
  * @param {string} registry @param {string} profile
  * `build` is handed to doctor only so tests can prove it is never called (no fix is applied).
- * @param {{ type?: string, run?: import('../types.js').IngressRun, has?: (bin: string) => boolean,
+ * @param {{ type?: string, run?: import('../types/index.js').IngressRun, has?: (bin: string) => boolean,
  *   build?: (bin: string, args: string[], dockerfile: string) => { status: number|null } }} [opts]
  * @returns {Promise<SandboxReadiness|null>}
  */
