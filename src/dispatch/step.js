@@ -1,21 +1,19 @@
 // A `pipeline` job's run, up to the agent's exit: fetch, the epic/routing/manual/blocker/
 // overlap gates (run-gates.js), worktree, prompt, the sandbox/remote wrap (run-wrap.js), and the
-// spawn. finish.js takes it from there.
+// spawn/deduce/repair/gate turns (run-turns.js). finish.js takes it from there.
 import fs from "node:fs";
 import path from "node:path";
-import { stepPrompt, verdictRepairPrompt, gateRepairPrompt, formatTicketComments } from "../prompts.js";
-import { endedWithQuestion, NO_VALID_VERDICT, peekVerdict, isNoValidVerdict } from "./verdict.js";
+import { stepPrompt, formatTicketComments } from "../prompts.js";
 import { newNonce } from "../untrusted.js";
-import { findStep, stepForStage, DEFAULT_MAX_MINUTES, DEFAULT_MAX_ATTEMPTS } from "../pipeline.js";
-import { runGate } from "./gate.js";
+import { findStep, DEFAULT_MAX_MINUTES } from "../pipeline.js";
 import { preRunGates } from "./run-gates.js";
 import { buildRunWrap } from "./run-wrap.js";
-import { spawnOptions } from "./run-turns.js";
-import { ensureWorktree, worktreePath, branchName, branchHead, commitsSince, remoteMergeBase } from "../worktree.js";
+import { spawnOptions, deduceVerdict, repairMissingVerdict, runGateLoop } from "./run-turns.js";
+import { peekVerdict } from "./verdict.js";
+import { ensureWorktree, worktreePath, branchName, branchHead, remoteMergeBase } from "../worktree.js";
 import { agentFor } from "../agents/index.js";
 import { executorFor } from "./executor.js";
 import { agentSpawnEnv } from "./spawn.js";
-import { envNameMatches } from "../agent-env.js";
 import { descriptionHasHeadings, resolveModelEffort, promptPathFor, readInstructions } from "./prompt.js";
 import { resolveHarness } from "./harness.js";
 import { resolveContextWindow, ctxOverflow } from "../models.js";
@@ -276,181 +274,11 @@ export function createStep(ctx) {
       }
     };
 
-    /**
-     * Deduce a verdict from commits (#680): on an implementing step, a clean exit with no valid
-     * verdict is often just a plain fact — the run pushed commits to the ticket branch — rather
-     * than something only another model turn could answer. Every gate below must hold; missing
-     * any one means no deduction, so the run falls through to the repair turn (#677) and then the
-     * usual hold, exactly as before this feature existed.
-     * @param {Awaited<ReturnType<typeof spawnAgent>>} firstSpawned
-     * @returns {{commits: number}|undefined}
-     */
-    function deduceVerdict(firstSpawned) {
-      if (!step) return undefined; // narrowing from the outer scope doesn't cross this closure
-      if (step.deduceVerdict === false) return undefined;
-      if (firstSpawned.spawnError || firstSpawned.code !== 0 || firstSpawned.timedOut || cancelled.has(job.ref)) return undefined;
-      const kind = step.kind ?? "implement";
-      if (kind !== "implement" && kind !== "change") return undefined;
-      if (!hasWorktree || !headBefore) return undefined;
-      const key = meta?.stageKeys?.success;
-      const successStage = key ? /** @type {Record<string, unknown>} */ (step)[key] : undefined;
-      const target = typeof successStage === "string" ? stepForStage(cfg, successStage) : null;
-      if (!target || target.manual) return undefined;
-      const first = peekVerdict({ executor, localVerdictFile, step, agent, readVerdict }, firstSpawned.code);
-      if (!isNoValidVerdict(first)) return undefined;
-      if (endedWithQuestion(firstSpawned.lastText)) return undefined;
-      const commits = commitsSince(cfg, worktree, headBefore);
-      if (commits < 1) return undefined;
-      return { commits };
-    }
-
-    /**
-     * One receiver-driven repair turn after a clean exit with no valid verdict (#677): resume the
-     * same agent session with a fixed prompt, up to step.verdictRepairs times (default 1, 0
-     * disables), before a human is involved. Every gate below must hold just to ATTEMPT the first
-     * turn — missing any one of them (incl. an agent with no `resumeArgs`, e.g. hermes) means no
-     * repair spawn at all, so the run falls through to the usual hold exactly as before this
-     * feature existed. Reuses this run's creds, env, sandbox wrap and running-record callbacks;
-     * never a new run_start, never a new attempt — still the same run.
-     * @param {Awaited<ReturnType<typeof spawnAgent>>} firstSpawned
-     * @returns {Promise<{turns: number, repaired: boolean, results: any[], turnStats: any[], final: Awaited<ReturnType<typeof spawnAgent>>}|undefined>}
-     */
-    async function repairMissingVerdict(firstSpawned) {
-      if (!step) return undefined; // narrowing from the outer scope doesn't cross this closure
-      const verdictRepairs = step.verdictRepairs ?? 1;
-      if (!verdictRepairs) return undefined;
-      if (firstSpawned.spawnError || firstSpawned.code !== 0 || firstSpawned.timedOut || cancelled.has(job.ref)) return undefined;
-      if (!(step.requireVerdict ?? agent.defaults.requireVerdict ?? true)) return undefined;
-      if (!agent.resumeArgs) return undefined;
-      // opencode's sandbox HOME (its session db) is deleted at teardown — a fresh container for
-      // the repair turn would never find the session to resume.
-      if (sandboxed && agent.describe().sandboxResume === false) return undefined;
-      let sessionId = typeof firstSpawned.result?.session_id === "string" ? firstSpawned.result.session_id : undefined;
-      if (!sessionId) return undefined;
-      const first = peekVerdict({ executor, localVerdictFile, step, agent, readVerdict }, firstSpawned.code);
-      if (!isNoValidVerdict(first)) return undefined;
-
-      const totalMaxMs = maxMinutes ? maxMinutes * 60000 : 0;
-      /** @type {any[]} */
-      const results = [];
-      /** @type {any[]} */
-      const turnStats = [];
-      let final = firstSpawned;
-      let turns = 0;
-      while (turns < verdictRepairs) {
-        if (cancelled.has(job.ref)) break;
-        const remainingMs = totalMaxMs ? Math.max(0, totalMaxMs - (Date.now() - Date.parse(startedAt))) : 0;
-        if (totalMaxMs && remainingMs < 60000) break; // not enough of maxMinutes left for a repair turn
-        turns++;
-        const result = await spawnAgent(spawnOptions({ agent, cwd, logPath, promptFile, model, effort, provider, step, spawnStep, agentEnv, creds, verdictFile, sandboxedRun, executor, onPid, onTally }, { prompt: verdictRepairPrompt(verdictFile), maxMs: totalMaxMs ? remainingMs : 0, resumeSessionId: sessionId }));
-        results.push(result);
-        if (result.turnStats) turnStats.push(result.turnStats);
-        final = result;
-        // A crashed, timed-out or spawn-errored repair turn resolves the whole run that way —
-        // no further repair turns (finishStep reads this turn's code/timedOut as the run's).
-        if (result.spawnError || result.code !== 0 || result.timedOut) break;
-        if (typeof result.result?.session_id === "string") sessionId = result.result.session_id;
-        const after = peekVerdict({ executor, localVerdictFile, step, agent, readVerdict }, result.code);
-        if (!isNoValidVerdict(after)) return { turns, repaired: true, results, turnStats, final };
-      }
-      // Zero turns (a pre-loop cancel, or under 60s of maxMinutes left before the first turn) is
-      // not a repair attempt at all — fall through to the pre-feature hold, byte-identical to
-      // before this feature existed (no verdict_repair, no run_end.repaired).
-      if (turns === 0) return undefined;
-      return { turns, repaired: false, results, turnStats, final };
-    }
-
-    /**
-     * Run the step's `gate` after a clean advance (#710: agent-written, repaired, or deduced) —
-     * never for a hold/fail/changes/missing-verdict. A non-zero exit or timeout vetoes it: while
-     * `maxAttempts` isn't spent and at least 60s of `maxMinutes` remains, one more agent turn (a
-     * resume when possible, else a fresh one with the step's original prompt) gets the gate's
-     * output and a chance to fix it, then the gate runs again. Every gate run goes through this
-     * run's own executor (src/dispatch/gate.js) — never a host fallback for a sandboxed/ssh run.
-      * `capExhausted` on the returned gate means every attempt is spent with the gate still
-      * failing — finishStep forces a hold with `reason` then; any other `result: "fail"` (a
-      * crashed/timed-out repair turn, or one that wrote something other than "advance") already
-      * resolved through the normal spawned-fields path below, same as a verdict-repair turn —
-      * EXCEPT a deduced run (#680), whose clean repair turn writes no verdict file: finish.js
-      * would deduce the advance from `deduced` + missing-verdict and pass the failing gate, so
-      * that path returns `capExhausted` with a reason of its own.
-      * @param {Awaited<ReturnType<typeof spawnAgent>>} lastSpawned
-      * @param {string|undefined} sessionId
-      * @param {{commits: number}|undefined} deduced
-      * @returns {Promise<{gate: {result: "pass"|"fail", capExhausted?: boolean, reason?: string}, final: Awaited<ReturnType<typeof spawnAgent>>, results: any[], turnStats: any[]}>}
-      */
-     async function runGateLoop(lastSpawned, sessionId, deduced) {
-      if (!step) throw new Error("unreachable"); // narrowing from the outer scope doesn't cross this closure
-      const gateArgv = Array.isArray(step.gate) ? step.gate : ["sh", "-c", /** @type {string} */ (step.gate)];
-      const gateTimeoutMinutes = step.gateTimeoutMinutes ?? 10;
-      // The gate never gets run credentials or the tracker's/forge's own token names (#710 review):
-      // agentSpawnEnv's allowlist still admits them from process.env even with no `creds` passed in,
-      // since it's built from meta.agentEnv/forge.agentEnv regardless — so strip those names (and
-      // creds.strip, in case a minted credential env var shares a name with one) after building it.
-      const credNames = [...(meta?.agentEnv ?? []), ...(forge?.describe?.().agentEnv ?? []), ...(creds?.strip ?? [])];
-      const gateEnv = Object.fromEntries(Object.entries(agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env: spawnStep.env })).filter(([k]) => !envNameMatches(k, credNames)));
-      // A sandboxed gate gets the run's own sandbox env (#710 review): the git config pairs
-      // (safe.directory, commit identity) and the agent's own sandbox env — without them a gate
-      // that runs git in the container (npm test, git push) hits "dubious ownership". Filtered the
-      // same way the base env was: no credential names, and no GH_CONFIG_DIR, because
-      // mergeGitConfigEnv(creds?.env, …) folds creds' non-git keys (runGitEnv: the per-run token's
-      // credential helper) into sandboxedRun.env and the gate must not see them.
-      if (sandboxedRun?.env) {
-        for (const [k, v] of Object.entries(sandboxedRun.env)) {
-          if (v === undefined || k === "GH_CONFIG_DIR" || envNameMatches(k, credNames)) continue;
-          gateEnv[k] = v;
-        }
-      }
-      const totalMaxMs = maxMinutes ? maxMinutes * 60000 : 0;
-      const cap = step.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
-      /** @param {{exitCode: number|null, timedOut: boolean, tail: string}} g */
-      const detail = (g) => (g.timedOut ? `timed out after ${gateTimeoutMinutes} min` : `exit ${g.exitCode}`);
-      /** @param {{exitCode: number|null, timedOut: boolean, tail: string}} g */
-      const blockedReason = (g) => `gate failed (${detail(g)}) after ${store?.getAttempt(job.ref, step.id) ?? 0} attempt(s): ${g.tail.slice(-1000)}`;
-      /** @type {any[]} */
-      const results = [];
-      /** @type {any[]} */
-      const turnStats = [];
-      let final = lastSpawned;
-      let curSessionId = sessionId;
-      let n = 0;
-      for (;;) {
-        const runId = `gate-${path.basename(logPath, ".log")}-${n++}`;
-        const g = await runGate({ executor, sandboxedRun, argv: gateArgv, cwd, env: gateEnv, timeoutMs: gateTimeoutMinutes * 60000, ref: job.ref, stepId: step.id, runId, logPath, pids, executorRuns, cancelled, logLine });
-        // A cancel can kill the gate mid-run (its pid is in `pids`); don't treat that as a failed
-        // gate worth a repair turn — just stop, the same as the verdict-repair loop does.
-        if (cancelled.has(job.ref)) return { gate: { result: "fail" }, final, results, turnStats };
-        if (g.refused) return { gate: { result: "fail", capExhausted: true, reason: g.refused }, final, results, turnStats };
-        const pass = g.exitCode === 0 && !g.timedOut;
-        emit?.(pass ? "gate_pass" : "gate_fail", job.ref, step.id, { exitCode: g.exitCode, durationMs: g.durationMs, ...(g.timedOut ? { timedOut: true } : {}) });
-        if (pass) return { gate: { result: "pass" }, final, results, turnStats };
-
-        const ran = store?.getAttempt(job.ref, step.id) ?? 0;
-        if (ran >= cap) return { gate: { result: "fail", capExhausted: true, reason: blockedReason(g) }, final, results, turnStats };
-        const remainingMs = totalMaxMs ? Math.max(0, totalMaxMs - (Date.now() - Date.parse(startedAt))) : 0;
-        if (totalMaxMs && remainingMs < 60000) return { gate: { result: "fail", capExhausted: true, reason: blockedReason(g) }, final, results, turnStats };
-        if (cancelled.has(job.ref)) return { gate: { result: "fail" }, final, results, turnStats };
-
-        store?.bumpAttempt(job.ref, step.id);
-        const canResume = !!agent.resumeArgs && !!curSessionId && !(sandboxed && agent.describe().sandboxResume === false);
-        const repairText = gateRepairPrompt(verdictFile, g.tail, newNonce());
-        const turn = await spawnAgent(spawnOptions({ agent, cwd, logPath, promptFile, model, effort, provider, step, spawnStep, agentEnv, creds, verdictFile, sandboxedRun, executor, onPid, onTally }, { prompt: canResume ? repairText : `${prompt}\n\n${repairText}`, maxMs: totalMaxMs ? remainingMs : 0, ...(canResume ? { resumeSessionId: curSessionId } : {}) }));
-        results.push(turn);
-        if (turn.turnStats) turnStats.push(turn.turnStats);
-        final = turn;
-        if (turn.spawnError || turn.code !== 0 || turn.timedOut) return { gate: { result: "fail" }, final, results, turnStats };
-        if (typeof turn.result?.session_id === "string") curSessionId = turn.result.session_id;
-        const after = peekVerdict({ executor, localVerdictFile, step, agent, readVerdict }, turn.code);
-        if (after.outcome !== "advance") {
-          // A DEDUCED run (#680) whose repair turn, like the first, wrote no verdict file: finish.js
-          // would deduce the advance from `deduced` + missing-verdict and pass the failing gate —
-          // so this must hold here, carrying the gate's reason, instead.
-          if (deduced && after.reason === NO_VALID_VERDICT) return { gate: { result: "fail", capExhausted: true, reason: blockedReason(g) }, final, results, turnStats };
-          return { gate: { result: "fail" }, final, results, turnStats };
-        }
-        // advance again: loop back around to re-run the gate
-      }
-    }
+    // The run context (run-turns.js): the locals the turn runners below share, built after the
+    // wrap so it carries the final `prompt`/`sandboxedRun`. Replaces each runner closing over
+    // ~15 of runStep's own locals with one object.
+    /** @type {import('./run-turns.js').RunContext} */
+    const rc = { step, spawnStep, job, cfg, agent, executor, sandboxed, sandboxedRun, localVerdictFile, verdictFile, hasWorktree, headBefore, worktree, cwd, logPath, promptFile, model, effort, provider, agentEnv, creds, maxMinutes, startedAt, prompt, onPid, onTally, meta, forge, store, emit, cancelled, readVerdict, spawnAgent, pids, executorRuns, logLine };
 
     /** @type {Awaited<ReturnType<typeof spawnAgent>>} */
     let spawned;
@@ -461,14 +289,14 @@ export function createStep(ctx) {
     /** @type {{result: "pass"|"fail", capExhausted?: boolean, reason?: string, results: any[], turnStats: any[]}|undefined} */
     let gate;
     try {
-      spawned = refused ? { code: 1, result: null, quota: null, timedOut: undefined } : await spawnAgent(spawnOptions({ agent, cwd, logPath, promptFile, model, effort, provider, step, spawnStep, agentEnv, creds, verdictFile, sandboxedRun, executor, onPid, onTally }, { prompt, maxMs: maxMinutes * 60000 })).catch(async (e) => {
+      spawned = refused ? { code: 1, result: null, quota: null, timedOut: undefined } : await spawnAgent(spawnOptions(rc, { prompt, maxMs: maxMinutes * 60000 })).catch(async (e) => {
         if (energyRun) await stopEnergy(energyRun); // never leave the sampler counting a dead run
         throw e;
       });
       if (!refused) {
-        deduced = deduceVerdict(spawned);
+        deduced = deduceVerdict(rc, spawned);
         if (!deduced) {
-          const r = await repairMissingVerdict(spawned);
+          const r = await repairMissingVerdict(rc, spawned);
           if (r) {
             repair = { turns: r.turns, repaired: r.repaired, results: r.results, turnStats: r.turnStats };
             // The final repair turn's code/timedOut/lastText become the run's (finishStep resolves
@@ -484,14 +312,14 @@ export function createStep(ctx) {
         if (step.gate) {
           const cleanExit = spawned.code === 0 && !spawned.timedOut && !spawned.spawnError && !cancelled.has(job.ref) && !spawned.sandboxReport?.failed;
           if (cleanExit) {
-            const peeked = peekVerdict({ executor, localVerdictFile, step, agent, readVerdict }, spawned.code);
+            const peeked = peekVerdict(rc, spawned.code);
             if (deduced || peeked.outcome === "advance") {
               let sessionId = typeof spawned.result?.session_id === "string" ? spawned.result.session_id : undefined;
               if (repair?.results?.length) {
                 const lastR = repair.results[repair.results.length - 1];
                 if (typeof lastR.result?.session_id === "string") sessionId = lastR.result.session_id;
               }
-              const g = await runGateLoop(spawned, sessionId, deduced);
+              const g = await runGateLoop(rc, spawned, sessionId, deduced);
               gate = { ...g.gate, results: g.results, turnStats: g.turnStats };
               spawned = { ...spawned, code: g.final.code, timedOut: g.final.timedOut, lastText: g.final.lastText ?? spawned.lastText, sandboxReport: g.final.sandboxReport ?? spawned.sandboxReport, ...(g.final.spawnError ? { spawnError: g.final.spawnError } : {}) };
             }
