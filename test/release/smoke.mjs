@@ -37,7 +37,7 @@ import net from "node:net";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { builtinModules } from "node:module";
-import { waitForEvents } from "../../src/agent-api/index.js";
+import { waitForEvents } from "../../src/agent-api/events.js";
 import { readProfile } from "../../src/heartbeat.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");

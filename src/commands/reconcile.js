@@ -14,7 +14,7 @@
 // The reconcile body itself (`runReconcile`), the merge catch-up (`runMergeCatchup`) and
 // `MERGE_LOOKBACK_MS` live in ../engine/reconcile.js — they're engine logic the boot sequence
 // and the control ops also call; this file is just the CLI entry over them.
-import { loadConfig } from "../config/index.js";
+import { loadConfig } from "../config/load.js";
 import { requireStarted } from "../profile.js";
 import { createStore } from "../store/index.js";
 import { createAdapter } from "../trackers/index.js";

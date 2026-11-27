@@ -5,7 +5,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { resolveModelEffort, createDispatcher, parseVerdict, NO_VALID_VERDICT, QUESTION_HOLD, endedWithQuestion } from "../src/dispatch.js";
+import { resolveModelEffort } from "../src/dispatch/prompt.js";
+import { createDispatcher } from "../src/dispatch/index.js";
+import { parseVerdict, NO_VALID_VERDICT, QUESTION_HOLD, endedWithQuestion } from "../src/dispatch/verdict.js";
 import { createStore } from "../src/store/index.js";
 import { tmpDir, heldHarness } from "./_dispatch-helpers.js";
 

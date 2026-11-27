@@ -4,7 +4,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createDispatcher } from "../src/dispatch.js";
+import { createDispatcher } from "../src/dispatch/index.js";
 import { createStore } from "../src/store/index.js";
 
 export const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-dispatch-"));

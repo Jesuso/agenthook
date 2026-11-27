@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createDispatcher } from "../src/dispatch.js";
+import { createDispatcher } from "../src/dispatch/index.js";
 import { pickTurnStats } from "../src/dispatch/spawn.js";
 import { createStore } from "../src/store/index.js";
 import { tmpDir, timeoutRun } from "./_dispatch-helpers.js";

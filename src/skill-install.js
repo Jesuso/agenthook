@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { installDir } from "./config/index.js";
+import { installDir } from "./config/locations.js";
 
 export const SKILL_NAME = "agenthook";
 export const SKILL_SRC = path.join(installDir, "skills", SKILL_NAME);

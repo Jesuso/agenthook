@@ -83,7 +83,7 @@ trigger/run/reconcile/catchup table.
 | File | Role |
 |------|------|
 | `bin/agenthook.js` | CLI router → `src/commands/*` (init/start/stop/ls/status/follow/agents/cleanup/webhook/catchup/reconcile/doctor). |
-| `src/engine.js`   | HTTP receiver + local crash recovery + heartbeat + shutdown. Verifies (via adapter), ACKs fast, dispatches async. |
+| `src/engine/`   | HTTP receiver + local crash recovery + heartbeat + shutdown. Verifies (via adapter), ACKs fast, dispatches async. |
 | `src/trackers/*`  | One tracker adapter per platform. Owns all platform specifics. |
 | `src/ingress/*`   | One ingress adapter per exposure method (`ngrok`, `manual`/`hosted`). |
 | `src/store/`    | JSON persistence: handshake secrets + dedup set + in-flight `running.json` + waiting-job `queue.json` + `changes`-loop counters (`attempts.json`). |

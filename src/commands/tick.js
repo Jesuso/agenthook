@@ -4,7 +4,9 @@
 // text digest; --json prints the exact MCP payload. Multi-profile mode (`--all` or ≥2 names):
 // --json prints an array of per-profile payloads, text one digest per profile, and --cursor is
 // a JSON object `{stateKey: offset}`.
-import { defaultProfileKey, pickProfile, pickProfiles, parseCursorMap, readTick } from "../agent-api/index.js";
+import { defaultProfileKey, pickProfile, pickProfiles } from "../agent-api/profiles.js";
+import { parseCursorMap } from "../agent-api/events.js";
+import { readTick } from "../agent-api/tick.js";
 import { ctxOverflow } from "../models.js";
 import { overrideEntries } from "../overrides.js";
 

@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { shQuote } from "../src/dispatch/executor-ssh.js";
 import { sandboxVerdictPathFor } from "../src/dispatch/spawn.js";
-import { createDispatcher } from "../src/dispatch.js";
+import { createDispatcher } from "../src/dispatch/index.js";
 import { createStore } from "../src/store/index.js";
 import { initGitRepo, withFakeSsh } from "./_ssh-helpers.js";
 

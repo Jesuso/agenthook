@@ -1,4 +1,4 @@
-import { registryDir } from "../config/index.js";
+import { registryDir } from "../config/locations.js";
 import { controlRequest, resolveProfileSock } from "../control/client.js";
 
 /** Control-socket call budgets: board/PR reads hit the tracker/forge; reconcile/run/release can walk a whole board. */

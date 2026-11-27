@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { registryDir } from "../src/config/index.js";
+import { registryDir } from "../src/config/locations.js";
 import { topMultiRead } from "../src/commands/top.js";
 import { allLayout, detailAll, orderProfiles, renderAll, renderTop, selectableAll } from "../src/top.js";
 import { NOW, iso, visible, makeOut, makeInput, makeNextEvent, makeTimers, pump, start } from "./_top-helpers.js";

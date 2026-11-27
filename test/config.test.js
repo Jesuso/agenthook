@@ -7,7 +7,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileEnvKeys, installDir, loadConfig, loadEnv, peekConfig, rawAgentBins, registryDir, withoutFileEnv } from "../src/config/index.js";
+import { fileEnvKeys, loadEnv, withoutFileEnv } from "../src/config/env.js";
+import { installDir, registryDir } from "../src/config/locations.js";
+import { loadConfig, peekConfig, rawAgentBins } from "../src/config/load.js";
 import { detachedEnv } from "../src/respawn.js";
 
 /** Write a config and load it. @param {any} over @param {any[]} pipeline */

@@ -1,7 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { StatusBadge, STATUS_CLASS, Pill, IconButton, Menu, Card, EmptyState, Tooltip, Segmented } from "./index";
+import { StatusBadge, STATUS_CLASS } from "./StatusBadge";
+import { Pill } from "./Pill";
+import { IconButton } from "./IconButton";
+import { Menu } from "./Menu";
+import { Card } from "./Card";
+import { EmptyState } from "./EmptyState";
+import { Tooltip } from "./Tooltip";
+import { Segmented } from "./Segmented";
 import { STATUS_ORDER } from "../tickets";
 
 describe("StatusBadge", () => {

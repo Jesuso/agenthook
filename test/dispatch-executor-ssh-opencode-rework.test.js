@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 import { withFakeSsh, spawnCtx } from "./_ssh-helpers.js";
 import { shQuote, createSshExecutor } from "../src/dispatch/executor-ssh.js";
 import { opencode, buildOpencodeArgs } from "../src/agents/opencode.js";
-import { createDispatcher } from "../src/dispatch.js";
+import { createDispatcher } from "../src/dispatch/index.js";
 import { createStore } from "../src/store/index.js";
 import { promptPathFor } from "../src/dispatch/prompt.js";
 

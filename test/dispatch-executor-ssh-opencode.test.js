@@ -12,10 +12,10 @@ import { execFileSync } from "node:child_process";
 import { withFakeSsh, spawnCtx } from "./_ssh-helpers.js";
 import { createSshExecutor } from "../src/dispatch/executor-ssh.js";
 import { opencode, buildOpencodeArgs } from "../src/agents/opencode.js";
-import { validateRawConfig } from "../src/config/index.js";
+import { validateRawConfig } from "../src/config/validate/index.js";
 import { REMOTE_AGENTS } from "../src/agents/names.js";
 import { remoteHarnessChecks } from "../src/commands/doctor.js";
-import { createDispatcher } from "../src/dispatch.js";
+import { createDispatcher } from "../src/dispatch/index.js";
 import { createStore } from "../src/store/index.js";
 
 /** A tiny git repo with one commit — a worktree-step dispatch run needs a real hub repo (#690

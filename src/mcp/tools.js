@@ -2,34 +2,20 @@
 // work with the receiver down; `board`/`prs` and every write go to the live receiver over its
 // control socket (src/ops.js), which audits writes. `readOnly` omits the write tools entirely —
 // they are neither listed nor callable.
-import { registryDir } from "../config/index.js";
+import { registryDir } from "../config/locations.js";
 import { HIDDEN_BY_DEFAULT } from "../events.js";
-import {
-  pickProfile,
-  pickProfiles,
-  cursorMapError,
-  mergeTagged,
-  waitForEventsMulti,
-  readStatus,
-  readRunStats,
-  readProfiles,
-  readTick,
-  readRuns,
-  readRunLogTail,
-  readEventsSince,
-  waitForEvents,
-  eventsCursor,
-  compactEvent,
-  etagOf,
-  live,
-  readEpics,
-} from "../agent-api/index.js";
+import { pickProfile, pickProfiles, readProfiles } from "../agent-api/profiles.js";
+import { cursorMapError, mergeTagged, waitForEventsMulti, readEventsSince, waitForEvents, eventsCursor, compactEvent } from "../agent-api/events.js";
+import { readStatus, readRunStats, etagOf } from "../agent-api/status.js";
+import { readTick, readEpics } from "../agent-api/tick.js";
+import { readRuns, readRunLogTail } from "../agent-api/runs.js";
+import { live } from "../agent-api/live.js";
 import { readEventsTail } from "../reader/rows.js";
 import { validateArgs } from "./schema.js";
 import { listProfiles } from "../heartbeat.js";
 import path from "node:path";
 import fs from "node:fs";
-import { loadConfig } from "../config/index.js";
+import { loadConfig } from "../config/load.js";
 import { AUTHORING, guideTopics, loadGuide, renderAuthoring } from "../guide.js";
 export { loadGuide };
 

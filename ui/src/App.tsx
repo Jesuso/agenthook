@@ -28,8 +28,8 @@ import type { Route, View } from "./route";
 import { connectionState } from "./connection";
 import type { ConnectionState } from "./connection";
 import { useDocked } from "./layout";
-import { LiveContext, useLive } from "./components";
-import type { MenuItem } from "./components";
+import { LiveContext, useLive } from "./components/LiveTime";
+import type { MenuItem } from "./components/Menu";
 import { I18nProvider, rich, useT } from "./i18n/react";
 import { Overview } from "./Overview";
 

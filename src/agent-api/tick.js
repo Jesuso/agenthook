@@ -1,5 +1,5 @@
 import path from "node:path";
-import { registryDir } from "../config/index.js";
+import { registryDir } from "../config/locations.js";
 import { EPIC_REF_RE, epicDetail, epicStats, localEpics } from "../epics.js";
 import { readProfileState, buildRows } from "../reader/rows.js";
 import { readHistory } from "../reader/stats.js";

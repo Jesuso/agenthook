@@ -4,7 +4,7 @@
 // pidfile pid being alive; the heartbeat carries the rest (port, url, queue, …).
 import fs from "node:fs";
 import path from "node:path";
-import { registryDir } from "./config/index.js";
+import { registryDir } from "./config/locations.js";
 import { isFreshStateDir, readMarker } from "./profile.js";
 import { reposOf } from "./repos.js";
 

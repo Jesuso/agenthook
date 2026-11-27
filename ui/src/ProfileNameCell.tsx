@@ -1,6 +1,7 @@
 import type { ProfileView } from "./contract";
 import { formatDate, profileBadge, profileLabel, quotaPausedTitle } from "./format";
-import { FullAutoShield, Pill } from "./components";
+import { FullAutoShield } from "./components/FullAutoShield";
+import { Pill } from "./components/Pill";
 import { useT } from "./i18n/react";
 
 /** A profile's name cell: label, fullAuto shield, ghost/config-missing badge, and the visible (tildified) config path. */

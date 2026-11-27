@@ -3,7 +3,7 @@
 // (server-owns-ingress); these exist for hosted setups where you want to wire the
 // hook once against a stable URL without running the receiver.
 import fs from "node:fs";
-import { loadConfig } from "../config/index.js";
+import { loadConfig } from "../config/load.js";
 import { requireStarted } from "../profile.js";
 import { createStore } from "../store/index.js";
 import { createAdapter } from "../trackers/index.js";

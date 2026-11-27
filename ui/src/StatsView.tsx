@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { DayStats, ProfileView, StatsView as StatsData } from "./contract";
-import { Segmented, ProfileMark } from "./components";
+import { Segmented } from "./components/Segmented";
+import { ProfileMark } from "./components/ProfileMark";
 import type { FeedEntry } from "./feed";
 import { formatCost, formatSpend, profileLabel } from "./format";
 import { MIN_RUNS_FOR_RATES, progress } from "./zones";

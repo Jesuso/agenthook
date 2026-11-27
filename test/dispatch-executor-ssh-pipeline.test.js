@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { shQuote, createSshExecutor } from "../src/dispatch/executor-ssh.js";
-import { createDispatcher } from "../src/dispatch.js";
+import { createDispatcher } from "../src/dispatch/index.js";
 import { createStore } from "../src/store/index.js";
 import { initGitRepo, withFakeSsh, spawnCtx, fakeAgent, writeCommitAgent, headOf, withArgvRecordingGit } from "./_ssh-helpers.js";
 

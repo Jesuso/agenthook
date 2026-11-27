@@ -59,10 +59,9 @@ forge) → `recoverInterrupted()` (local `running.json` only, no board poll) →
 each step is ordered that way: [docs/internals/engine.md](docs/internals/engine.md).
 
 The normalized unit passed engine-wide is the **job**: `{ kind: 'pipeline'|'merge', ref, stepId,
-dedupKey, comment? }`. Adapters produce jobs; the engine only ever sees jobs. `src/engine.js` and
-`src/dispatch.js` are one-line re-export shims — the public path every importer uses — over
-`src/engine/` and `src/dispatch/`, which are split by concern; see
-[docs/internals/engine.md](docs/internals/engine.md) and
+dedupKey, comment? }`. Adapters produce jobs; the engine only ever sees jobs. `src/engine/` and
+`src/dispatch/` are split by concern; `index.js` in each is the entry point (`createEngine`,
+`createDispatcher`) — see [docs/internals/engine.md](docs/internals/engine.md) and
 [docs/internals/dispatch.md](docs/internals/dispatch.md) for the module breakdown.
 
 ## Rules agents must not miss
@@ -109,6 +108,9 @@ returning the wrong shape fails `npm run typecheck` — that's the whole point o
 - A new test file stays under ~25 KB; add tests to an existing file only if it stays under that.
   Shared fixtures go in an underscore-prefixed `test/_<area>-helpers.js` — not matched by the
   `test/*.test.js` glob `npm test` runs.
+- No barrels: a folder may have several files that others import — import from the file that
+  defines what you use, not from a file that only re-exports it (`test/no-barrels.test.js`
+  enforces this).
 
 ## Security posture
 

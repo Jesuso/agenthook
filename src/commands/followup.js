@@ -3,7 +3,8 @@
 // (src/followup.js). `list` reads the state dir (receiver up or not). `done` clears one ref's
 // checks: through the live receiver when it is up, else straight on its state dir.
 import path from "node:path";
-import { defaultProfileKey, pickProfile, pickProfiles, live } from "../agent-api/index.js";
+import { defaultProfileKey, pickProfile, pickProfiles } from "../agent-api/profiles.js";
+import { live } from "../agent-api/live.js";
 import { pendingFollowUp, markFollowUpDone } from "../followup.js";
 import { readJson, isObj } from "../reader/rows.js";
 import { createStore } from "../store/index.js";

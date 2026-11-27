@@ -1,6 +1,8 @@
 import { connectionLabel } from "./connection";
 import type { ConnectionState } from "./connection";
-import { Pill, ProfileMark, ReadingPanel } from "./components";
+import { Pill } from "./components/Pill";
+import { ProfileMark } from "./components/ProfileMark";
+import { ReadingPanel } from "./components/ReadingPanel";
 import { VIEWS } from "./route";
 import type { View } from "./route";
 import type { ProfileView } from "./contract";

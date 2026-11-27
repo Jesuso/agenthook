@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { startArgv, restartSpawnArgs, systemdScopeAvailable, detachedSpawnSpec, classifyCgroup, spawnDetached, detachedEnv, RESTART_EXIT_CODE, REFUSED_EXIT_CODE } from "../src/respawn.js";
 import { parse } from "../bin/agenthook.js";
-import { loadEnv } from "../src/config/index.js";
+import { loadEnv } from "../src/config/env.js";
 
 const cfg = { installDir: "/opt/agenthook", configPath: "/p/agenthook.config.json" };
 const bin = path.join("/opt/agenthook", "bin", "agenthook.js");

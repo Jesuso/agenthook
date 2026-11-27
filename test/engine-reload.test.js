@@ -1,7 +1,7 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createReloadRequester } from "../src/engine.js";
+import { createReloadRequester } from "../src/engine/controllers.js";
 import { createQueue } from "../src/queue.js";
 
 const step = (o = {}) => ({ id: "code", sourceLabel: "s", successLabel: "d", harness: "h", model: "sonnet", ...o });

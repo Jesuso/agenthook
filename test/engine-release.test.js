@@ -1,7 +1,7 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { releaseOnSettle, crashRecord } from "../src/engine.js";
+import { releaseOnSettle, crashRecord } from "../src/engine/recovery.js";
 
 const fakeStore = () => {
   const s = { reloads: 0, unmarked: [], reloadSeen: () => s.reloads++, unmarkSeen: (k) => s.unmarked.push(k) };

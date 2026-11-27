@@ -13,9 +13,9 @@ import net from "node:net";
 import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { controlRequest } from "../src/control/client.js";
-import { waitForEvents } from "../src/agent-api/index.js";
+import { waitForEvents } from "../src/agent-api/events.js";
 import { readProfileState, buildRows } from "../src/reader/rows.js";
-import { promptPathFor } from "../src/dispatch/index.js";
+import { promptPathFor } from "../src/dispatch/prompt.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BIN = path.join(HERE, "..", "bin", "agenthook.js");

@@ -7,10 +7,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parseFollowUp, followUpDecision, followUpTiers, pendingFollowUp, markFollowUpDone, MAX_FOLLOWUP_CHECKS, MAX_FOLLOWUP_CHARS } from "../src/followup.js";
-import { createDispatcher, parseVerdict } from "../src/dispatch.js";
+import { createDispatcher } from "../src/dispatch/index.js";
+import { parseVerdict } from "../src/dispatch/verdict.js";
 import { createStore } from "../src/store/index.js";
-import { registryDir } from "../src/config/index.js";
-import { readStatus } from "../src/agent-api/index.js";
+import { registryDir } from "../src/config/locations.js";
+import { readStatus } from "../src/agent-api/status.js";
 import { readProfile } from "../src/heartbeat.js";
 import { followup } from "../src/commands/followup.js";
 

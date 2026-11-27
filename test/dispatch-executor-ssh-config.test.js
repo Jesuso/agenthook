@@ -8,7 +8,8 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { shQuote, framePayload, remoteEnvAllowlist, remoteProbeArgv } from "../src/dispatch/executor-ssh.js";
 import { createExecutors, executorFor, reapAll } from "../src/dispatch/executor.js";
-import { validateRawConfig, REMOTE_TRACKERS } from "../src/config/index.js";
+import { validateRawConfig } from "../src/config/validate/index.js";
+import { REMOTE_TRACKERS } from "../src/config/validate/harnesses.js";
 import { createGithubAdapter } from "../src/trackers/github.js";
 import { createGithubProjectsAdapter } from "../src/trackers/github-projects.js";
 

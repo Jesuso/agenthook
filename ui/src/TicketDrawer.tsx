@@ -30,7 +30,11 @@ import {
 import { chronological, isBounce, stepOrder, storyBlocks, timeScale } from "./runlog";
 import type { StoryBlock } from "./runlog";
 import type { LogBuffer, StreamStatus } from "./logview";
-import { Elapsed, IconButton, Pill, SpeakButton, StatusBadge, useAgo } from "./components";
+import { Elapsed, useAgo } from "./components/LiveTime";
+import { IconButton } from "./components/IconButton";
+import { Pill } from "./components/Pill";
+import { SpeakButton } from "./components/SpeakButton";
+import { StatusBadge } from "./components/StatusBadge";
 import { useT } from "./i18n/react";
 import { summaryRequest, summaryText } from "./ticketSummary";
 

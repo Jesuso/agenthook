@@ -9,8 +9,12 @@ import type { ReleaseOutcome } from "./config";
 import { ReleasePanel } from "./ReleasePanel";
 import { BoardFrame, ROW, SUBGRID, StepName, Track } from "./Departures";
 import { useArrivals } from "./motion";
-import { Ago, Menu, Pill, SpeakButton, TicketId } from "./components";
-import type { MenuItem } from "./components";
+import { Ago } from "./components/LiveTime";
+import { Menu } from "./components/Menu";
+import { Pill } from "./components/Pill";
+import { SpeakButton } from "./components/SpeakButton";
+import { TicketId } from "./components/TicketId";
+import type { MenuItem } from "./components/Menu";
 import { useT } from "./i18n/react";
 import type { MessageKey, T } from "./i18n";
 

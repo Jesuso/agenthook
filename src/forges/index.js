@@ -5,8 +5,6 @@
 import { createGithubForge, GITHUB_FORGE_AGENT_ENV, githubForgeEgressHosts } from "./github.js";
 import { createGitlabForge, GITLAB_FORGE_AGENT_ENV, gitlabForgeEgressHosts } from "./gitlab.js";
 
-export { isForgePath } from "./github.js";
-
 /** @type {Record<string, import('../types/index.js').ForgeFactory>} */
 export const FORGES = {
   github: createGithubForge,

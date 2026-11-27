@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { registryDir } from "../src/config/index.js";
+import { registryDir } from "../src/config/locations.js";
 import { watch } from "../src/commands/watch.js";
 import { tick } from "../src/commands/tick.js";
 

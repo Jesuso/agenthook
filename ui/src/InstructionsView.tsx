@@ -11,7 +11,10 @@ import { DiffLegend, Modal, useConfirm } from "./Modal";
 import { PromptPreview } from "./PromptPreview";
 import { classifySaveResponse, freshSave, liveEffectNote, saveErrorText, saveReducer, saveRequest } from "./save";
 import type { SaveAction, SaveState } from "./save";
-import { EmptyState, Pill, ProfileMark, Segmented } from "./components";
+import { EmptyState } from "./components/EmptyState";
+import { Pill } from "./components/Pill";
+import { ProfileMark } from "./components/ProfileMark";
+import { Segmented } from "./components/Segmented";
 import { useT } from "./i18n/react";
 
 type ListState = { kind: "loading" } | { kind: "error"; status: number } | { kind: "ok"; body: InstructionsBody };

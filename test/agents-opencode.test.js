@@ -21,7 +21,7 @@ const { resumeCommand, resumeArgs, lookedIn } = await import("../src/commands/re
 const { transcriptDirs } = await import("../src/commands/follow.js");
 const { worktreePath } = await import("../src/worktree.js");
 const { claudeProjectDir } = await import("../src/paths.js");
-const { createDispatcher } = await import("../src/dispatch.js");
+const { createDispatcher } = await import("../src/dispatch/index.js");
 const { createStore } = await import("../src/store/index.js");
 
 const FIXTURE = fs.readFileSync(new URL("./fixtures/opencode-stream.jsonl", import.meta.url), "utf8");

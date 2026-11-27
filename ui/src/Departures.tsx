@@ -5,7 +5,10 @@ import { readSteps } from "./configEdit";
 import { configUrl, parseCheck } from "./config";
 import type { Board } from "./board";
 import { ticketTitle } from "./format";
-import { Ago, Elapsed, Pill, ShowHide, TicketId, Waiting } from "./components";
+import { Ago, Elapsed, Waiting } from "./components/LiveTime";
+import { Pill } from "./components/Pill";
+import { ShowHide } from "./components/ShowHide";
+import { TicketId } from "./components/TicketId";
 import { useT } from "./i18n/react";
 import { useArrivals, useSlide } from "./motion";
 

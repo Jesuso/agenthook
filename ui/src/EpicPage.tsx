@@ -5,7 +5,9 @@ import { etaLabel, groupTickets, perDayLabel, progressOf, safeUrl } from "./epic
 import { EpicStageBar, StageKey, segLabel } from "./EpicStageBar";
 import type { Seg } from "./EpicStageBar";
 import { ReleasePanel } from "./ReleasePanel";
-import { EmptyState, StatusBadge, useAgo } from "./components";
+import { EmptyState } from "./components/EmptyState";
+import { StatusBadge } from "./components/StatusBadge";
+import { useAgo } from "./components/LiveTime";
 import { dismissKey } from "./deferredDismiss";
 import { PR_NEEDS_TEXT } from "./zones";
 import { prNumber } from "./tickets";

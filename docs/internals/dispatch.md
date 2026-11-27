@@ -2,9 +2,8 @@
 
 ## Key files
 
-- `src/dispatch.js` — a one-line re-export shim (the public path every importer uses) over
-  `src/dispatch/`, split by concern around one per-dispatcher state object (`context.js` typedefs;
-  `index.js` = `createDispatcher` wiring + `runClaude`/`cancel`): `prompt.js`/`verdict.js`/`pr.js`
+- `src/dispatch/` — split by concern around one per-dispatcher state object (`context.js` typedefs;
+  `index.js` = `createDispatcher`, the entry point, wiring + `runClaude`/`cancel`): `prompt.js`/`verdict.js`/`pr.js`
   pure helpers, factories `spawn.js` (spawn, log streaming, timeouts/kill; `agentSpawnEnv` = the
   receiver env filtered to `src/agent-env.js`'s allowlist — base + agent `envPassthrough` + tracker/forge
   `agentEnv` + `cfg.agentEnvPassthrough` — minus the run credentials' `strip`, under `agent.env`, then the run

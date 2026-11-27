@@ -8,8 +8,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathsOverlap, findBlocker, sanitizePaths, unionPaths, staleOverlaps, MAX_PATHS } from "../src/overlap.js";
-import { createDispatcher } from "../src/dispatch.js";
-import { createOverlapReleaser, recoverInterrupted } from "../src/engine.js";
+import { createDispatcher } from "../src/dispatch/index.js";
+import { createOverlapReleaser, recoverInterrupted } from "../src/engine/recovery.js";
 import { createStore } from "../src/store/index.js";
 
 const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-overlap-"));

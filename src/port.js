@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { DEFAULT_PORT, registryDir } from "./config/index.js";
+import { DEFAULT_PORT, registryDir } from "./config/locations.js";
 import { readMarker } from "./profile.js";
 
 /** Is a TCP port already bound on 127.0.0.1? @param {number} port @returns {Promise<boolean>} */

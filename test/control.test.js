@@ -6,7 +6,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { startControl, listenPrivate, checkSockPath } from "../src/control/server.js";
-import { createRestartRequester } from "../src/engine.js";
+import { createRestartRequester } from "../src/engine/controllers.js";
 import { createQueue } from "../src/queue.js";
 
 /** @param {string} dir */

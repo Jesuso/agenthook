@@ -3,7 +3,10 @@ import type { ProfileView, TicketRow, TicketStatus } from "./contract";
 import { formatModel, formatTicketSpend, profileLabel, ticketTitle } from "./format";
 import { filterTickets, pageLimit, prNumber, showMore, sortTickets, statusCounts, ticketEpics, PAGE_SIZE, STATUS_ORDER } from "./tickets";
 import type { Page, StatusFilter } from "./tickets";
-import { Ago, Segmented, StatusBadge, Tooltip } from "./components";
+import { Ago } from "./components/LiveTime";
+import { Segmented } from "./components/Segmented";
+import { StatusBadge } from "./components/StatusBadge";
+import { Tooltip } from "./components/Tooltip";
 import { useT } from "./i18n/react";
 import type { MessageKey } from "./i18n";
 

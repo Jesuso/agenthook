@@ -14,7 +14,7 @@
 //   agenthook resume <ref> <sel> --exec     run it now (interactive; inherits terminal)
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
-import { loadConfig } from "../config/index.js";
+import { loadConfig } from "../config/load.js";
 import { createStore } from "../store/index.js";
 import { worktreePath } from "../worktree.js";
 import { branchName } from "../worktree.js";

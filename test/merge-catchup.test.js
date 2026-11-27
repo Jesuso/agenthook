@@ -10,7 +10,7 @@ import path from "node:path";
 import http from "node:http";
 import { runMergeCatchup, MERGE_LOOKBACK_MS } from "../src/engine/reconcile.js";
 import { createStore } from "../src/store/index.js";
-import { createDispatcher } from "../src/dispatch.js";
+import { createDispatcher } from "../src/dispatch/index.js";
 import { createOps } from "../src/ops.js";
 import { createQueue } from "../src/queue.js";
 import { createServe } from "../src/engine/boot.js";

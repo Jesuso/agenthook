@@ -1,6 +1,5 @@
-// Re-export of the server ↔ browser contract (src/shared/contract.js). No duplicated
-// shapes — the frontend types against the same JSDoc typedefs the server returns (plus the
-// shared runtime pieces: SENSITIVE_FIELDS and the import-free sensitiveChanges diff).
+// The frontend's typed view of the server ↔ browser contract (src/shared/contract.js). No
+// duplicated shapes — it types against the same JSDoc typedefs the server returns.
 export type { ProfileView, LastEvent, RecentRun, QuotaReading, QuotaTrip, TicketStatus, TicketRow, PrNeeds, Snapshot, UiEvent, RunView, LogFrame, InstructionFileView, InstructionsView, PromptPreview, ConfigView, RemovePreview, DigestView, TicketEpic, SandboxReadiness } from "../../src/shared/contract.js";
 export type { StatsView, DayStats } from "../../src/reader/stats.js";
 export type { StatsResult, StatsGroup } from "../../src/stats.js";
@@ -11,5 +10,3 @@ import type { EpicStats, EpicDetail } from "../../src/epics.js";
 export type EpicsResponse = { at: string; live: boolean; supported: boolean; epics: EpicStats[] };
 /** `GET /api/epics/<ref>` body; `epic` is null only with `supported:false`. */
 export type EpicResponse = { at: string; live: boolean; supported: boolean; epic: EpicDetail | null };
-export { SENSITIVE_FIELDS } from "../../src/shared/contract.js";
-export { sensitiveChanges } from "../../src/shared/sensitive.js";

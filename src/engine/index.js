@@ -44,7 +44,7 @@ import { createBoardDone } from "../board-done.js";
 import { createQueue } from "../queue.js";
 import { createPuller } from "../pull.js";
 import { queueStageOf } from "../pipeline.js";
-import { createDispatcher } from "../dispatch.js";
+import { createDispatcher } from "../dispatch/index.js";
 import { createExecutors } from "../dispatch/executor.js";
 import { verdictPathFor, sandboxVerdictPathFor } from "../dispatch/spawn.js";
 import { createHeartbeat, repositoryOf } from "../heartbeat.js";
@@ -55,7 +55,8 @@ import { createOps } from "../ops.js";
 import { readQuota, writeQuota } from "../quota-file.js";
 import { createEmitter } from "../events.js";
 import { createSinks } from "../sinks.js";
-import { loadConfig, respawnEnv } from "../config/index.js";
+import { loadConfig } from "../config/load.js";
+import { respawnEnv } from "../config/env.js";
 import { harnessImages } from "../sandbox/container.js";
 import { needsEgressProxy } from "../sandbox/egress.js";
 import { DEFAULT_IMAGE } from "../sandbox/image.js";
@@ -68,11 +69,6 @@ import { createExits, runDecommission } from "./teardown.js";
 import { createRequestHandler } from "./http.js";
 import { createServe } from "./boot.js";
 import { seedOverrides } from "../overrides.js";
-
-export { crashRecord, releaseOnSettle, createOverlapReleaser, recoverInterrupted } from "./recovery.js";
-export { intakeEvent, createPushSink } from "./intake.js";
-export { createRestartRequester, createDecommissionRequester, createQuotaControl, createHarnessQuota, createReloadRequester } from "./controllers.js";
-export { unregisterAll, runDecommission, waitForExit, finishTeardown } from "./teardown.js";
 
 /**
  * @param {import('../types/index.js').Config} cfg

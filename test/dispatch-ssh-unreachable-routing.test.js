@@ -12,7 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { withFailingSsh, withFlippingSsh, initGitRepo } from "./_ssh-helpers.js";
 import { createStore } from "../src/store/index.js";
-import { createDispatcher } from "../src/dispatch.js";
+import { createDispatcher } from "../src/dispatch/index.js";
 import { createQueue } from "../src/queue.js";
 
 /** Wait (with a generous timeout) for `cond` — a hung run must fail the test, not stall the suite.

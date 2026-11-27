@@ -1,4 +1,5 @@
-import { registryDir, peekConfig } from "../config/index.js";
+import { registryDir } from "../config/locations.js";
+import { peekConfig } from "../config/load.js";
 import { listProfiles } from "../heartbeat.js";
 
 /**

@@ -7,10 +7,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadConfig, peekConfig, validateRawConfig, registryDir } from "../src/config/index.js";
+import { loadConfig, peekConfig } from "../src/config/load.js";
+import { validateRawConfig } from "../src/config/validate/index.js";
+import { registryDir } from "../src/config/locations.js";
 import { controlSockPath } from "../src/paths.js";
 import { createHeartbeat } from "../src/heartbeat.js";
-import { createEngine } from "../src/engine.js";
+import { createEngine } from "../src/engine/index.js";
 import { writeProfileMarker, findRenameConflict, claimStateDir, isFreshStateDir, registeredProfiles } from "../src/profile.js";
 
 const made = new Set();

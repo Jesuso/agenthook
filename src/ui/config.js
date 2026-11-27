@@ -7,7 +7,7 @@
 // save always answers `restartNeeded: true`.
 import fs from "node:fs";
 import path from "node:path";
-import { literalSecrets, validateRawConfig } from "../config/index.js";
+import { literalSecrets, validateRawConfig } from "../config/validate/index.js";
 import { listProfiles } from "../heartbeat.js";
 import { profileDir } from "../reader/run-logs.js";
 import { isObj, readJson, sha256 } from "../reader/rows.js";

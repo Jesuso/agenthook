@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { worktreeDir } from "../src/paths.js";
-import { loadConfig } from "../src/config/index.js";
+import { loadConfig } from "../src/config/load.js";
 
 export const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "ah-doctor-"));
 

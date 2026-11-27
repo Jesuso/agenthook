@@ -4,7 +4,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { registryDir } from "../config/index.js";
+import { registryDir } from "../config/locations.js";
 import { listProfiles } from "../heartbeat.js";
 import { tildify } from "../profile.js";
 import { CANCELLED_REASON } from "../events.js";

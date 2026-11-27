@@ -10,7 +10,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { createExecutors, executorFor } from "../src/dispatch/executor.js";
-import { createDispatcher } from "../src/dispatch.js";
+import { createDispatcher } from "../src/dispatch/index.js";
 import { createStore } from "../src/store/index.js";
 import { createSandbox } from "../src/sandbox/index.js";
 import { mangle } from "../src/paths.js";

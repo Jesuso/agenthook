@@ -13,8 +13,8 @@ import { readQuota, writeQuota } from "../src/quota-file.js";
 import { createQueue } from "../src/queue.js";
 import { createOps } from "../src/ops.js";
 import { createStore } from "../src/store/index.js";
-import { createQuotaControl } from "../src/engine.js";
-import { validateRawConfig } from "../src/config/index.js";
+import { createQuotaControl } from "../src/engine/controllers.js";
+import { validateRawConfig } from "../src/config/validate/index.js";
 
 const FIXTURE = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "claude-rate-limit-event.jsonl"), "utf8");
 const RESET_5H = "2026-10-18T18:10:00.000Z"; // 1792347000 s

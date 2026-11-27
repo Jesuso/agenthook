@@ -5,7 +5,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // on a manual step" rule where it applies.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateRawConfig } from "../src/config/index.js";
+import { validateRawConfig } from "../src/config/validate/index.js";
 import { raw } from "./_config-validate-helpers.js";
 
 test("pipeline step maxConcurrent: a positive integer passes; 0, -1, 1.5, \"2\" and a manual step fail", () => {
