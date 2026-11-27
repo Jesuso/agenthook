@@ -5,7 +5,7 @@
 // events and `seen`.
 import { loadConfig } from "../config.js";
 import { requireStarted } from "../profile.js";
-import { controlRequest } from "../ui/control-client.js";
+import { controlRequest } from "../control/client.js";
 
 export const RECHECK_USAGE = "usage: agenthook recheck <ref> | --all";
 

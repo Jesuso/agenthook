@@ -1,4 +1,4 @@
-// `ah ui` client for the receiver's control.sock (src/control.js, docs/web-ui.md § v3). Connects,
+// `ah ui` client for the receiver's control.sock (src/control/server.js, docs/web-ui.md § v3). Connects,
 // skips the one-line "hello", writes a single `{id, cmd, args}` request and resolves on the
 // matching reply — never writes any state dir. The receiver may be down (no socket) or hung
 // (no reply); both are reported as tagged errors so the HTTP layer can map them to a status.
@@ -7,7 +7,7 @@ import path from "node:path";
 import { listProfiles } from "../heartbeat.js";
 import { controlSockPath } from "../paths.js";
 
-/** Cap on the buffered reply line — mirrors src/control.js's MAX_LINE_BYTES. */
+/** Cap on the buffered reply line — mirrors src/control/server.js's MAX_LINE_BYTES. */
 const MAX_LINE_BYTES = 64 * 1024;
 
 let nextId = 1;

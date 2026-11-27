@@ -13,7 +13,7 @@ import { registryDir } from "../src/config.js";
 import { controlSockPath } from "../src/paths.js";
 import { cancel, release, dismiss, retry, pull, harnessReset } from "../src/commands/control-ops.js";
 import { concurrency, setControlRequest } from "../src/commands/pause.js";
-import { controlRequest } from "../src/ui/control-client.js";
+import { controlRequest } from "../src/control/client.js";
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-control-ops-"));
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));

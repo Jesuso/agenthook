@@ -18,7 +18,7 @@ import { createStore } from "../store.js";
 import { createAdapter } from "../trackers/index.js";
 import { isPipeline, findStep } from "../pipeline.js";
 import { readProfile } from "../heartbeat.js";
-import { controlRequest } from "../ui/control-client.js";
+import { controlRequest } from "../control/client.js";
 
 /** @param {any} args */
 export async function run(args) {

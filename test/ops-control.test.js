@@ -9,8 +9,8 @@ import os from "node:os";
 import path from "node:path";
 import { ttlCache } from "../src/ops.js";
 import { createLocalAdapter, seedBoard } from "../src/trackers/local.js";
-import { startControl } from "../src/control.js";
-import { controlRequest } from "../src/ui/control-client.js";
+import { startControl } from "../src/control/server.js";
+import { controlRequest } from "../src/control/client.js";
 import { setup } from "./_ops-helpers.js";
 
 test("ttlCache: reset() also discards an in-flight fetch (fresh must not return the pre-write read)", async () => {

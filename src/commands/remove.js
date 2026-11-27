@@ -14,7 +14,7 @@ import { registryDir } from "../config.js";
 import { resolveProfile } from "../heartbeat.js";
 import { controlSockPath } from "../paths.js";
 import { readMarker } from "../profile.js";
-import { controlRequest } from "../ui/control-client.js";
+import { controlRequest } from "../control/client.js";
 import { listWorktrees, DEFAULT_BRANCH_PREFIX } from "../worktree.js";
 
 const USAGE = "usage: agenthook remove <name|key> [--purge] [--yes] [--keep-hooks]";

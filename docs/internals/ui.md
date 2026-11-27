@@ -22,7 +22,8 @@
   `config-bak/`, audit `sensitive` = changed `contract.js` `SENSITIVE_FIELDS` via the import-free `sensitive.js` the browser
   also bundles; SSE `config`) are the
   **only** UI file writes — both go through `save.js` (`atomicSave`), and `test/ui-server.test.js`
-  confines write calls to it. `control-client.js` (`controlRequest` — one NDJSON request over a
+  confines write calls to it. `src/control/client.js` (shared infrastructure, not a `src/ui/`
+  module — it's the client half of `src/control/server.js`) provides `controlRequest` (one NDJSON request over a
   profile's `control.sock`, skipping the `hello` line, resolving `{ok,result|error}` or rejecting
   `down`/`timeout`; `resolveProfileSock` gates by `listProfiles` like `logs.js`'s `profileDir`)
   backs more endpoints that are **not** file writes: `GET /api/discover` (cookie only; 5 s

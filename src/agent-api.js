@@ -11,7 +11,7 @@ import { registryDir, peekConfig, loadConfig } from "./config.js";
 import { listProfiles } from "./heartbeat.js";
 import { HIDDEN_BY_DEFAULT } from "./events.js";
 import { EPIC_REF_RE, epicDetail, epicStats, localEpics } from "./epics.js";
-import { controlRequest, resolveProfileSock } from "./ui/control-client.js";
+import { controlRequest, resolveProfileSock } from "./control/client.js";
 import { listRuns, resolveRunLog } from "./ui/logs.js";
 import { readProfileState, buildRows, readJson, isObj, harnessSlots, unharnessedSlots, readEventsTail } from "./ui/rows.js";
 import { readHistory, READ_CAP_BYTES } from "./ui/stats.js";
