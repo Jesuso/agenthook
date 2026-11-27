@@ -5,12 +5,12 @@
 
 /**
  * @param {{
- *   adapter: import('./types/index.js').Adapter,
- *   forge: import('./types/index.js').Forge | null | undefined,
- *   store: import('./types/index.js').Store,
+ *   adapter: import('./types/tracker.js').Adapter,
+ *   forge: import('./types/forge.js').Forge | null | undefined,
+ *   store: import('./types/state.js').Store,
  *   emit?: (event: string, ref: string, step: string, extra?: Record<string, any>) => void,
  * }} deps
- * @returns {(job: import('./types/index.js').Job) => Promise<boolean>}  true when `ci_green` was emitted
+ * @returns {(job: import('./types/pipeline.js').Job) => Promise<boolean>}  true when `ci_green` was emitted
  */
 export function createCiGreen({ adapter, forge, store, emit }) {
   /** Refs+SHAs being checked right now (one webhook per workflow can land together). @type {Set<string>} */

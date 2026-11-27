@@ -15,8 +15,8 @@
 /**
  * The file's overrides as the heartbeat `overrides` shape (config values alongside). Returns null
  * when there are no active overrides.
- * @param {import('./types/index.js').Config} cfg
- * @param {import('./types/index.js').Overrides} o
+ * @param {import('./types/config.js').Config} cfg
+ * @param {import('./types/config.js').Overrides} o
  * @returns {HeartbeatOverrides|null}
  */
 export function heartbeatOverrides(cfg, o) {
@@ -41,12 +41,12 @@ export function heartbeatOverrides(cfg, o) {
  * Drop override entries that no longer apply — a harness not in the config, a global max out of
  * range (not an integer 1..64) — returning the surviving overrides and one log line per drop.
  * The caller rewrites the file and applies what remains.
- * @param {import('./types/index.js').Config} cfg
- * @param {import('./types/index.js').Overrides} o
- * @returns {{ overrides: import('./types/index.js').Overrides, dropped: string[] }}
+ * @param {import('./types/config.js').Config} cfg
+ * @param {import('./types/config.js').Overrides} o
+ * @returns {{ overrides: import('./types/config.js').Overrides, dropped: string[] }}
  */
 export function pruneOverrides(cfg, o) {
-  /** @type {import('./types/index.js').Overrides} */
+  /** @type {import('./types/config.js').Overrides} */
   const overrides = {};
   /** @type {string[]} */
   const dropped = [];
@@ -97,7 +97,7 @@ export function overrideEntries(hbOverrides) {
 /**
  * One display line per active override, from the raw overrides.json shape (no config comparison —
  * used when the receiver is down and the config may not load).
- * @param {import('./types/index.js').Overrides} o
+ * @param {import('./types/config.js').Overrides} o
  * @returns {string[]}
  */
 export function fileOverrideEntries(o) {
@@ -116,13 +116,13 @@ export function fileOverrideEntries(o) {
  * dropping entries that no longer match the config and publishing the survivors to the heartbeat.
  * Must run after `queue` and the quota pacer exist. Returns what was applied.
  * @param {{
- *   cfg: import('./types/index.js').Config,
- *   store: import('./types/index.js').Store,
+ *   cfg: import('./types/config.js').Config,
+ *   store: import('./types/state.js').Store,
  *   queue: { setMax(n: number): void, setHarnessMax(name: string, n: number|null): void, pause(): void },
  *   quotaPacer?: { operatorPause(): void },
  *   heartbeat: { update(p: Record<string, unknown>): void },
  * }} deps
- * @returns {import('./types/index.js').Overrides}
+ * @returns {import('./types/config.js').Overrides}
  */
 export function seedOverrides({ cfg, store, queue, quotaPacer, heartbeat }) {
   const { overrides, dropped } = pruneOverrides(cfg, store.getOverrides());

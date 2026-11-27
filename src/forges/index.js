@@ -5,7 +5,7 @@
 import { createGithubForge, GITHUB_FORGE_AGENT_ENV, githubForgeEgressHosts } from "./github.js";
 import { createGitlabForge, GITLAB_FORGE_AGENT_ENV, gitlabForgeEgressHosts } from "./gitlab.js";
 
-/** @type {Record<string, import('../types/index.js').ForgeFactory>} */
+/** @type {Record<string, import('../types/forge.js').ForgeFactory>} */
 export const FORGES = {
   github: createGithubForge,
   gitlab: createGitlabForge,
@@ -19,16 +19,16 @@ export const FORGE_AGENT_ENV = {
 };
 
 /** Each forge's `describe().egressHosts` from its config, keyed like FORGES (doctor reads it without building one). */
-/** @type {Record<string, (fc: import('../types/index.js').ForgeConfig) => string[]>} */
+/** @type {Record<string, (fc: import('../types/forge.js').ForgeConfig) => string[]>} */
 export const FORGE_EGRESS_HOSTS = {
   github: githubForgeEgressHosts,
   gitlab: gitlabForgeEgressHosts,
 };
 
 /**
- * @param {import('../types/index.js').Config} cfg
- * @param {import('../types/index.js').Store} store
- * @returns {import('../types/index.js').Forge|null}  null when no forge is configured
+ * @param {import('../types/config.js').Config} cfg
+ * @param {import('../types/state.js').Store} store
+ * @returns {import('../types/forge.js').Forge|null}  null when no forge is configured
  */
 export function createForge(cfg, store) {
   if (!cfg.forge) return null;

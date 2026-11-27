@@ -9,11 +9,11 @@ import { reportMoveFailure } from "../events.js";
 import { findBlocker } from "../overlap.js";
 
 /**
- * @param {{cfg: import('../types/index.js').Config, store: import('../types/index.js').Store|undefined, emit: import('./context.js').DispatchState['emit'], adapter: import('../types/index.js').Adapter, resolveRoute: import('./routing.js').Routing['resolveRoute'], leavePipeline: import('./routing.js').Routing['leavePipeline']}} deps
- * @param {import('../types/index.js').Job} job
- * @param {import('../types/index.js').Step} step
- * @param {import('../types/index.js').Task} task
- * @returns {Promise<{done: {kind: string, ref: string, name?: string, url?: string, code: number}}|{repo: import('../types/index.js').RepoConfig, tookLock: boolean}>}
+ * @param {{cfg: import('../types/config.js').Config, store: import('../types/state.js').Store|undefined, emit: import('./context.js').DispatchState['emit'], adapter: import('../types/tracker.js').Adapter, resolveRoute: import('./routing.js').Routing['resolveRoute'], leavePipeline: import('./routing.js').Routing['leavePipeline']}} deps
+ * @param {import('../types/pipeline.js').Job} job
+ * @param {import('../types/pipeline.js').Step} step
+ * @param {import('../types/tracker.js').Task} task
+ * @returns {Promise<{done: {kind: string, ref: string, name?: string, url?: string, code: number}}|{repo: import('../types/config.js').RepoConfig, tookLock: boolean}>}
  */
 export async function preRunGates(deps, job, step, task) {
   const { cfg, store, emit, adapter, resolveRoute, leavePipeline } = deps;

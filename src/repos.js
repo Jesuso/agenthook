@@ -6,29 +6,29 @@
 // every task resolves to it and nothing changes. Ambiguity never guesses: two matching
 // repos is a `conflict`, no match and no default is `unroutable` — both hold the task.
 
-/** @typedef {import('./types/index.js').RepoConfig} RepoConfig */
+/** @typedef {import('./types/config.js').RepoConfig} RepoConfig */
 
 /**
  * The profile's repos. Falls back to one synthesized from `repoPath` when `cfg.repos` is
  * absent (hand-built configs in tests / ops callers), mirroring config.js's synthesis.
- * @param {import('./types/index.js').Config} cfg @returns {RepoConfig[]}
+ * @param {import('./types/config.js').Config} cfg @returns {RepoConfig[]}
  */
 export function reposOf(cfg) {
   return cfg.repos?.length ? cfg.repos : [{ id: "default", path: cfg.repoPath, match: [], default: true }];
 }
 
-/** The `default:true` repo, if any. @param {import('./types/index.js').Config} cfg */
+/** The `default:true` repo, if any. @param {import('./types/config.js').Config} cfg */
 export function defaultRepo(cfg) {
   return reposOf(cfg).find((r) => r.default);
 }
 
 /** The default repo, else the first declared — what repo-less callers (ops) fall back to.
- * @param {import('./types/index.js').Config} cfg @returns {RepoConfig} */
+ * @param {import('./types/config.js').Config} cfg @returns {RepoConfig} */
 export function primaryRepo(cfg) {
   return defaultRepo(cfg) ?? reposOf(cfg)[0];
 }
 
-/** @param {import('./types/index.js').Config} cfg @param {string|undefined} id */
+/** @param {import('./types/config.js').Config} cfg @param {string|undefined} id */
 export function repoById(cfg, id) {
   return id == null ? undefined : reposOf(cfg).find((r) => r.id === id);
 }
@@ -43,7 +43,7 @@ export function normalizeKeys(keys) {
 /**
  * Resolve a task's route keys to exactly one repo. One match → it; none → the default
  * repo (else `unroutable`); more than one → `conflict`. Both errors fail closed.
- * @param {import('./types/index.js').Config} cfg
+ * @param {import('./types/config.js').Config} cfg
  * @param {string[]|undefined} routeKeys
  * @returns {{ repo: RepoConfig } | { error: "unroutable"|"conflict", message: string }}
  */

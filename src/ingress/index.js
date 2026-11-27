@@ -7,7 +7,7 @@ import { createManualIngress } from "./manual.js";
 import { createCloudflaredIngress } from "./cloudflared.js";
 import { createTailscaleIngress } from "./tailscale.js";
 
-/** @type {Record<string, import('../types/index.js').IngressFactory>} */
+/** @type {Record<string, import('../types/ingress.js').IngressFactory>} */
 export const INGRESS = {
   ngrok: createNgrokIngress,
   cloudflared: createCloudflaredIngress,
@@ -17,8 +17,8 @@ export const INGRESS = {
 };
 
 /**
- * @param {import('../types/index.js').Config} cfg
- * @returns {import('../types/index.js').Ingress}
+ * @param {import('../types/config.js').Config} cfg
+ * @returns {import('../types/ingress.js').Ingress}
  */
 export function createIngress(cfg) {
   const type = cfg.ingress?.type || "manual";

@@ -11,7 +11,7 @@ import { createLinearAdapter, LINEAR_AGENT_ENV, linearEgressHosts } from "./line
 // GitHub has no board sections, so it drives the pipeline off issue LABELS (see github.js).
 // github-projects instead drives off a Projects v2 board's Status field (see that file);
 // linear off one team's workflow states (see linear.js).
-/** @type {Record<string, import('../types/index.js').AdapterFactory>} */
+/** @type {Record<string, import('../types/tracker.js').AdapterFactory>} */
 export const TRACKERS = {
   asana: createAsanaAdapter,
   jira: createJiraAdapter,
@@ -35,7 +35,7 @@ export const TRACKER_AGENT_ENV = {
 
 /** Each tracker's `describe().egressHosts` from its provider config, keyed like TRACKERS, so
  * doctor can show a sandboxed step's allowlist without building an adapter (local: none). */
-/** @type {Record<string, (pc: import('../types/index.js').ProviderConfig) => string[]>} */
+/** @type {Record<string, (pc: import('../types/tracker.js').ProviderConfig) => string[]>} */
 export const TRACKER_EGRESS_HOSTS = {
   asana: asanaEgressHosts,
   jira: jiraEgressHosts,
@@ -46,9 +46,9 @@ export const TRACKER_EGRESS_HOSTS = {
 };
 
 /**
- * @param {import('../types/index.js').Config} cfg
- * @param {import('../types/index.js').Store} store
- * @returns {import('../types/index.js').Adapter}
+ * @param {import('../types/config.js').Config} cfg
+ * @param {import('../types/state.js').Store} store
+ * @returns {import('../types/tracker.js').Adapter}
  */
 export function createAdapter(cfg, store) {
   const factory = TRACKERS[cfg.provider];

@@ -44,9 +44,9 @@ export function autoMergeTierStepId(pipeline, autoMerge) {
  * a ticket has a single rating. The verdict's own `summary.tier` counts only when this step IS
  * the tier source (`autoMerge.tierFrom`, else the approving step); otherwise the stored summary
  * of that step. A reviewer cannot re-rate a triage-`high` ticket `low`. Pure.
- * @param {import('./types/index.js').Config} cfg @param {string} stepId @param {import('./types/index.js').Verdict} verdict
- * @param {Record<string, import('./types/index.js').SummaryRecord>|undefined} [summaries]
- * @returns {{from: string, tier: string|null, rec?: import('./types/index.js').SummaryRecord, skipped?: string}}
+ * @param {import('./types/config.js').Config} cfg @param {string} stepId @param {import('./types/pipeline.js').Verdict} verdict
+ * @param {Record<string, import('./types/state.js').SummaryRecord>|undefined} [summaries]
+ * @returns {{from: string, tier: string|null, rec?: import('./types/state.js').SummaryRecord, skipped?: string}}
  *   `tier` lower-cased, null when missing; `skipped` says why when the source step has no approving verdict
  */
 export function riskTier(cfg, stepId, verdict, summaries) {
@@ -120,8 +120,8 @@ export function autoMergeErrors(forge, pipeline, repos) {
  *   `tiers`, or the `tierFrom` step has no approving verdict stored). Reported, never merged.
  * - `{tier, method, sha, from}`: go, pinned to `sha` — the PR head the tier step saw when it started.
  *   Tiers compare trimmed, case-insensitive. No recorded head → skipped (fail closed).
- * @param {import('./types/index.js').Config} cfg @param {string} stepId @param {import('./types/index.js').Verdict} verdict
- * @param {Record<string, import('./types/index.js').SummaryRecord>|undefined} [summaries]  the ref's stored step summaries (for `tierFrom`)
+ * @param {import('./types/config.js').Config} cfg @param {string} stepId @param {import('./types/pipeline.js').Verdict} verdict
+ * @param {Record<string, import('./types/state.js').SummaryRecord>|undefined} [summaries]  the ref's stored step summaries (for `tierFrom`)
  * @param {string|null} [runHeadSha]  the PR head this run (the approving step) saw at its start
  * @returns {AutoMergeGo|{skipped: string, tier?: string}|null}
  */
@@ -143,7 +143,7 @@ export function autoMergeDecision(cfg, stepId, verdict, summaries, runHeadSha) {
 
 /**
  * Does this step's run need the PR head recorded at its start (it is the tier source)? Pure.
- * @param {import('./types/index.js').Config} cfg @param {string} stepId
+ * @param {import('./types/config.js').Config} cfg @param {string} stepId
  */
 export function needsReviewedHead(cfg, stepId) {
   const am = cfg.forge?.autoMerge;
@@ -152,7 +152,7 @@ export function needsReviewedHead(cfg, stepId) {
 
 /**
  * The open agent PR's head SHA right now (recorded at the tier step's start). Never throws.
- * @param {import('./types/index.js').Forge|null|undefined} forge @param {import('./types/index.js').Store|undefined} store @param {string} ref
+ * @param {import('./types/forge.js').Forge|null|undefined} forge @param {import('./types/state.js').Store|undefined} store @param {string} ref
  * @returns {Promise<string|null>}
  */
 export async function currentPrHead(forge, store, ref) {
@@ -185,8 +185,8 @@ export function holdAutoMergeSlot(ref, done) {
 
 /**
  * @typedef {{
- *   forge: import('./types/index.js').Forge|null|undefined,
- *   store?: import('./types/index.js').Store,
+ *   forge: import('./types/forge.js').Forge|null|undefined,
+ *   store?: import('./types/state.js').Store,
  *   emit?: (event: string, ref: string, step: string, extra?: Record<string, any>) => void,
  * }} AutoMergeDeps
  */
@@ -194,7 +194,7 @@ export function holdAutoMergeSlot(ref, done) {
 /**
  * The ref's open agent PR: by a hint or the stored number first, then by branch when that one is
  * gone (a closed earlier PR must not hide the current one). Throws on a lookup error.
- * @param {import('./types/index.js').Forge} forge @param {import('./types/index.js').Store|undefined} store
+ * @param {import('./types/forge.js').Forge} forge @param {import('./types/state.js').Store|undefined} store
  * @param {string} ref @param {number|null} [hint]
  */
 async function findPr(forge, store, ref, hint) {
@@ -213,7 +213,7 @@ async function findPr(forge, store, ref, hint) {
  * @param {AutoMergeDeps} deps
  * @param {string} ref @param {string} stepId
  * @param {AutoMergeGo} decision
- * @returns {Promise<import('./types/index.js').AutoMergeResult|null>}  null when it did not happen
+ * @returns {Promise<import('./types/forge.js').AutoMergeResult|null>}  null when it did not happen
  */
 export async function runAutoMerge({ forge, store, emit }, ref, stepId, { tier, method, sha, from }) {
   /** @param {string} reason @param {number} [pr] */
@@ -318,8 +318,8 @@ export async function disableAutoMergeOnBounce({ forge, store, emit }, ref, step
  * `pull_request` synchronize webhook). If we turned auto-merge on for an older head, turn it off:
  * the approval was for that head, not this one. Auto-merge someone else enabled is left alone.
  * Handled outside the run queue (a cheap read + at most one write). Never throws.
- * @param {AutoMergeDeps & {cfg: import('./types/index.js').Config}} deps
- * @returns {(job: import('./types/index.js').Job) => Promise<'disabled'|'noop'|'error'>}
+ * @param {AutoMergeDeps & {cfg: import('./types/config.js').Config}} deps
+ * @returns {(job: import('./types/pipeline.js').Job) => Promise<'disabled'|'noop'|'error'>}
  */
 export function createPrPushGuard({ cfg, forge, store, emit }) {
   return async function onPrPush(job) {

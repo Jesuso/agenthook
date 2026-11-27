@@ -17,7 +17,7 @@ export const DEFAULT_MAX_ATTEMPTS = 3;
 // would otherwise hold a maxConcurrent slot forever.
 export const DEFAULT_MAX_MINUTES = 120;
 
-/** @param {import('./types/index.js').Config} cfg @param {string} [stepId] */
+/** @param {import('./types/config.js').Config} cfg @param {string} [stepId] */
 export function findStep(cfg, stepId) {
   if (!cfg.pipeline || !stepId) return null;
   return cfg.pipeline.find((s) => s.id === stepId) || null;
@@ -25,7 +25,7 @@ export function findStep(cfg, stepId) {
 
 /** The step before `stepId` in pipeline order — the default target a `changes`
  * verdict bounces back to (e.g. review → code). Null if first or unknown.
- * @param {import('./types/index.js').Config} cfg @param {string} stepId */
+ * @param {import('./types/config.js').Config} cfg @param {string} stepId */
 export function prevStep(cfg, stepId) {
   if (!cfg.pipeline) return null;
   const i = cfg.pipeline.findIndex((s) => s.id === stepId);
@@ -34,7 +34,7 @@ export function prevStep(cfg, stepId) {
 
 /** The step whose SOURCE stage is `stage` (what adapter.currentStage returns: a label,
  * section gid or status), or null. Labels match case-insensitively, like the trackers.
- * @param {import('./types/index.js').Config} cfg @param {string|null|undefined} stage */
+ * @param {import('./types/config.js').Config} cfg @param {string|null|undefined} stage */
 export function stepForStage(cfg, stage) {
   if (!cfg.pipeline || !stage) return null;
   const want = String(stage).toLowerCase();
@@ -45,7 +45,7 @@ export function stepForStage(cfg, stage) {
   );
 }
 
-/** @param {import('./types/index.js').Config} cfg */
+/** @param {import('./types/config.js').Config} cfg */
 export function isPipeline(cfg) {
   return Array.isArray(cfg.pipeline) && cfg.pipeline.length > 0;
 }
@@ -53,7 +53,7 @@ export function isPipeline(cfg) {
 /** The step's opt-in queue stage (backlog lane) under whichever tracker binding it uses
  * — Asana `queueSectionGid`, Jira/github-projects/local `queueStatus`, GitHub
  * `queueLabel` — or undefined. Setting one IS the opt-in to queue-stage pulls.
- * @param {import('./types/index.js').Step} step */
+ * @param {import('./types/pipeline.js').Step} step */
 export function queueStageOf(step) {
   return step.queueSectionGid || step.queueStatus || step.queueLabel || undefined;
 }
@@ -69,12 +69,12 @@ export function startsWithTrigger(trigger, body) {
  * comment already passed the author, prefix, and assignee checks, build the job that
  * resumes the step it is held on — or null (logged) when there is nothing to resume:
  * no held record, a held step that is unknown/manual, or the step at its attempt cap.
- * @param {import('./types/index.js').Config} cfg
- * @param {import('./types/index.js').Store} store
+ * @param {import('./types/config.js').Config} cfg
+ * @param {import('./types/state.js').Store} store
  * @param {string} ref
  * @param {string} commentId  provider-native comment id → dedupKey `trigger:<id>`
  * @param {string} body       the comment text, passed to the resumed step's prompt
- * @returns {import('./types/index.js').Job|null}
+ * @returns {import('./types/pipeline.js').Job|null}
  */
 export function resumeJob(cfg, store, ref, commentId, body) {
   const held = store.getHeld(ref);
@@ -103,7 +103,7 @@ export function resumeJob(cfg, store, ref, commentId, body) {
  * to allow. `--force` always allows. One ref = one in-flight flow: the worktree and
  * running.json are per-ref by design, so a second concurrent entry would race the first.
  * @param {string} ref
- * @param {{ stage?: string|null, running?: import('./types/index.js').RunningInfo|null, force?: boolean }} [state]
+ * @param {{ stage?: string|null, running?: import('./types/state.js').RunningInfo|null, force?: boolean }} [state]
  * @returns {string|null}
  */
 export function entryBlock(ref, { stage, running, force } = {}) {

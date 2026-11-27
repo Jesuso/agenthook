@@ -1,5 +1,5 @@
 // Tracker conformance suite — the executable spec of the `Adapter` contract
-// (src/types/index.js `Adapter`, prose copy at the top of src/trackers/asana.js). Every tracker
+// (src/types/tracker.js `Adapter`, prose copy at the top of src/trackers/asana.js). Every tracker
 // adapter runs the same checks through a FIXTURE module (test/fixtures/trackers/<name>.js);
 // tracker-specific behaviour stays in that tracker's own test file.
 //

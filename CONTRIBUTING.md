@@ -76,7 +76,7 @@ ingress is named in the engine.
    and [docs/providers.md](docs/providers.md).
 2. Create `src/trackers/<name>.js` (or `src/ingress/<name>.js`) exporting the factory.
 3. Register it in `src/trackers/index.js` (`TRACKERS`) or `src/ingress/index.js` (`INGRESS`).
-4. Tag the factory `/** @type {import('../types/index.js').AdapterFactory} */` so a wrong shape
+4. Tag the factory `/** @type {import('../types/tracker.js').AdapterFactory} */` so a wrong shape
    fails typecheck.
 5. Optionally implement `wizardSteps()` for `init` live discovery.
 

@@ -109,7 +109,7 @@ const clip = (s) => (s.length > 200 ? s.slice(0, 197) + "…" : s);
  * bumps `compactions`, renders `🗜 compaction (ctx before → after)`, and adds the summarisation
  * call's `usage.input/output` to the totals (real spend, but not a turn and not context).
  * `result` is null until a session id or a turn is seen.
- * @returns {import('../types/index.js').AgentParser}
+ * @returns {import('../types/agents.js').AgentParser}
  */
 export function createPiParser() {
   let buf = "";
@@ -233,7 +233,7 @@ export function createPiParser() {
  * `costUsd`, so no invented dollars. `bin` is tagged only when the step's `bin` overrides the
  * `pi` default.
  * @param {{ref:string, stepId:string, model?:string, bin?:string, startedAt:string, endedAt:string, result:any}} o
- * @returns {import('../types/index.js').UsageRecord}
+ * @returns {import('../types/state.js').UsageRecord}
  */
 export function buildPiUsageRecord({ ref, stepId, model, bin, startedAt, endedAt, result }) {
   const t = (result && result.tokens) || {};
@@ -260,7 +260,7 @@ export function buildPiUsageRecord({ ref, stepId, model, bin, startedAt, endedAt
  * shared by the `sandbox` hook (written into a per-run HOME's `.pi/agent`) and the `remote` hook
  * (written into a per-run worker dir, #827) — only the destination base differs. Appends to the
  * given `files` list; returns the `args` and whether the standing text went into a file.
- * @param {{step: import('../types/index.js').Step, verdictFile: string, standing?: string, base: string, files: {dst: string, content: string, mode?: number}[]}} o
+ * @param {{step: import('../types/pipeline.js').Step, verdictFile: string, standing?: string, base: string, files: {dst: string, content: string, mode?: number}[]}} o
  */
 function piPromptFiles({ step, verdictFile, standing, base, files }) {
   const contractDst = path.posix.join(base, "agenthook-unattended.md");
@@ -353,7 +353,7 @@ to ask a question in this run.
  * step's `piConfigDir/models.json`, when one is set. Unparsable URLs are skipped and nothing
  * throws. No `piConfigDir` → []. (The env arg is kept for the shared `egressHosts(env, {step})`
  * signature; pi needs no env-derived hosts.) @param {Record<string,string|undefined>} _env
- * @param {{step?: import('../types/index.js').Step}} [ctx] @returns {string[]} */
+ * @param {{step?: import('../types/pipeline.js').Step}} [ctx] @returns {string[]} */
 export function piEgressHosts(_env, { step } = {}) {
   const dir = step?.piConfigDir;
   if (!dir) return [];
@@ -383,7 +383,7 @@ export function piEgressHosts(_env, { step } = {}) {
   return out;
 }
 
-/** @type {import('../types/index.js').AgentAdapter} */
+/** @type {import('../types/agents.js').AgentAdapter} */
 export const pi = {
   // policy: {allow: false, deny: false} — pi's print mode takes no allow/deny policy, so a step
   // setting one is refused before spawn (dispatch's agentPreflight), never run unrestricted.

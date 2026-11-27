@@ -7,7 +7,7 @@ import { readJson } from "./read-json.js";
  * Names the step an owner's `@agent` reply resumes. Cleared when any step for the
  * ref starts again (the resume, or a manual drag-back) and on a terminal state.
  * @param {string} dataDir
- * @returns {Pick<import('../types/index.js').Store, 'getHeld'|'setHeld'|'clearHeld'>}
+ * @returns {Pick<import('../types/state.js').Store, 'getHeld'|'setHeld'|'clearHeld'>}
  */
 export function heldSlice(dataDir) {
   const heldFile = path.join(dataDir, "held.json");

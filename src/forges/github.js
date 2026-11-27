@@ -6,7 +6,7 @@
 // It also listens for a red Actions `workflow_run` on such a branch and emits a `ci`
 // job, which dispatch turns into "re-run the failed jobs once, then bounce to code".
 //
-// Implements the Forge contract (src/types/index.js):
+// Implements the Forge contract (src/types/forge.js):
 //   describe()                 -> { name, agentEnv }
 //   authenticate(ctx)          -> {type:'accept'} | {type:'reject'}   (sync, no network)
 //   processEvents(ctx)         -> [job]   (merge + ci jobs, plus pr_push signals for forge.autoMerge)
@@ -117,15 +117,15 @@ export function forgeOffer({ trackerType, trackerRepository, remoteUrl } = {}) {
 }
 
 /** `manual` step ids in a pipeline — the only candidates for `completeOnMerge`.
- * @param {import('../types/index.js').Step[]|undefined|null} pipeline @returns {string[]} */
+ * @param {import('../types/pipeline.js').Step[]|undefined|null} pipeline @returns {string[]} */
 export function mergeStepCandidates(pipeline) {
   return (pipeline || []).filter((s) => s && s.manual).map((s) => s.id);
 }
 
 /** The forge config block `init` writes: just enough to make the forge work. `auth` (the
  * tracker's GitHub App block, reused) replaces the token.
- * @param {{repository: string, tokenEnv?: string, auth?: import('../types/index.js').GithubAuthConfig}} opts
- * @returns {import('../types/index.js').ForgeConfig} */
+ * @param {{repository: string, tokenEnv?: string, auth?: import('../types/tracker.js').GithubAuthConfig}} opts
+ * @returns {import('../types/forge.js').ForgeConfig} */
 export function forgeBlock({ repository, tokenEnv, auth }) {
   if (auth) return { type: "github", repository, auth };
   return { type: "github", repository, token: `\${${tokenEnv}}` };
@@ -148,9 +148,9 @@ export const GITHUB_FORGE_AGENT_ENV = /** @type {string[]} */ (["GH_TOKEN", "GIT
 /** What a sandboxed run needs to push and run `gh`: git over HTTPS, the API, release/asset uploads and raw content. */
 export const githubForgeEgressHosts = () => ["github.com", "api.github.com", "uploads.github.com", "*.githubusercontent.com"];
 
-/** @type {import('../types/index.js').ForgeFactory} */
+/** @type {import('../types/forge.js').ForgeFactory} */
 export function createGithubForge(cfg, store, /** @type {{publishGitTimeoutMs?: number}|undefined} */ opts = {}) {
-  const fc = cfg.forge || /** @type {import('../types/index.js').ForgeConfig} */ ({ type: "github" });
+  const fc = cfg.forge || /** @type {import('../types/forge.js').ForgeConfig} */ ({ type: "github" });
   const prefix = cfg.branchPrefix || DEFAULT_BRANCH_PREFIX;
   const auth = createGithubAuth(fc); // a token, or a GitHub App's installation token
   const [owner, repo] = fc.repository ? String(fc.repository).split("/") : [fc.owner, fc.repo];
@@ -256,7 +256,7 @@ export function createGithubForge(cfg, store, /** @type {{publishGitTimeoutMs?: 
    * one `ci_green` job (a candidate: dispatch-side `ciGreen` re-reads the roll-up and emits only
    * when every check is done). Everything else (cancelled/in-progress, a non-agent or fork
    * branch, the matching flag off) → [].
-   * @param {any} ev @returns {import('../types/index.js').Job[]} */
+   * @param {any} ev @returns {import('../types/pipeline.js').Job[]} */
   function ciJobs(ev) {
     const run = ev?.workflow_run;
     const green = ev?.action === "completed" && run?.conclusion === "success";
@@ -295,7 +295,7 @@ export function createGithubForge(cfg, store, /** @type {{publishGitTimeoutMs?: 
 
   /** CI roll-up for a head SHA + the PR's mergeability. Shared by `listAgentPrs` and `ciStatus`.
    * @param {number} number @param {string} sha
-   * @returns {Promise<{mergeable: boolean|null, mergeState: string|null, ci: import('../types/index.js').AgentPr['ci']}>} */
+   * @returns {Promise<{mergeable: boolean|null, mergeState: string|null, ci: import('../types/forge.js').AgentPr['ci']}>} */
   async function prStatus(number, sha) {
     // Detail (mergeable is only on the single-PR endpoint) + check runs, in parallel.
     /** @type {() => Promise<any>} */
@@ -630,7 +630,7 @@ export function createGithubForge(cfg, store, /** @type {{publishGitTimeoutMs?: 
     // 5 x 100. Same branch rule (and `boardCloses` rule) as the live `merged` webhook.
     async listMergedAgentPrs(since) {
       const sinceMs = Date.parse(since);
-      /** @type {import('../types/index.js').MergedAgentPr[]} */
+      /** @type {import('../types/forge.js').MergedAgentPr[]} */
       const out = [];
       for (let page = 1; page <= 5; page++) {
         const res = await api(`${repoPath()}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=${page}`);

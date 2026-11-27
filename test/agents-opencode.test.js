@@ -421,7 +421,7 @@ test("opencodeContract: mentions the verdict path, never-ask, and the compaction
   assert.match(text, /continue/i);
 });
 
-/** @param {Partial<import('../src/types/index.js').UsageRecord>[]} recs */
+/** @param {Partial<import('../src/types/state.js').UsageRecord>[]} recs */
 const usageStore = (recs) => ({ getRepo: () => undefined, readUsage: () => /** @type {any[]} */ (recs) });
 
 test("listSessions + resume: an all-opencode profile lists its usage.jsonl sessions and never throws", () => {

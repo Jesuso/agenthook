@@ -33,11 +33,11 @@ import { profileDir, resolveRunLog } from "../reader/run-logs.js";
  * root transcript dir, plus the transcript dir of every cwd under its worktree base
  * (`<base>/<ref>`, or `<base>/<repo.id>/<ref>` multi-repo — the adapter's `cwdDirs`).
  * Deduped, in search order. Throws when no agent of the profile keeps transcripts.
- * @param {import('../types/index.js').Config} cfg @param {import('../types/index.js').RepoConfig[]} repos
+ * @param {import('../types/config.js').Config} cfg @param {import('../types/config.js').RepoConfig[]} repos
  * @returns {{ dirs: string[], searched: string[], files: {id: string, file: string}[] }}
  *   existing dirs + every location looked at + the session transcripts in those dirs */
 export function transcriptDirs(cfg, repos) {
-  /** @type {Map<string, import('../types/index.js').AgentSessions>} */
+  /** @type {Map<string, import('../types/agents.js').AgentSessions>} */
   const dirs = new Map();
   /** @type {string[]} */
   const searched = [];
@@ -64,10 +64,10 @@ export function transcriptDirs(cfg, repos) {
  * worker (`host`) whose harness still declares a `remote` block in the config pointing at
  * THAT host (a renamed, deleted, or re-pointed harness is unreachable by construction). `worktree` is the worker launch cwd — the
  * run's transcript dir is mangled from it, under the worker user's $HOME.
- * @param {import('../types/index.js').Config} cfg @param {Record<string, unknown>} running
- * @returns {{ref: string, stepId: string, startedAt: string, worktree: string, harness: string, agent: string, host: string, remote: import('../types/index.js').RemoteHarness}[]} */
+ * @param {import('../types/config.js').Config} cfg @param {Record<string, unknown>} running
+ * @returns {{ref: string, stepId: string, startedAt: string, worktree: string, harness: string, agent: string, host: string, remote: import('../types/harness.js').RemoteHarness}[]} */
 export function remoteFollowCandidates(cfg, running) {
-  /** @type {{ref: string, stepId: string, startedAt: string, worktree: string, harness: string, agent: string, host: string, remote: import('../types/index.js').RemoteHarness}[]} */
+  /** @type {{ref: string, stepId: string, startedAt: string, worktree: string, harness: string, agent: string, host: string, remote: import('../types/harness.js').RemoteHarness}[]} */
   const out = [];
   for (const [ref, raw] of Object.entries(running ?? {})) {
     if (!raw || typeof raw !== "object") continue;
@@ -125,7 +125,7 @@ export class NoTranscriptYet extends Error {}
  * process. Resolves when ssh exits 0;
  * rejects with one line otherwise — exit 3 (no transcript yet, tagged `noTranscript` for
  * `follow`'s candidate loop) or anything else (255 = unreachable worker).
- * @param {import('../types/index.js').RemoteHarness} remote @param {string} cwd the worker launch cwd
+ * @param {import('../types/harness.js').RemoteHarness} remote @param {string} cwd the worker launch cwd
  * @param {string|null} id @param {string} harnessName the harness the run is on (error text)
  * @returns {Promise<void>} */
 export async function followRemote(remote, cwd, id, harnessName) {
@@ -174,7 +174,7 @@ export async function followRemote(remote, cwd, id, harnessName) {
  * Enter-follow lookup (`readRuns` + `resolveRunLog`), raw renderer. New for remote runs only;
  * local `follow` for a no-transcript profile still errors as before. Resolves when `signal`
  * aborts (the command's never-aborting default blocks until Ctrl-C).
- * @param {import('../types/index.js').Config} cfg @param {{ref: string, agent: string, host: string}} cand
+ * @param {import('../types/config.js').Config} cfg @param {{ref: string, agent: string, host: string}} cand
  * @param {AbortSignal} [signal] @returns {Promise<void>} */
 export async function followRemoteRunLog(cfg, cand, signal = new AbortController().signal) {
   const dir = profileDir(registryDir, cfg.stateKey);

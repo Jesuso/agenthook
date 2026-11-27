@@ -93,7 +93,7 @@ function fakeScript(dir) {
   return file;
 }
 
-/** @param {string} script @returns {import('../src/types/index.js').AgentAdapter} */
+/** @param {string} script @returns {import('../src/types/agents.js').AgentAdapter} */
 function fakeAdapter(script) {
   return {
     describe: () => ({ name: "fake", stdout: "lines" }),
@@ -268,7 +268,7 @@ function fakeHermesScript(dir, { writeVerdict = false, idleStderr = false } = {}
   return file;
 }
 
-/** @param {string} script @returns {import('../src/types/index.js').AgentAdapter} */
+/** @param {string} script @returns {import('../src/types/agents.js').AgentAdapter} */
 function fakeHermesAdapter(script) {
   return {
     describe: () => ({ name: "fakehermes", stdout: "text", promptFile: true }),
@@ -443,7 +443,7 @@ function fakeStreamScript(dir) {
   return file;
 }
 
-/** @param {string} script @returns {import('../src/types/index.js').AgentAdapter} */
+/** @param {string} script @returns {import('../src/types/agents.js').AgentAdapter} */
 function fakeStreamAdapter(script) {
   return {
     describe: () => ({ name: "fakestream", stdout: "lines" }),

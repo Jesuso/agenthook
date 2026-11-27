@@ -121,8 +121,8 @@ export function egressRules({ agentHosts = [], trackerHosts = [], forgeHosts = [
 /**
  * A step's effective egress policy: the step's `mode` over the profile's (default allowlist),
  * and the two `allow`/`deny` lists concatenated. Pure.
- * @param {{sandbox?: {egress?: import('../types/index.js').EgressConfig}}} cfg
- * @param {{egress?: import('../types/index.js').EgressConfig}|undefined} step
+ * @param {{sandbox?: {egress?: import('../types/sandbox.js').EgressConfig}}} cfg
+ * @param {{egress?: import('../types/sandbox.js').EgressConfig}|undefined} step
  * @returns {{mode: typeof EGRESS_MODES[number], allow: string[], deny: string[]}}
  */
 export function egressPolicy(cfg, step) {
@@ -132,5 +132,5 @@ export function egressPolicy(cfg, step) {
 }
 
 /** Whether any sandboxed step runs in allowlist mode — its proxy needs the built-in image. Pure.
- * @param {Pick<import('../types/index.js').Config, 'sandbox'|'pipeline'>} cfg */
+ * @param {Pick<import('../types/config.js').Config, 'sandbox'|'pipeline'>} cfg */
 export const needsEgressProxy = (cfg) => !!cfg.sandbox && (cfg.pipeline ?? []).some((s) => !s.manual && isSandboxed(cfg, s) && egressPolicy(cfg, s).mode === "allowlist");

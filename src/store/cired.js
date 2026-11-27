@@ -6,7 +6,7 @@ import { readJson } from "./read-json.js";
  * per-ref parked red-CI bounce (cired.json): set by a `ci` job, taken on run exit
  * (dispatch applies them when that run exits).
  * @param {string} dataDir
- * @returns {Pick<import('../types/index.js').Store, 'setCiRed'|'takeCiRed'>}
+ * @returns {Pick<import('../types/state.js').Store, 'setCiRed'|'takeCiRed'>}
  */
 export function ciRedSlice(dataDir) {
   const ciRedFile = path.join(dataDir, "cired.json");

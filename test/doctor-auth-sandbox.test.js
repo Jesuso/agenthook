@@ -140,7 +140,7 @@ const sbCfg = (over = {}) =>
     ...over,
   });
 /** @param {Record<string, number>} codes  "arg0" or "arg0 arg1" → exit code */
-const sbRun = (codes = {}) => /** @type {import('../src/types/index.js').IngressRun} */ (async (_bin, args) => ({ code: codes[args.slice(0, 2).join(" ")] ?? codes[args[0]] ?? 0, stdout: "", stderr: "boom" }));
+const sbRun = (codes = {}) => /** @type {import('../src/types/ingress.js').IngressRun} */ (async (_bin, args) => ({ code: codes[args.slice(0, 2).join(" ")] ?? codes[args[0]] ?? 0, stdout: "", stderr: "boom" }));
 
 test("sandboxChecks: no sandbox block → no checks", async () => {
   assert.deepEqual(await sandboxChecks(sbCfg({ sandbox: undefined }), { run: sbRun(), has: () => true }), []);
@@ -170,7 +170,7 @@ test("sandboxChecks: each service image is checked (fix: pull it, never applied)
   /** @type {string[][]} */
   const calls = [];
   const missing = new Set(["redis:7.2", "pgvector/pgvector:pg17", "localhost/vecdb:pg17"]);
-  const run = /** @type {import('../src/types/index.js').IngressRun} */ (async (_bin, args) => (calls.push(args), { code: missing.has(args[2]) ? 1 : 0, stdout: "", stderr: "" }));
+  const run = /** @type {import('../src/types/ingress.js').IngressRun} */ (async (_bin, args) => (calls.push(args), { code: missing.has(args[2]) ? 1 : 0, stdout: "", stderr: "" }));
   const checks = await sandboxChecks(cfg, { run, has: () => true });
   const svc = checks.filter((c) => c.label.startsWith("sandbox service image present"));
   assert.deepEqual(svc.map((c) => [c.ok, c.label]), [
@@ -213,7 +213,7 @@ test("sandboxChecks: runtime missing or down stops there", async () => {
 test("sandboxRuntimeChecks: binary, info, then each image — a custom image's fix is manual, a missing default's builds", async () => {
   /** @type {string[][]} */
   const calls = [];
-  const run = /** @type {import('../src/types/index.js').IngressRun} */ (async (_bin, args) => (calls.push(args), { code: args[2] === "mine:1" ? 1 : 0, stdout: "", stderr: "" }));
+  const run = /** @type {import('../src/types/ingress.js').IngressRun} */ (async (_bin, args) => (calls.push(args), { code: args[2] === "mine:1" ? 1 : 0, stdout: "", stderr: "" }));
   const checks = await sandboxRuntimeChecks({ type: "podman", image: "mine:1" }, { run, has: () => true, images: ["mine:1", DEFAULT_IMAGE] });
   assert.deepEqual(checks.map((c) => [c.ok, c.label]), [
     [true, "sandbox: podman binary on PATH"],
@@ -277,7 +277,7 @@ test("sandboxChecks: a sandboxed opencode step is no longer flagged — it has a
 test("sandboxChecks: allowlist with a custom image also checks the built-in image (the egress proxy), with the build fix", async () => {
   /** @type {string[]} */
   const inspected = [];
-  /** @type {import('../src/types/index.js').IngressRun} */
+  /** @type {import('../src/types/ingress.js').IngressRun} */
   const run = async (_bin, args) => {
     if (args[0] === "image") inspected.push(args[2]);
     return { code: args[0] === "image" && args[2] !== "mine:1" ? 1 : 0, stdout: "", stderr: "" };

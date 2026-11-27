@@ -97,13 +97,13 @@ export function ttlCache(fn, ttlMs, now = Date.now) {
 
 /**
  * @param {{
- *   cfg: import('./types/index.js').Config,
- *   store: import('./types/index.js').Store,
- *   adapter: import('./types/index.js').Adapter,
- *   forge: import('./types/index.js').Forge|null,
+ *   cfg: import('./types/config.js').Config,
+ *   store: import('./types/state.js').Store,
+ *   adapter: import('./types/tracker.js').Adapter,
+ *   forge: import('./types/forge.js').Forge|null,
  *   queue: ReturnType<typeof import('./queue.js').createQueue>,
  *   cancelRun: (ref: string) => boolean,
- *   intake: (jobs: import('./types/index.js').Job[], opts?: {force?: boolean}) => number,
+ *   intake: (jobs: import('./types/pipeline.js').Job[], opts?: {force?: boolean}) => number,
  *   emit: (event: string, ref: string, step: string, extra?: Record<string, any>) => void,
  *   heartbeat: {update(p: Record<string, any>): void},
  *   pull: () => Promise<void>,
@@ -176,7 +176,7 @@ export function createOps(deps) {
     if (!cfg.harnesses || !Object.hasOwn(cfg.harnesses, n)) throw new Error(cfg.harnesses ? `no harness "${n}" (have: ${Object.keys(cfg.harnesses).join(", ")})` : `no harness "${n}" — this profile has no harnesses`);
     return n;
   };
-  /** @param {import('./types/index.js').Overrides} o @param {string} harness  drop that harness's override (no-op if absent); persists only when it changed */
+  /** @param {import('./types/config.js').Overrides} o @param {string} harness  drop that harness's override (no-op if absent); persists only when it changed */
   const clearHarnessOverride = (o, harness) => {
     if (!o.harnesses || !Object.hasOwn(o.harnesses, harness)) return false;
     delete o.harnesses[harness];
@@ -301,7 +301,7 @@ export function createOps(deps) {
   /**
    * `review` = the newest stored summary among the pipeline's review-kind steps for the PR's
    * ref; `outcome`/`at` are spread last so the agent's keys can't override them. No summary →
-   * the row is returned unchanged. @param {import('./types/index.js').AgentPr} r
+   * the row is returned unchanged. @param {import('./types/forge.js').AgentPr} r
    */
   function withReview(r) {
     const all = store.getSummaries(r.ref);
@@ -580,7 +580,7 @@ export function createOps(deps) {
         throw new Error(`${ref} has no shipped PR waiting on its ticket${row?.prNeeds ? ` (${row.prNeeds})` : ""} — nothing to close`);
       }
       if (typeof adapter.complete !== "function") throw new Error(`tracker "${cfg.provider}" cannot close tickets — close ${ref} on the board`);
-      /** @type {import('./types/index.js').Task} */
+      /** @type {import('./types/tracker.js').Task} */
       let task;
       try {
         task = await adapter.fetchTask(ref);
@@ -600,7 +600,7 @@ export function createOps(deps) {
       const force = args.force === true;
       // Like the CLI: confirm the item exists first (a clear error beats a tracker 404 from
       // enterStage), and don't re-enter a completed one unless forced.
-      /** @type {import('./types/index.js').Task} */
+      /** @type {import('./types/tracker.js').Task} */
       let task;
       try {
         task = await adapter.fetchTask(ref);
@@ -671,7 +671,7 @@ export function createOps(deps) {
       if (row?.status !== "failed") throw new Error(`${ref} is not failed — nothing to retry (start it with run)`);
       const step = row.step ? findStep(cfg, row.step) : undefined;
       if (!step || step.manual) throw new Error(`${ref}: its failed step "${row.step ?? "?"}" is not a runnable step`);
-      /** @type {import('./types/index.js').Task} */
+      /** @type {import('./types/tracker.js').Task} */
       let task;
       try {
         task = await adapter.fetchTask(ref);

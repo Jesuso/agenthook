@@ -69,7 +69,7 @@ export function githubAppPermissionLines(trackerType, { forge = false } = {}) {
 /** The `tracker.auth` / `forge.auth` block for the App answers: an UPPER_CASE answer is the env
  * var holding the PEM (written as a ${VAR} ref), anything else a path to the .pem file. Pure.
  * @param {{appId: string, installationId: string, privateKey: string}} ans
- * @returns {import('../types/index.js').GithubAuthConfig} */
+ * @returns {import('../types/tracker.js').GithubAuthConfig} */
 export function githubAppAuthBlock({ appId, installationId, privateKey }) {
   const key = String(privateKey).trim();
   return /^[A-Z][A-Z0-9_]*$/.test(key) ? { type: "app", appId, installationId, privateKey: `\${${key}}` } : { type: "app", appId, installationId, privateKeyPath: key };
@@ -86,7 +86,7 @@ export function initForge({ remoteUrl, trackerType, trackerRepository } = {}) {
 
 /** The forge config block `init` writes from that forge's wizard answers. Pure.
  * @param {string} key @param {Record<string, any>} ans
- * @returns {import('../types/index.js').ForgeConfig} */
+ * @returns {import('../types/forge.js').ForgeConfig} */
 export function initForgeBlock(key, ans) {
   if (key === "gitlab") return gitlabForgeBlock({ project: ans.project, baseUrl: ans.baseUrl, tokenEnv: ans.tokenEnv });
   return forgeBlock({ repository: ans.repository, tokenEnv: ans.tokenEnv, auth: ans._appAuth });

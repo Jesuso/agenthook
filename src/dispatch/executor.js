@@ -10,11 +10,11 @@ import { createSshExecutors } from "./executor-ssh.js";
  * The host executor (always available), the profile's sandbox executor when it configures one
  * (its `launch`/`reap` wrap today's `sandbox.wrap()`/`sandbox.reap()` verbatim), and one `ssh`
  * executor per harness with a `remote` block (#689, experimental).
- * @param {{cfg?: Pick<import('../types/index.js').Config, 'stateKey'|'harnesses'>, sandbox: import('../types/index.js').Sandbox|null, spawnPaths?: {verdictPathFor: (stepId: string, ref: string) => string, sandboxVerdictPathFor: (stepId: string, ref: string) => string}}} o
- * @returns {{host: import('../types/index.js').Executor, sandbox?: import('../types/index.js').Executor, ssh?: Record<string, import('../types/index.js').Executor>}}
+ * @param {{cfg?: Pick<import('../types/config.js').Config, 'stateKey'|'harnesses'>, sandbox: import('../types/sandbox.js').Sandbox|null, spawnPaths?: {verdictPathFor: (stepId: string, ref: string) => string, sandboxVerdictPathFor: (stepId: string, ref: string) => string}}} o
+ * @returns {{host: import('../types/sandbox.js').Executor, sandbox?: import('../types/sandbox.js').Executor, ssh?: Record<string, import('../types/sandbox.js').Executor>}}
  */
 export function createExecutors({ cfg, sandbox, spawnPaths }) {
-  /** @type {import('../types/index.js').Executor} */
+  /** @type {import('../types/sandbox.js').Executor} */
   const host = {
     name: "host",
     paths: ({ stepId, ref, worktree, hasWorktree, repoPath }) => ({
@@ -26,7 +26,7 @@ export function createExecutors({ cfg, sandbox, spawnPaths }) {
   };
   const ssh = createSshExecutors({ cfg, spawnPaths });
   if (!sandbox) return { host, ...(Object.keys(ssh).length ? { ssh } : {}) };
-  /** @type {import('../types/index.js').Executor} */
+  /** @type {import('../types/sandbox.js').Executor} */
   const sandboxExecutor = {
     name: "sandbox",
     paths: ({ stepId, ref, worktree, hasWorktree, repoPath }) => ({
@@ -47,8 +47,8 @@ export function createExecutors({ cfg, sandbox, spawnPaths }) {
  * @param {{sandbox?: unknown}} cfg
  * @param {{sandbox?: boolean}|undefined} step
  * @param {string|null|undefined} harnessName
- * @param {{host: import('../types/index.js').Executor, sandbox?: import('../types/index.js').Executor, ssh?: Record<string, import('../types/index.js').Executor>}} executors
- * @returns {import('../types/index.js').Executor}
+ * @param {{host: import('../types/sandbox.js').Executor, sandbox?: import('../types/sandbox.js').Executor, ssh?: Record<string, import('../types/sandbox.js').Executor>}} executors
+ * @returns {import('../types/sandbox.js').Executor}
  */
 export function executorFor(cfg, step, harnessName, executors) {
   if (harnessName && executors.ssh && Object.hasOwn(executors.ssh, harnessName)) return executors.ssh[harnessName];
@@ -59,7 +59,7 @@ export function executorFor(cfg, step, harnessName, executors) {
  * Reap everything every executor left running (#689): the profile's sandbox (containers/
  * networks) plus every remote harness's leftover pgids, each best-effort — one failing never
  * blocks the rest. Aggregates into the same `{containers, networks, runs}` shape.
- * @param {{sandbox?: import('../types/index.js').Executor, ssh?: Record<string, import('../types/index.js').Executor>}} executors
+ * @param {{sandbox?: import('../types/sandbox.js').Executor, ssh?: Record<string, import('../types/sandbox.js').Executor>}} executors
  * @returns {Promise<{containers: string[], networks: string[], runs: string[]}>}
  */
 export async function reapAll(executors) {

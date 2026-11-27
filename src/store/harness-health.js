@@ -5,7 +5,7 @@ import { readJson } from "./read-json.js";
 /**
  * harness health breaker (harness-health.json): {down: {[name]: {until, strikes, reason, cause}}, unharnessedUntil?}
  * @param {string} dataDir
- * @returns {Pick<import('../types/index.js').Store, 'getHarnessHealth'|'setHarnessHealth'>}
+ * @returns {Pick<import('../types/state.js').Store, 'getHarnessHealth'|'setHarnessHealth'>}
  */
 export function harnessHealthSlice(dataDir) {
   const harnessHealthFile = path.join(dataDir, "harness-health.json");

@@ -17,12 +17,12 @@ import { createStep } from "./step.js";
 import { createExecutors } from "./executor.js";
 
 /**
- * @param {import('../types/index.js').Config} cfg
- * @param {import('../types/index.js').Adapter} adapter
+ * @param {import('../types/config.js').Config} cfg
+ * @param {import('../types/tracker.js').Adapter} adapter
  * @param {Set<import('node:child_process').ChildProcess>} [children]  live `claude -p` procs, for force-kill on shutdown
- * @param {import('../types/index.js').Store} [store]  for in-flight (crash-recovery) records
+ * @param {import('../types/state.js').Store} [store]  for in-flight (crash-recovery) records
  * @param {(event: string, ref: string, step: string, extra?: Record<string, any>) => void} [emit]  lifecycle event emitter (best-effort)
- * @param {import('../types/index.js').Forge|null} [forge]  optional; `ci` jobs call its CI methods
+ * @param {import('../types/forge.js').Forge|null} [forge]  optional; `ci` jobs call its CI methods
  * @param {(blocker: string) => void} [releaseOverlap]  overlapGuard: clear `blocker`'s lock and re-intake the refs waiting on it (engine-owned)
  * @param {import('./context.js').DispatchOpts} [opts]
  *   test hooks: SIGTERM→SIGKILL grace for a timed-out agent, the post-exit usage-export bound, the energy sampler;
@@ -58,7 +58,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
   // The executor axis (#682): built once per dispatcher from the profile's sandbox, unless the
   // engine already built one (and passed it via opts, so boot/teardown share the same instance).
   const executors = opts.executors ?? createExecutors({ cfg, sandbox, spawnPaths: { verdictPathFor: (stepId, ref) => verdictPathFor(cfg, stepId, ref), sandboxVerdictPathFor: (stepId, ref) => sandboxVerdictPathFor(cfg, stepId, ref) } });
-  /** @type {Map<string, import('../types/index.js').ExecutorRun>} */
+  /** @type {Map<string, import('../types/sandbox.js').ExecutorRun>} */
   const executorRuns = new Map();
 
   /** @type {import('./context.js').DispatchState} */
@@ -69,7 +69,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
   const { runStep } = createStep({ ...base, ...createFinish(base) });
   const { killNow } = base;
 
-  /** @param {import('../types/index.js').Job} job */
+  /** @param {import('../types/pipeline.js').Job} job */
   async function runClaude(job) {
     if (job.kind === "merge") return runMerge(job);
     if (job.kind === "ci") return runCi(job);

@@ -53,7 +53,7 @@ export { isStateDedupKey, MAX_SUMMARY_REFS };
 
 /**
  * @param {string} dataDir
- * @returns {import('../types/index.js').Store}
+ * @returns {import('../types/state.js').Store}
  */
 export function createStore(dataDir) {
   return {

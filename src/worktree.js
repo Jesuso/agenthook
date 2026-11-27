@@ -61,7 +61,7 @@ const safeRef = (ref) => String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
 /** Deterministic worktree path for a task ref (shared across all its steps). An in-flight ref
  * already checked out under the legacy `../agenthook-worktrees` base keeps resolving there
  * (new refs always go to the new base) — see `legacyWorktreeDir`.
- * @param {import('./types/index.js').Config} cfg @param {string} ref @param {import('./types/index.js').RepoConfig} [repo] */
+ * @param {import('./types/config.js').Config} cfg @param {string} ref @param {import('./types/config.js').RepoConfig} [repo] */
 export function worktreePath(cfg, ref, repo = primaryRepo(cfg)) {
   const base = worktreeDir(cfg, repo);
   /** @param {string} b */
@@ -187,7 +187,7 @@ export function remoteMergeBase(cfg, repo, worktree) {
  * Ensure a worktree exists for this task, creating the branch on first use.
  * Idempotent: a second call (e.g. the review step) returns the existing one.
  * `base` is set only when a new branch was created.
- * @param {import('./types/index.js').Config} cfg @param {string} ref @param {import('./types/index.js').RepoConfig} [repo]
+ * @param {import('./types/config.js').Config} cfg @param {string} ref @param {import('./types/config.js').RepoConfig} [repo]
  * @returns {Promise<{ worktree: string, branch: string, created: boolean, base?: { ref: string, sha: string } }>}
  */
 export async function ensureWorktree(cfg, ref, repo = primaryRepo(cfg)) {
@@ -206,7 +206,7 @@ export async function ensureWorktree(cfg, ref, repo = primaryRepo(cfg)) {
 }
 
 /** Remove the worktree (keeps the branch, which the PR still needs).
- * @param {import('./types/index.js').Config} cfg @param {string} ref @param {import('./types/index.js').RepoConfig} [repo]
+ * @param {import('./types/config.js').Config} cfg @param {string} ref @param {import('./types/config.js').RepoConfig} [repo]
  * @returns {boolean} removed */
 export function drainWorktree(cfg, ref, repo = primaryRepo(cfg)) {
   const worktree = worktreePath(cfg, ref, repo);

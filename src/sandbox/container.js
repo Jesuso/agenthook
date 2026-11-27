@@ -51,7 +51,7 @@ export const EGRESS_READY_TIMEOUT_MS = 10_000;
 /** At most this many denied hosts are named in the run log and on `run_end`. */
 const DENIED_CAP = 20;
 
-/** @typedef {import('../types/index.js').IngressRun} Run */
+/** @typedef {import('../types/ingress.js').IngressRun} Run */
 
 /** A run's own `--internal` network and what sits on it: the egress proxy (allowlist only, with
  * its `dir`) and the services. `started` records each piece before it's created, so a failure
@@ -93,7 +93,7 @@ const checked = (p) => {
 const mount = (src, dst, ro) => ["--mount", `type=bind,src=${checked(src)},dst=${checked(dst)}${ro ? ",readonly" : ""}`];
 
 /** A mask hides a host path under a read-only mount: a file behind /dev/null, a dir behind an
- * empty root-owned 0555 tmpfs. @param {import('../types/index.js').SandboxMount} m */
+ * empty root-owned 0555 tmpfs. @param {import('../types/sandbox.js').SandboxMount} m */
 const maskOrMount = (m) =>
   m.mask === "dir" ? ["--mount", `type=tmpfs,dst=${checked(m.path)},tmpfs-size=4096,tmpfs-mode=0555`]
   : m.mask === "file" ? mount("/dev/null", m.path, true)
@@ -109,7 +109,7 @@ const userArgs = (runtime, uid, gid) => (runtime === "podman" ? ["--userns=keep-
  * `network` (unset = the runtime's default) is `none`, the run's internal network, or a list
  * (one `--network` each: the run's network plus the default one, for `open` with services).
  * @param {{runtime: string, id: string, stateKey: string, ref: string, stepId: string, memory?: string, cpus?: number,
- *   uid: number, gid: number, home: string, mounts: import('../types/index.js').SandboxMount[], cwd: string,
+ *   uid: number, gid: number, home: string, mounts: import('../types/sandbox.js').SandboxMount[], cwd: string,
  *   env: Record<string, string>, image: string, bin: string, args: string[], network?: string|string[]}} o
  * @returns {string[]}
  */
@@ -199,7 +199,7 @@ export function serviceArgs(o) {
 }
 
 /** Every harness's own `sandbox.image` (a run on that harness uses it instead of `sandbox.image`). Pure.
- * @param {Pick<import('../types/index.js').Config, 'harnesses'>} cfg @returns {string[]} */
+ * @param {Pick<import('../types/config.js').Config, 'harnesses'>} cfg @returns {string[]} */
 export function harnessImages(cfg) {
   /** @type {Set<string>} */
   const out = new Set();
@@ -208,7 +208,7 @@ export function harnessImages(cfg) {
 }
 
 /** Every image a sandboxed step's services reference, in pipeline order. Pure.
- * @param {Pick<import('../types/index.js').Config, 'sandbox'|'pipeline'>} cfg @returns {string[]} */
+ * @param {Pick<import('../types/config.js').Config, 'sandbox'|'pipeline'>} cfg @returns {string[]} */
 export function serviceImages(cfg) {
   const catalog = cfg.sandbox?.services ?? {};
   /** @type {Set<string>} */
@@ -226,7 +226,7 @@ export function serviceImages(cfg) {
  * (omitted when nothing was denied). A `{"truncated": N}` summary line (written by the proxy
  * when its own log cap was hit) adds `egressDeniedTruncated` and a note, without affecting
  * `egressDenied`. Pure; unparseable lines are skipped.
- * @param {string} jsonl @returns {import('../types/index.js').SandboxReport}
+ * @param {string} jsonl @returns {import('../types/sandbox.js').SandboxReport}
  */
 export function egressReport(jsonl) {
   /** @type {Map<string, number>} */
@@ -304,9 +304,9 @@ function readCapped(file, max) {
 }
 
 /**
- * @param {import('../types/index.js').Config} cfg
+ * @param {import('../types/config.js').Config} cfg
  * @param {{runtime: "docker"|"podman", run?: Run, uid?: number, gid?: number, readyTimeoutMs?: number, waitPollMs?: number}} opts  `run`/`uid`/`gid`/`readyTimeoutMs`/`waitPollMs` for tests
- * @returns {import('../types/index.js').Sandbox}
+ * @returns {import('../types/sandbox.js').Sandbox}
  */
 export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, readyTimeoutMs = EGRESS_READY_TIMEOUT_MS, waitPollMs = 500 }) {
   const bin = runtime === "docker" ? process.env.DOCKER || "docker" : process.env.PODMAN || "podman";
@@ -454,7 +454,7 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
         }
       }
       let finished = false;
-      /** @type {import('../types/index.js').SandboxReport} */
+      /** @type {import('../types/sandbox.js').SandboxReport} */
       let report = {};
       return {
         bin,
@@ -558,7 +558,7 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
    * Start one service on the run's network (its env passed by name through the runner), then
    * poll its `wait` probe via `exec` until it exits 0. Throws naming the service and its last
    * log lines; the caller tears down what was started.
-   * @param {RunNet} e @param {string} id @param {string} name @param {import('../types/index.js').ServiceConfig} svc @param {string} ref @param {string} stepId
+   * @param {RunNet} e @param {string} id @param {string} name @param {import('../types/sandbox.js').ServiceConfig} svc @param {string} ref @param {string} stepId
    */
   async function startService(e, id, name, svc, ref, stepId) {
     const container = `${id}-svc-${name}`;

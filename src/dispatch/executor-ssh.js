@@ -56,41 +56,41 @@ export function shQuote(s) {
 /** A ref/step-safe path component, matching spawn.js's own sanitizer. @param {string} s */
 const safePart = (s) => String(s).replace(/[^A-Za-z0-9_.-]/g, "_");
 
-/** The per-stateKey base dir under a remote harness's `workDir`. @param {import('../types/index.js').RemoteHarness} remote @param {string} stateKey */
+/** The per-stateKey base dir under a remote harness's `workDir`. @param {import('../types/harness.js').RemoteHarness} remote @param {string} stateKey */
 const remoteBase = (remote, stateKey) => `${remote.workDir}/.agenthook/${safePart(stateKey)}`;
 
-/** Where a run's pgid/prompt-pipe files live on the worker. @param {import('../types/index.js').RemoteHarness} remote @param {string} stateKey */
+/** Where a run's pgid/prompt-pipe files live on the worker. @param {import('../types/harness.js').RemoteHarness} remote @param {string} stateKey */
 const remoteRunsDir = (remote, stateKey) => `${remoteBase(remote, stateKey)}/runs`;
 
-/** The remote per-run verdict dir (mirrors sandboxVerdictPathFor's own naming). @param {import('../types/index.js').RemoteHarness} remote @param {string} stateKey @param {string} ref @param {string} stepId */
+/** The remote per-run verdict dir (mirrors sandboxVerdictPathFor's own naming). @param {import('../types/harness.js').RemoteHarness} remote @param {string} stateKey @param {string} ref @param {string} stepId */
 const remoteVerdictDir = (remote, stateKey, ref, stepId) => `${remoteBase(remote, stateKey)}/verdicts/run-${safePart(ref)}-${safePart(stepId)}`;
 
-/** One bare repo per routed repo (#690), created on first use. @param {import('../types/index.js').RemoteHarness} remote @param {string} stateKey */
+/** One bare repo per routed repo (#690), created on first use. @param {import('../types/harness.js').RemoteHarness} remote @param {string} stateKey */
 const remoteReposDir = (remote, stateKey) => `${remoteBase(remote, stateKey)}/repos`;
-/** @param {import('../types/index.js').RemoteHarness} remote @param {string} stateKey @param {string} repoId */
+/** @param {import('../types/harness.js').RemoteHarness} remote @param {string} stateKey @param {string} repoId */
 const remoteRepoGitPath = (remote, stateKey, repoId) => `${remoteReposDir(remote, stateKey)}/${safePart(repoId)}.git`;
 
 /** Worker worktrees for a worktree step (#690), one per ref, deterministic — a verdict-repair
- * resume turn relaunches into the same one. @param {import('../types/index.js').RemoteHarness} remote @param {string} stateKey */
+ * resume turn relaunches into the same one. @param {import('../types/harness.js').RemoteHarness} remote @param {string} stateKey */
 const remoteWorktreesDir = (remote, stateKey) => `${remoteBase(remote, stateKey)}/worktrees`;
-/** @param {import('../types/index.js').RemoteHarness} remote @param {string} stateKey @param {string} ref */
+/** @param {import('../types/harness.js').RemoteHarness} remote @param {string} stateKey @param {string} ref */
 const remoteWorktreePath = (remote, stateKey, ref) => `${remoteWorktreesDir(remote, stateKey)}/${safePart(ref)}`;
 
-/** Worker export dirs for a no-worktree step (#690), one per ref+step. @param {import('../types/index.js').RemoteHarness} remote @param {string} stateKey */
+/** Worker export dirs for a no-worktree step (#690), one per ref+step. @param {import('../types/harness.js').RemoteHarness} remote @param {string} stateKey */
 const remoteExportsDir = (remote, stateKey) => `${remoteBase(remote, stateKey)}/exports`;
-/** @param {import('../types/index.js').RemoteHarness} remote @param {string} stateKey @param {string} ref @param {string} stepId */
+/** @param {import('../types/harness.js').RemoteHarness} remote @param {string} stateKey @param {string} ref @param {string} stepId */
 const remoteExportPath = (remote, stateKey, ref, stepId) => `${remoteExportsDir(remote, stateKey)}/${safePart(ref)}-${safePart(stepId)}`;
 
 /** Per-run config dir (#739) an `AgentAdapter.remote` hook's `files` are written into — under
  * `runs/`, outside the synced worktree/export dir, so it is never committed or synced back.
  * Deterministic per ref+step (like `remoteVerdictDir`), so a verdict-repair resume turn's hook
  * files still point at a dir that exists (opencode's `OPENCODE_CONFIG`, pi's `--append-system-prompt` files, #827).
- * The `.opencode` suffix is a historical name — pi reuses the same dir. @param {import('../types/index.js').RemoteHarness} remote @param {string} stateKey @param {string} ref @param {string} stepId */
+ * The `.opencode` suffix is a historical name — pi reuses the same dir. @param {import('../types/harness.js').RemoteHarness} remote @param {string} stateKey @param {string} ref @param {string} stepId */
 const remoteConfigDir = (remote, stateKey, ref, stepId) => `${remoteRunsDir(remote, stateKey)}/${safePart(ref)}-${safePart(stepId)}.opencode`;
 
 /** The ssh option argv (no `-T`, no host) shared by the launcher's own ssh call and
  * `gitSshCommand`'s `GIT_SSH_COMMAND` (#690) — one source for host/port/identity/user. Never `-A`.
- * @param {import('../types/index.js').RemoteHarness} remote @returns {string[]} */
+ * @param {import('../types/harness.js').RemoteHarness} remote @returns {string[]} */
 function sshOptionArgs(remote) {
   /** @type {string[]} */
   const args = ["-o", "BatchMode=yes", "-o", `ConnectTimeout=${SSH_CONNECT_TIMEOUT_S}`];
@@ -100,7 +100,7 @@ function sshOptionArgs(remote) {
   return args;
 }
 
-/** The base ssh argv (options + host), before the trailing remote command. @param {import('../types/index.js').RemoteHarness} remote @returns {string[]} */
+/** The base ssh argv (options + host), before the trailing remote command. @param {import('../types/harness.js').RemoteHarness} remote @returns {string[]} */
 export function sshBaseArgs(remote) {
   return ["-T", ...sshOptionArgs(remote), remote.host];
 }
@@ -108,14 +108,14 @@ export function sshBaseArgs(remote) {
 /** The full `ssh` argv for a one-off probe of `script` on this harness's worker (#691 doctor
  * checks): the same base argv the executor's own `runRemote`/`runRemoteChecked` use, so doctor
  * never builds its own copy of the ssh command. Each remote-command element is individually
- * shQuoted, same as `runRemote`. @param {import('../types/index.js').RemoteHarness} remote @param {string} script @returns {string[]} */
+ * shQuoted, same as `runRemote`. @param {import('../types/harness.js').RemoteHarness} remote @param {string} script @returns {string[]} */
 export function remoteProbeArgv(remote, script) {
   return [...sshBaseArgs(remote), shQuote("sh"), shQuote("-c"), shQuote(script)];
 }
 
 /** The full `ssh` argv for an INTERACTIVE command on this harness's worker (`resume --exec`,
  * #830): the only tty variant — `-t` instead of `-T`, the same options (still `BatchMode=yes`,
- * never `-A`) and host, then the same shQuoted `sh -c <script>` tail. @param {import('../types/index.js').RemoteHarness} remote @param {string} script @returns {string[]} */
+ * never `-A`) and host, then the same shQuoted `sh -c <script>` tail. @param {import('../types/harness.js').RemoteHarness} remote @param {string} script @returns {string[]} */
 export function sshInteractiveArgv(remote, script) {
   return ["-t", ...sshOptionArgs(remote), remote.host, shQuote("sh"), shQuote("-c"), shQuote(script)];
 }
@@ -134,7 +134,7 @@ export function sshClientEnv({ tty = false } = {}) {
 /** The worker paths one run's agent lived in (#830): its launch cwd (the worktree or export dir
  * `paths()` computed) and — for a worktree step — the bare repo that worktree came from, so a
  * hand-resume can `git worktree add` it back. Reuses the private path helpers, so nothing else
- * re-derives them. @param {import('../types/index.js').RemoteHarness} remote @param {string} stateKey
+ * re-derives them. @param {import('../types/harness.js').RemoteHarness} remote @param {string} stateKey
  * @param {{ref: string, stepId: string, hasWorktree: boolean, repoId?: string}} o
  * @returns {{cwd: string, bareRepo?: string}} */
 export function remoteRunPaths(remote, stateKey, { ref, stepId, hasWorktree, repoId }) {
@@ -153,7 +153,7 @@ export function remoteTranscriptDir(cwd) {
 /** `GIT_SSH_COMMAND` for a hub git-transport call (push/fetch) against this harness's worker
  * (#690): same options `sshBaseArgs` uses, shell-quoted, no host (git appends it itself from the
  * `ssh://` URL) and no `-T` (git's own ssh transport allocates no tty). Never `-A`.
- * @param {import('../types/index.js').RemoteHarness} remote @returns {string} */
+ * @param {import('../types/harness.js').RemoteHarness} remote @returns {string} */
 function gitSshCommand(remote) {
   const parts = ["ssh", "-o", shQuote("BatchMode=yes"), "-o", shQuote(`ConnectTimeout=${SSH_CONNECT_TIMEOUT_S}`)];
   if (remote.port) parts.push("-p", String(remote.port));
@@ -163,7 +163,7 @@ function gitSshCommand(remote) {
 }
 
 /** The `ssh://` URL for a path on this harness's worker (#690): host only — port/identity/user
- * ride on `GIT_SSH_COMMAND` instead. @param {import('../types/index.js').RemoteHarness} remote @param {string} remotePath */
+ * ride on `GIT_SSH_COMMAND` instead. @param {import('../types/harness.js').RemoteHarness} remote @param {string} remotePath */
 const gitSshUrl = (remote, remotePath) => `ssh://${remote.host}${remotePath}`;
 
 /** The ssh client's stderr signatures, by class (#828). `unreachable` = the worker (or its
@@ -214,14 +214,14 @@ export function sshConfigFailureReason(host, cls) {
 }
 
 /** The env for a hub git-transport call against this harness's worker (#690): the receiver's own
- * env plus `GIT_SSH_COMMAND`, with interactive auth prompts disabled. @param {import('../types/index.js').RemoteHarness} remote */
+ * env plus `GIT_SSH_COMMAND`, with interactive auth prompts disabled. @param {import('../types/harness.js').RemoteHarness} remote */
 const hubTransportEnv = (remote) => ({ ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_SSH_COMMAND: gitSshCommand(remote) });
 
 /** Run `sh -c <script>` on the worker over a fresh ssh connection, each remote-command element
  * individually shQuoted (ssh joins its trailing argv with spaces before the remote shell parses
  * it — never `-A`). Resolves to stdout (a Buffer); a non-zero exit or network failure resolves to
  * null rather than throwing (every caller treats "couldn't reach it" as best-effort).
- * @param {import('../types/index.js').RemoteHarness} remote @param {string} script @param {{maxBuffer?: number}} [opts]
+ * @param {import('../types/harness.js').RemoteHarness} remote @param {string} script @param {{maxBuffer?: number}} [opts]
  * @returns {Promise<Buffer|null>} */
 function runRemote(remote, script, { maxBuffer } = {}) {
   const args = [...sshBaseArgs(remote), shQuote("sh"), shQuote("-c"), shQuote(script)];
@@ -235,7 +235,7 @@ function runRemote(remote, script, { maxBuffer } = {}) {
 /** Like `runRemote`, but a non-zero exit or network failure REJECTS with the remote stderr (or
  * the ssh client's own error) — for the sync paths (#690), where a caller needs a clear reason to
  * refuse the run on, not best-effort silence.
- * @param {import('../types/index.js').RemoteHarness} remote @param {string} script @param {{maxBuffer?: number}} [opts]
+ * @param {import('../types/harness.js').RemoteHarness} remote @param {string} script @param {{maxBuffer?: number}} [opts]
  * @returns {Promise<string>} */
 function runRemoteChecked(remote, script, { maxBuffer } = {}) {
   const args = [...sshBaseArgs(remote), shQuote("sh"), shQuote("-c"), shQuote(script)];
@@ -308,14 +308,14 @@ function refuseIfSubmoduleOrLfs(cfg, repoPath, atRef, what) {
 }
 
 /** Make sure the worker's bare repo for this routed repo exists (idempotent `git init --bare`).
- * @param {import('../types/index.js').RemoteHarness} remote @param {string} gitPath */
+ * @param {import('../types/harness.js').RemoteHarness} remote @param {string} gitPath */
 async function ensureWorkerBareRepo(remote, gitPath) {
   await runRemoteChecked(remote, `mkdir -p ${shQuote(path.posix.dirname(gitPath))} && { [ -d ${shQuote(gitPath)} ] || git init --quiet --bare ${shQuote(gitPath)}; }`);
 }
 
 /** Force-push the hub worktree's branch to the worker's bare repo — the hub is authoritative, so
  * this overwrites anything a crashed/refused prior run left there.
- * @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}} cfg @param {import('../types/index.js').RemoteHarness} remote @param {string} worktree @param {string} gitPath @param {string} branch
+ * @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}} cfg @param {import('../types/harness.js').RemoteHarness} remote @param {string} worktree @param {string} gitPath @param {string} branch
  * @returns {Promise<string>} the pushed sha (the "before" sha for done()'s ff-only merge-back) */
 async function pushWorktreeToWorker(cfg, remote, worktree, gitPath, branch) {
   const sha = execFileSync("git", gitArgv(cfg, worktree, ["rev-parse", "HEAD"]), { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: HOST_GIT_TIMEOUT_MS, killSignal: "SIGKILL" }).trim();
@@ -331,13 +331,13 @@ async function pushWorktreeToWorker(cfg, remote, worktree, gitPath, branch) {
  * must not still be "currently checked out" in a linked worktree, or the force-push itself is
  * refused by receive-pack. Called before the push (not just before `worktree add`) so a leftover
  * worktree a crashed run's best-effort cleanup never reaped doesn't block every later run on that
- * ref. @param {import('../types/index.js').RemoteHarness} remote @param {string} gitPath @param {string} wtPath */
+ * ref. @param {import('../types/harness.js').RemoteHarness} remote @param {string} gitPath @param {string} wtPath */
 async function clearWorkerWorktree(remote, gitPath, wtPath) {
   await runRemoteChecked(remote, [`git -C ${shQuote(gitPath)} worktree prune`, `rm -rf ${shQuote(wtPath)}`, `git -C ${shQuote(gitPath)} worktree prune`].join(" && "));
 }
 
 /** Add the worker's worktree for this branch at `wtPath` (already cleared by `clearWorkerWorktree`
- * before the push). @param {import('../types/index.js').RemoteHarness} remote @param {string} gitPath @param {string} wtPath @param {string} branch */
+ * before the push). @param {import('../types/harness.js').RemoteHarness} remote @param {string} gitPath @param {string} wtPath @param {string} branch */
 async function addWorkerWorktree(remote, gitPath, wtPath, branch) {
   await runRemoteChecked(remote, [`mkdir -p ${shQuote(path.posix.dirname(wtPath))}`, `git -C ${shQuote(gitPath)} worktree add ${shQuote(wtPath)} ${shQuote(branch)}`].join(" && "));
 }
@@ -345,7 +345,7 @@ async function addWorkerWorktree(remote, gitPath, wtPath, branch) {
 /** Stream a tracked-only `git archive HEAD` of `repoPath` straight into a fresh dir on the worker
  * (no intermediate hub-side file) — a gitignored/untracked file, `.env` or the profile config
  * never travels. Rejects with whichever side failed first.
- * @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}} cfg @param {import('../types/index.js').RemoteHarness} remote @param {string} repoPath @param {string} dir
+ * @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}} cfg @param {import('../types/harness.js').RemoteHarness} remote @param {string} repoPath @param {string} dir
  * @returns {Promise<void>} */
 function archiveToWorker(cfg, remote, repoPath, dir) {
   return new Promise((resolve, reject) => {
@@ -421,7 +421,7 @@ function archiveToWorker(cfg, remote, repoPath, dir) {
 }
 
 /** Fetch the worker branch into the hub repo under a temporary ref (#690's sync-back, step 1).
- * @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}} cfg @param {import('../types/index.js').RemoteHarness} remote @param {string} worktree @param {string} gitPath @param {string} branch @param {string} tmpRef */
+ * @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}} cfg @param {import('../types/harness.js').RemoteHarness} remote @param {string} worktree @param {string} gitPath @param {string} branch @param {string} tmpRef */
 async function fetchWorkerBranch(cfg, remote, worktree, gitPath, branch, tmpRef) {
   await execFileP("git", gitArgv(cfg, worktree, ["fetch", "--no-tags", gitSshUrl(remote, gitPath), `+refs/heads/${branch}:${tmpRef}`]), {
     env: hubTransportEnv(remote),
@@ -459,7 +459,7 @@ function deleteRef(cfg, worktree, ref) {
  * user-facing reason — the caller's `launch()` rejection becomes the run's `refused`, nothing
  * spawns. Returns the pushed "before" sha for a worktree step (what `syncAfter` compares the
  * worker's branch against), else undefined.
- * @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}} cfg @param {import('../types/index.js').RemoteHarness} remote @param {string} stateKey
+ * @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}} cfg @param {import('../types/harness.js').RemoteHarness} remote @param {string} stateKey
  * @param {{repoId: string, repoPath: string, worktree?: string, branch?: string}} hub @param {string} cwd
  * @returns {Promise<string|undefined>} */
 async function syncBefore(cfg, remote, stateKey, hub, cwd) {
@@ -486,7 +486,7 @@ async function syncBefore(cfg, remote, stateKey, hub, cwd) {
  * only committed content ever went out, and the worker's own edits were never meant to return.
  * Cleanup (the worker worktree/export dir) is always attempted after, best-effort, and never
  * overrides a sync-back refusal already found.
- * @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}} cfg @param {import('../types/index.js').RemoteHarness} remote @param {string} stateKey
+ * @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}} cfg @param {import('../types/harness.js').RemoteHarness} remote @param {string} stateKey
  * @param {{repoId: string, repoPath: string, worktree?: string, branch?: string}} hub @param {string} cwd @param {string|undefined} beforeSha
  * @returns {Promise<{failed?: string}>} */
 async function syncAfter(cfg, remote, stateKey, hub, cwd, beforeSha) {
@@ -523,7 +523,7 @@ async function syncAfter(cfg, remote, stateKey, hub, cwd, beforeSha) {
 
 /** Cleanup-only counterpart to `syncAfter`, for a `raw` launch (#710's gate): remove the worker
  * worktree (pruning the bare repo's admin) or export dir — never fetches anything back.
- * @param {import('../types/index.js').RemoteHarness} remote @param {string|undefined} gitPath @param {string} cwd
+ * @param {import('../types/harness.js').RemoteHarness} remote @param {string|undefined} gitPath @param {string} cwd
  * @param {{repoId: string, repoPath: string, worktree?: string, branch?: string}|undefined} hub
  * @returns {Promise<void>} */
 async function cleanupWorker(remote, gitPath, cwd, hub) {
@@ -653,8 +653,8 @@ export function launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdict
  * per-run-dir helper the sandbox executor's own verdict path uses, so both get the "only dir
  * mounted/copied into" guarantee. `cfg` is only used for the hardened hub-side git calls
  * (`gitArgv`) the sync makes — never network-touched except via `remote`'s own host.
- * @param {{stateKey: string, remote: import('../types/index.js').RemoteHarness, spawnPaths: {sandboxVerdictPathFor: (stepId: string, ref: string) => string}, cfg?: {sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}}} o
- * @returns {import('../types/index.js').Executor} */
+ * @param {{stateKey: string, remote: import('../types/harness.js').RemoteHarness, spawnPaths: {sandboxVerdictPathFor: (stepId: string, ref: string) => string}, cfg?: {sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}}} o
+ * @returns {import('../types/sandbox.js').Executor} */
 export function createSshExecutor({ stateKey, remote, spawnPaths, cfg = {} }) {
   return {
     name: "ssh",
@@ -828,10 +828,10 @@ export function createSshExecutor({ stateKey, remote, spawnPaths, cfg = {} }) {
 
 /**
  * One `ssh` executor per harness that declares a `remote` block, keyed by harness name; `{}`
- * when none do. @param {{cfg?: Pick<import('../types/index.js').Config, 'stateKey'|'harnesses'|'sandbox'>, spawnPaths?: {sandboxVerdictPathFor: (stepId: string, ref: string) => string}}} o
- * @returns {Record<string, import('../types/index.js').Executor>} */
+ * when none do. @param {{cfg?: Pick<import('../types/config.js').Config, 'stateKey'|'harnesses'|'sandbox'>, spawnPaths?: {sandboxVerdictPathFor: (stepId: string, ref: string) => string}}} o
+ * @returns {Record<string, import('../types/sandbox.js').Executor>} */
 export function createSshExecutors({ cfg, spawnPaths }) {
-  /** @type {Record<string, import('../types/index.js').Executor>} */
+  /** @type {Record<string, import('../types/sandbox.js').Executor>} */
   const out = {};
   if (!cfg?.harnesses || !spawnPaths) return out;
   for (const [name, h] of Object.entries(cfg.harnesses)) {

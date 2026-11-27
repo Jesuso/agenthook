@@ -6,7 +6,7 @@ import { readJson } from "./read-json.js";
  * per-ref sticky repo id (repo.json): written when a multi-repo ref first routes.
  * Keyed by ref; cleared alongside difficulty when the task reaches a terminal state.
  * @param {string} dataDir
- * @returns {Pick<import('../types/index.js').Store, 'getRepo'|'setRepo'|'clearRepo'>}
+ * @returns {Pick<import('../types/state.js').Store, 'getRepo'|'setRepo'|'clearRepo'>}
  */
 export function repoSlice(dataDir) {
   const repoFile = path.join(dataDir, "repo.json");

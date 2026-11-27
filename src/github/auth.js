@@ -14,7 +14,7 @@ const API = "https://api.github.com";
 // Refetch an installation token this long before its `expires_at`.
 const REFRESH_MS = 5 * 60 * 1000;
 
-/** @typedef {import('../types/index.js').GithubAuthConfig} GithubAuthConfig */
+/** @typedef {import('../types/tracker.js').GithubAuthConfig} GithubAuthConfig */
 /** What every GitHub adapter calls instead of reading the raw token.
  * @typedef {object} GithubAuth
  * @property {boolean} app                     true under GitHub App auth

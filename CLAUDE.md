@@ -89,9 +89,9 @@ dedupKey, comment? }`. Adapters produce jobs; the engine only ever sees jobs. `s
 ## Typing (JSDoc + checkJs)
 
 Types live in `src/types/`, split by domain, as JSDoc `@typedef`s with no runtime code —
-`Adapter` there **is** the provider contract. Reference any type with
-`import('./types/index.js').Foo`. Adapter factories are tagged
-`/** @type {import('../types/index.js').AdapterFactory} */`, so an adapter missing a method or
+`Adapter` there **is** the provider contract. Reference a type from the domain file that defines
+it, e.g. `import('./types/pipeline.js').Job`. Adapter factories are tagged
+`/** @type {import('../types/tracker.js').AdapterFactory} */`, so an adapter missing a method or
 returning the wrong shape fails `npm run typecheck` — that's the whole point of the setup.
 
 `tsconfig.json` is `strict` but with `useUnknownInCatchVariables: false` (the code reads

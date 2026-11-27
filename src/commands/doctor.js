@@ -53,7 +53,7 @@ const UI_DIST_DIR = fileURLToPath(new URL("../../ui/dist/", import.meta.url));
  * (`step.bin || agent.defaults.bin || cfg.claudeBin`) for every non-manual step, each with
  * its agent and the step ids that use it — doctor checks each is on PATH. A sandboxed step's
  * binary resolves inside the image instead (sandboxChecks). Pure.
- * @param {Pick<import('../types/index.js').Config, 'claudeBin'|'agent'|'pipeline'|'sandbox'|'harnesses'>} cfg
+ * @param {Pick<import('../types/config.js').Config, 'claudeBin'|'agent'|'pipeline'|'sandbox'|'harnesses'>} cfg
  * @returns {{ bin: string, agent: string, steps: string[] }[]} */
 export function agentBinChecks(cfg) {
   /** @type {Map<string, { bin: string, agent: string, steps: string[] }>} */
@@ -83,7 +83,7 @@ export function agentBinChecks(cfg) {
  * resolves its binary inside the image instead (like agentBinChecks skips those steps), so it's
  * excluded unless at least one non-manual, unsandboxed step also routes through it. A remote
  * (`h.remote`) harness's bin runs on the worker, not the host — remoteHarnessChecks checks that. Pure.
- * @param {Pick<import('../types/index.js').Config, 'claudeBin'|'agent'|'harnesses'|'pipeline'|'sandbox'>} cfg
+ * @param {Pick<import('../types/config.js').Config, 'claudeBin'|'agent'|'harnesses'|'pipeline'|'sandbox'>} cfg
  * @returns {{ name: string, bin: string }[]} */
 export function harnessBinChecks(cfg) {
   const hostRouted = new Set((cfg.pipeline ?? []).filter((s) => !s.manual && !isSandboxed(cfg, s)).flatMap(harnessesOf));
@@ -121,8 +121,8 @@ const REMOTE_CREDENTIAL_PROBE = [
  * the SAME argv the ssh executor itself would build (`remoteProbeArgv`) — never a copy of the
  * ssh command. An unreachable worker reports one ✗ and skips the rest of that harness's probes,
  * rather than cascading failures from a host that was never going to answer.
- * @param {Pick<import('../types/index.js').Config, 'harnesses'|'agent'>} cfg
- * @param {{run: import('../types/index.js').IngressRun}} io
+ * @param {Pick<import('../types/config.js').Config, 'harnesses'|'agent'>} cfg
+ * @param {{run: import('../types/ingress.js').IngressRun}} io
  * @returns {Promise<Check[]>} */
 export async function remoteHarnessChecks(cfg, { run }) {
   /** @type {Check[]} */
@@ -200,7 +200,7 @@ export async function remoteHarnessChecks(cfg, { run }) {
  *  - plus one WARN per step whose harness list is remote-only (no non-remote fallback; no
  *    isolation on the worker; the agent runs as the worker's ssh user).
  * `[]` for the local tracker or a config without remote harnesses.
- * @param {Pick<import('../types/index.js').Config, 'provider'|'providerConfig'|'harnesses'|'pipeline'>} cfg
+ * @param {Pick<import('../types/config.js').Config, 'provider'|'providerConfig'|'harnesses'|'pipeline'>} cfg
  * @returns {Finding[]} */
 export function remoteTrustLints(cfg) {
   if (cfg.provider === "local") return [];
@@ -311,7 +311,7 @@ function allowsPrivateRule(allow, host, port) {
  * skipped. Only harnesses/steps a sandboxed step actually uses are checked; `[]` without
  * `cfg.harnesses` (doctor stays silent on a profile that doesn't use them) or `cfg.sandbox`.
  * Pure (config only).
- * @param {import('../types/index.js').Config} cfg
+ * @param {import('../types/config.js').Config} cfg
  * @returns {{ level: 'warn', label: string, note: string }[]} */
 export function harnessLanLints(cfg) {
   if (!cfg.harnesses || !cfg.sandbox) return [];
@@ -385,7 +385,7 @@ function readOpencodeJson(configPath, read) {
  * gets the same loopback / private-without-`!private` warnings as a harness's/step's
  * `ANTHROPIC_BASE_URL`. An unreadable or invalid file warns with the error instead of throwing.
  * `[]` without `cfg.sandbox`. Pure given `read`.
- * @param {import('../types/index.js').Config} cfg
+ * @param {import('../types/config.js').Config} cfg
  * @param {{read?: (path: string) => string}} [io]
  * @returns {{ level: 'warn', label: string, note: string }[]} */
 export function opencodeConfigLints(cfg, { read = (p) => fs.readFileSync(p, "utf8") } = {}) {
@@ -442,7 +442,7 @@ export function opencodeConfigLints(cfg, { read = (p) => fs.readFileSync(p, "utf
  * define variants OpenCode already knows), a non-opencode step, a pair missing a model or
  * effort, or a config that's unreadable/invalid (`opencodeConfigLints` already warns about
  * that). `[]` without `cfg.sandbox`. Pure given `read`.
- * @param {import('../types/index.js').Config} cfg
+ * @param {import('../types/config.js').Config} cfg
  * @param {{read?: (path: string) => string}} [io]
  * @returns {{ level: 'info', label: string, note: string }[]} */
 export function opencodeEffortLints(cfg, { read = (p) => fs.readFileSync(p, "utf8") } = {}) {
@@ -495,8 +495,8 @@ export function opencodeEffortLints(cfg, { read = (p) => fs.readFileSync(p, "utf
  * overridden harness shows "N slots (override; config M)" and a global pause/max override gets an
  * ℹ line; a harness entry not in the config is flagged as dropped-on-boot. `[]` only with neither
  * `cfg.harnesses` nor a global override. Pure.
- * @param {Pick<import('../types/index.js').Config, 'harnesses'|'pipeline'|'maxConcurrent'>} cfg
- * @param {import('../types/index.js').Overrides} [overrides]
+ * @param {Pick<import('../types/config.js').Config, 'harnesses'|'pipeline'|'maxConcurrent'>} cfg
+ * @param {import('../types/config.js').Overrides} [overrides]
  * @returns {{ level: 'info'|'warn', label: string, note: string }[]} */
 export function harnessSlotLints(cfg, overrides = {}) {
   /** @type {{ level: 'info'|'warn', label: string, note: string }[]} */
@@ -549,7 +549,7 @@ export function harnessSlotLints(cfg, overrides = {}) {
  * Today: a text-only agent (no structured stream — hermes) with `requireVerdict: false`
  * set explicitly, so a run that wrote no verdict file advances unchecked; and a step-level
  * `model` that a multi-harness list broadcasts to every harness lacking its own entry `model`.
- * @param {Pick<import('../types/index.js').Config, 'agent'|'pipeline'>} cfg
+ * @param {Pick<import('../types/config.js').Config, 'agent'|'pipeline'>} cfg
  * @returns {{ level: 'warn', label: string, note: string }[]} */
 export function agentLints(cfg) {
   /** @type {{ level: 'warn', label: string, note: string }[]} */
@@ -577,12 +577,12 @@ const CODE_RUNNERS = new Set(["node", "python", "python3", "sh", "bash", "zsh", 
  * can't enforce (its runs are refused); ⚠ an allowed command that runs arbitrary code, an allow
  * policy outside the sandbox, an implement/worktree step whose allowlist lacks git (or gh with a
  * forge) the prompt asks for; ℹ the effective claude permission tail (claudePermissionArgs).
- * @param {Pick<import('../types/index.js').Config, 'agent'|'pipeline'|'sandbox'|'forge'|'fullAuto'>} cfg
+ * @param {Pick<import('../types/config.js').Config, 'agent'|'pipeline'|'sandbox'|'forge'|'fullAuto'>} cfg
  * @returns {{ level: 'fail'|'warn'|'info', label: string, note: string }[]} */
 export function policyLints(cfg) {
   /** @type {{ level: 'fail'|'warn'|'info', label: string, note: string }[]} */
   const out = [];
-  /** @param {import('../types/index.js').Step} s */
+  /** @param {import('../types/pipeline.js').Step} s */
   const rules = (s) => claudePermissionArgs({ fullAuto: cfg.fullAuto, allow: s.allow, deny: s.deny, cwd: "/<cwd>", verdictFile: "/<verdictFile>" }).join(" ");
   for (const s of cfg.pipeline ?? []) {
     if (s.manual || (!s.allow && !s.deny)) continue;
@@ -617,12 +617,12 @@ export function policyLints(cfg) {
 
 /** The agent env allowlist's pattern sources for this profile (#470), each tagged for doctor's
  * lines: the tracker prompt's, the forge's, the operator's, and each agent the pipeline spawns.
- * @param {Pick<import('../types/index.js').Config, 'agent'|'pipeline'|'provider'|'forge'|'agentEnvPassthrough'>} cfg */
+ * @param {Pick<import('../types/config.js').Config, 'agent'|'pipeline'|'provider'|'forge'|'agentEnvPassthrough'>} cfg */
 function agentEnvSources(cfg) {
   const tracker = TRACKER_AGENT_ENV[cfg.provider] ?? [];
   const forge = cfg.forge ? (FORGE_AGENT_ENV[cfg.forge.type] ?? []) : [];
   const operator = cfg.agentEnvPassthrough ?? [];
-  /** @type {Map<string, {name: string, envPassthrough: string[], steps: import('../types/index.js').Step[]}>} */
+  /** @type {Map<string, {name: string, envPassthrough: string[], steps: import('../types/pipeline.js').Step[]}>} */
   const agents = new Map();
   const steps = (cfg.pipeline ?? []).filter((s) => !s.manual);
   for (const s of steps.length ? steps : [undefined]) {
@@ -642,7 +642,7 @@ function agentEnvSources(cfg) {
  * variables a run likely needs but loses: Bedrock/Vertex for claude, provider keys for opencode
  * or a non-isolated hermes, a tracker token the prompt names under a different variable, git's
  * own settings. Pure given `env` (and the config file `tokenVar` reads).
- * @param {Pick<import('../types/index.js').Config, 'agent'|'pipeline'|'provider'|'forge'|'providerConfig'|'agentEnvPassthrough'|'configPath'|'githubRunToken'>} cfg
+ * @param {Pick<import('../types/config.js').Config, 'agent'|'pipeline'|'provider'|'forge'|'providerConfig'|'agentEnvPassthrough'|'configPath'|'githubRunToken'>} cfg
  * @param {{env?: Record<string, string|undefined>, platform?: string}} [io]
  * @returns {{ level: 'info'|'warn', label: string, note?: string, fix?: Fix }[]} */
 export function agentEnvLints(cfg, { env = process.env, platform = process.platform } = {}) {
@@ -713,7 +713,7 @@ export function agentEnvLints(cfg, { env = process.env, platform = process.platf
 /** Can the agents' `gh` authenticate (#470)? Every non-local tracker's prompts open and review PRs
  * with `gh`, which reads GH_TOKEN / GITHUB_TOKEN or its own login — run `gh auth status` with the
  * env the profile's default agent would get. The receiver's own env never reaches the probe.
- * @param {Pick<import('../types/index.js').Config, 'agent'|'pipeline'|'provider'|'forge'|'agentEnvPassthrough'>} cfg
+ * @param {Pick<import('../types/config.js').Config, 'agent'|'pipeline'|'provider'|'forge'|'agentEnvPassthrough'>} cfg
  * @param {{spawn: Spawner, onPath: (bin: string) => boolean, env?: Record<string, string|undefined>, platform?: string}} io
  * @returns {Finding[]} */
 export function ghAuthLints(cfg, { spawn, onPath: have, env = process.env, platform = process.platform }) {
@@ -731,7 +731,7 @@ export function ghAuthLints(cfg, { spawn, onPath: have, env = process.env, platf
  * cfg.agentProvider → config.yaml `model.provider`) is not a local `providers:` entry.
  * Pure given `readFile` (returns the text, or null when missing); an undecidable provider
  * stays silent, like the run's own fail-open check.
- * @param {Pick<import('../types/index.js').Config, 'agent'|'pipeline'|'agentProvider'>} cfg
+ * @param {Pick<import('../types/config.js').Config, 'agent'|'pipeline'|'agentProvider'>} cfg
  * @param {{sourceHome: string, readFile: (file: string) => string|null}} io
  * @returns {{ level: 'warn', label: string, note: string }[]} */
 export function hermesLints(cfg, { sourceHome, readFile }) {
@@ -759,7 +759,7 @@ export function hermesLints(cfg, { sourceHome, readFile }) {
  * check yet match no incoming event, so the receiver silently does nothing — the
  * common first-run trap. Returns `step.id.key` per offender (absent optional
  * bindings are fine).
- * @param {import('../types/index.js').Step[]|null} pipeline */
+ * @param {import('../types/pipeline.js').Step[]|null} pipeline */
 export function unfilledBindings(pipeline) {
   /** @type {string[]} */
   const out = [];
@@ -776,7 +776,7 @@ export function unfilledBindings(pipeline) {
 /** Pre-`repos` worktrees (`<base>/<safeRef>`, depth 1 under the repo's worktree base).
  * Multi-repo paths nest one level deeper (`<base>/<repo.id>/<ref>`), so these are
  * orphans left from before `repos` was declared.
- * @param {import('../types/index.js').Config} cfg @param {import('../types/index.js').RepoConfig} repo
+ * @param {import('../types/config.js').Config} cfg @param {import('../types/config.js').RepoConfig} repo
  * @param {string[]} worktreePaths  e.g. listWorktrees(repo.path).map((w) => w.path) */
 export function legacyOrphans(cfg, repo, worktreePaths) {
   if (!cfg.multiRepo) return [];
@@ -786,7 +786,7 @@ export function legacyOrphans(cfg, repo, worktreePaths) {
 
 /** Multi-repo routing lints that pass loadConfig yet leave tickets unroutable or
  * unparkable. Pure (config only). Empty for single-repo profiles.
- * @param {import('../types/index.js').Config} cfg
+ * @param {import('../types/config.js').Config} cfg
  * @returns {{ level: 'fail'|'warn', label: string, note?: string }[]} problems only */
 export function repoLints(cfg) {
   /** @type {{ level: 'fail'|'warn', label: string, note?: string }[]} */
@@ -811,7 +811,7 @@ export function repoLints(cfg) {
 /** Warn when a `github` tracker has no forge block — merge/CI events never arrive
  * and the event-driven loop quietly falls back to polling — or when a `gitlab` forge
  * block is missing what it needs. Pure (config only).
- * @param {import('../types/index.js').Config} cfg
+ * @param {import('../types/config.js').Config} cfg
  * @returns {{level: 'warn', label: string, note: string}[]} */
 export function forgeLints(cfg) {
   if (cfg.forge?.type === "gitlab") return gitlabForgeLints(cfg.forge);
@@ -820,7 +820,7 @@ export function forgeLints(cfg) {
 }
 
 /** A `gitlab` forge needs a `group/project` path, a token, and an http(s) base URL. Pure.
- * @param {import('../types/index.js').ForgeConfig} fc
+ * @param {import('../types/forge.js').ForgeConfig} fc
  * @returns {{level: 'warn', label: string, note: string}[]} */
 function gitlabForgeLints(fc) {
   /** @type {{level: 'warn', label: string, note: string}[]} */
@@ -841,7 +841,7 @@ function gitlabForgeLints(fc) {
 
 /** The ingress preflight: a managed tunnel needs its binary on PATH (cloudflared also both or
  * neither of tunnel/hostname); tailscale needs only its CLI; a static ingress needs ingress.url.
- * @param {import('../types/index.js').IngressConfig} ingress @param {(bin: string) => boolean} [has]
+ * @param {import('../types/ingress.js').IngressConfig} ingress @param {(bin: string) => boolean} [has]
  * @returns {{ ok: boolean, label: string, note?: string, manual: string }[]} */
 export function ingressChecks(ingress, has = onPath) {
   if (ingress.type === "ngrok") return [{ ok: has(process.env.NGROK || "ngrok"), label: "ngrok binary on PATH", manual: "install ngrok or put it on PATH (or set $NGROK)" }];
@@ -896,8 +896,8 @@ export function harnessQuotaLints(profile) {
  * reachable, the image present (fix: build the default recipe), every service image present
  * (fix: pull it — never done for you), and per sandboxed step an agent that supports the
  * sandbox, claude's credential var, a binary that resolves inside the image, and its services.
- * @param {import('../types/index.js').Config} cfg
- * @param {{run: import('../types/index.js').IngressRun, has?: (bin: string) => boolean, build?: (bin: string, args: string[], dockerfile: string) => { status: number|null }}} io
+ * @param {import('../types/config.js').Config} cfg
+ * @param {{run: import('../types/ingress.js').IngressRun, has?: (bin: string) => boolean, build?: (bin: string, args: string[], dockerfile: string) => { status: number|null }}} io
  * @returns {Promise<Check[]>}
  */
 export async function sandboxChecks(cfg, { run, has = onPath, build = buildImage }) {
@@ -961,7 +961,7 @@ function isLoopbackUrl(url) {
  * ANTHROPIC_BASE_URL a container can't reach, ℹ a registry preset a repo-root lockfile suggests
  * (when a sandboxed allowlist step lacks it), and ℹ each sandboxed step's effective policy.
  * Pure given `files` (the repo root listing) and `env` (the receiver env agents draw from).
- * @param {import('../types/index.js').Config} cfg
+ * @param {import('../types/config.js').Config} cfg
  * @param {{files?: string[], env?: Record<string, string|undefined>, origins?: string[]}} [io]  `origins`: the repos' origin URLs (a profile with no forge block infers its forge hosts from them, as dispatch does)
  * @returns {{ level: 'info'|'warn', label: string, note?: string }[]} */
 export function egressLints(cfg, { files = [], env = process.env, origins = [] } = {}) {
@@ -1042,7 +1042,7 @@ export function claimedPortLint(port, claimed) {
  * also reuse the same branch (same effective `branchPrefix`), another when they'd also reuse the
  * same worktree directory (same effective worktree base) — a distinct `branchPrefix` alone isn't
  * enough, since `ensureWorktree` returns an existing worktree dir without checking its branch. Pure.
- * @param {import('../types/index.js').Config} cfg
+ * @param {import('../types/config.js').Config} cfg
  * @param {{ name: string, repoPaths: string[], branchPrefix: string, worktreeDirs: string[] }[]} others
  * @returns {Finding[]} */
 export function sharedRepoLint(cfg, others) {
@@ -1074,8 +1074,8 @@ export function sharedRepoLint(cfg, others) {
   return out;
 }
 
-/** @typedef {import('../types/index.js').Fix} Fix */
-/** @typedef {import('../types/index.js').Check} Check */
+/** @typedef {import('../types/doctor.js').Fix} Fix */
+/** @typedef {import('../types/doctor.js').Check} Check */
 /** A detector's problem (`info`: a ✓-side note, never a problem). @typedef {{ level: 'fail'|'warn'|'info', label: string, note?: string, fix?: Fix }} Finding */
 /** The child-process seam for the two fixers that shell out (tests inject a recorder).
  * @typedef {(cmd: string, args: string[], opts: {cwd?: string, stdio?: any, env?: Record<string, string>, timeout?: number, encoding?: BufferEncoding}) => { status: number|null, stdout?: string|Buffer }} Spawner */
@@ -1092,7 +1092,7 @@ function readPidFile(file) {
 
 /** The state dir exists but group/other can read it (POSIX only) — run logs, verdicts and
  * the control socket live there. A missing dir is not a problem (boot creates it 0700).
- * @param {Pick<import('../types/index.js').Config, 'stateDir'>} cfg @param {{platform?: string}} [io]
+ * @param {Pick<import('../types/config.js').Config, 'stateDir'>} cfg @param {{platform?: string}} [io]
  * @returns {Finding[]} */
 export function stateDirLints(cfg, { platform = process.platform } = {}) {
   if (platform === "win32" || !fs.existsSync(cfg.stateDir)) return [];
@@ -1110,7 +1110,7 @@ export function stateDirLints(cfg, { platform = process.platform } = {}) {
 
 /** A pidfile whose pid is not alive: the receiver died without cleaning up. The fix removes
  * it only if it still holds the same content (a receiver booting meanwhile rewrites it).
- * @param {Pick<import('../types/index.js').Config, 'pidFile'>} cfg @param {{isAlive?: (pid: number) => boolean}} [io]
+ * @param {Pick<import('../types/config.js').Config, 'pidFile'>} cfg @param {{isAlive?: (pid: number) => boolean}} [io]
  * @returns {Finding[]} */
 export function pidfileLints(cfg, { isAlive: alive = isAlive } = {}) {
   const rec = readPidFile(cfg.pidFile);
@@ -1151,7 +1151,7 @@ export function probeSocket(sock, timeoutMs = 1000) {
 /** A leftover `control.sock` (POSIX only): present, no live pid in the pidfile, AND nothing
  * accepts a connect. A dead pid alone is not proof — a booting receiver listens on the socket
  * before it writes its pidfile. The fix re-probes before removing it.
- * @param {Pick<import('../types/index.js').Config, 'pidFile'|'controlSock'>} cfg
+ * @param {Pick<import('../types/config.js').Config, 'pidFile'|'controlSock'>} cfg
  * @param {{isAlive?: (pid: number) => boolean, probe?: (sock: string) => Promise<'open'|'dead'|'unknown'>, platform?: string}} [io]
  * @returns {Promise<Finding[]>} */
 export async function controlSockLints(cfg, { isAlive: alive = isAlive, probe = probeSocket, platform = process.platform } = {}) {
@@ -1177,7 +1177,7 @@ export async function controlSockLints(cfg, { isAlive: alive = isAlive, probe = 
 /** Step/default/repo instruction files that don't exist — a run reads them as "" and goes
  * with no standing instructions, silently. The fix copies the packaged template in, never
  * overwriting (`wx`; EEXIST counts as fixed). The Digest's SOUL file is out of scope.
- * @param {import('../types/index.js').Config} cfg @returns {Finding[]} */
+ * @param {import('../types/config.js').Config} cfg @returns {Finding[]} */
 export function instructionLints(cfg) {
   const template = path.join(cfg.installDir, "INSTRUCTIONS.example.md");
   /** @type {Finding[]} */
@@ -1265,8 +1265,8 @@ export function skillLints(
  * prunable under that base (fix: `git worktree prune`, which only drops git's admin entries
  * for already-deleted dirs — branches and commits stay). Repos without `.git` are skipped
  * (doctor already fails them).
- * @param {import('../types/index.js').Config} cfg
- * @param {{listWorktrees?: (cfg: import("../types/index.js").Config, repoPath: string) => { path: string, prunable?: boolean }[], spawn?: Spawner}} [io]
+ * @param {import('../types/config.js').Config} cfg
+ * @param {{listWorktrees?: (cfg: import("../types/config.js").Config, repoPath: string) => { path: string, prunable?: boolean }[], spawn?: Spawner}} [io]
  * @returns {Finding[]} */
 export function worktreeLints(cfg, { listWorktrees: list = listWorktrees, spawn = spawnSync } = {}) {
   /** @type {Finding[]} */
@@ -1312,10 +1312,10 @@ export function worktreeLints(cfg, { listWorktrees: list = listWorktrees, spawn 
  * the tracker — `assigneeLogin` (the human the App acts for) is set. With `runTokenRepo`
  * ("owner/name", agent run tokens on, #474) it also mints a run token for the `implement`
  * permission set on that repo and revokes it at once (one more call each way).
- * @param {{auth?: import('../types/index.js').GithubAuthConfig, assigneeLogin?: string}} block
+ * @param {{auth?: import('../types/tracker.js').GithubAuthConfig, assigneeLogin?: string}} block
  * @param {'tracker'|'forge'} at @param {{fetch?: typeof fetch, runTokenRepo?: string|null}} [io] @returns {Promise<Check[]>} */
 export async function githubAppChecks(block, at, { fetch: f, runTokenRepo } = {}) {
-  const auth = /** @type {import('../types/index.js').GithubAuthConfig} */ (block.auth);
+  const auth = /** @type {import('../types/tracker.js').GithubAuthConfig} */ (block.auth);
   /** @type {Check[]} */
   const out = [];
   let keyOk = false;
@@ -1367,7 +1367,7 @@ const blockRepo = (block) => (block?.repository ? String(block.repository) : blo
  * GitHub agents use a personal token (no App), a ⚠ when App auth is on but `githubRunToken` is
  * false, when a step `env` overrides the run token with GH_TOKEN/GITHUB_TOKEN, or when a repo's
  * `origin` isn't github.com under a GitHub tracker (its run tokens cover issues only).
- * @param {Pick<import('../types/index.js').Config, 'provider'|'providerConfig'|'forge'|'pipeline'|'githubRunToken'|'repos'|'repoPath'>} cfg
+ * @param {Pick<import('../types/config.js').Config, 'provider'|'providerConfig'|'forge'|'pipeline'|'githubRunToken'|'repos'|'repoPath'>} cfg
  * @param {{originRepo?: (repoPath: string) => string|null}} [io]
  * @returns {{ level: 'info'|'warn', label: string, note?: string }[]} */
 export function runTokenLints(cfg, { originRepo = (p) => parseGithubRemote(originUrl(p)) } = {}) {
@@ -1386,7 +1386,7 @@ export function runTokenLints(cfg, { originRepo = (p) => parseGithubRemote(origi
   }
   // A github App forge falls back to its own repository, so only a tracker-only App is issues-only.
   if (githubTracker && !forgeApp) {
-    for (const repo of reposOf(/** @type {import('../types/index.js').Config} */ (cfg))) {
+    for (const repo of reposOf(/** @type {import('../types/config.js').Config} */ (cfg))) {
       if (!originRepo(repo.path)) out.push({ level: "warn", label: `run tokens for "${repo.id}" cover issues only; pushes use your own git credentials`, note: "its origin is not a github.com remote" });
     }
   }
@@ -1395,7 +1395,7 @@ export function runTokenLints(cfg, { originRepo = (p) => parseGithubRemote(origi
 
 /** Whether agents get per-run GitHub App tokens (#474): a GitHub tracker or forge on App auth, and
  * `githubRunToken` not false — the same condition runTokenLints uses. Pure.
- * @param {Pick<import('../types/index.js').Config, 'provider'|'providerConfig'|'forge'|'githubRunToken'>} cfg */
+ * @param {Pick<import('../types/config.js').Config, 'provider'|'providerConfig'|'forge'|'githubRunToken'>} cfg */
 const usesRunTokens = (cfg) =>
   cfg.githubRunToken !== false && (((cfg.provider === "github" || cfg.provider === "github-projects") && isAppAuth(cfg.providerConfig)) || (cfg.forge?.type === "github" && isAppAuth(cfg.forge)));
 
@@ -1432,7 +1432,7 @@ const ruleCount = (args) => args.filter((a) => !a.startsWith("--") && a !== "don
  * credentials, each step's permission mode, prompt fencing. Rows are ℹ or ⚠, never ✗ (fullAuto
  * without a sandbox is warn-only). Pure given `userClaudeSettings` (parsed ~/.claude/settings.json,
  * or null) and `gitInsteadOf` (the global `url.*.insteadof` rules, or "").
- * @param {import('../types/index.js').Config} cfg
+ * @param {import('../types/config.js').Config} cfg
  * @param {{userClaudeSettings?: any, gitInsteadOf?: string, user?: string}} [io]
  * @returns {{ level: 'info'|'warn', label: string, note: string }[]} */
 export function isolationReport(cfg, { userClaudeSettings = null, gitInsteadOf = "", user = os.userInfo().username } = {}) {
@@ -1527,12 +1527,12 @@ export function tokenVar(configPath) {
  *   isAlive?: (pid: number) => boolean,
  *   probe?: (sock: string) => Promise<'open'|'dead'|'unknown'>,
  *   spawn?: Spawner,
- *   listWorktrees?: (cfg: import("../types/index.js").Config, repoPath: string) => { path: string, branch: string, prunable?: boolean }[],
+ *   listWorktrees?: (cfg: import("../types/config.js").Config, repoPath: string) => { path: string, branch: string, prunable?: boolean }[],
  *   uiBundle?: () => {state: 'no-src'|'missing'|'stale'|'fresh', newest?: string},
  *   skills?: (repoPath: string) => ReturnType<typeof installedSkills>,
  *   platform?: string,
  *   fetch?: typeof fetch,
- *   run?: import('../types/index.js').IngressRun,
+ *   run?: import('../types/ingress.js').IngressRun,
  *   build?: (bin: string, args: string[], dockerfile: string) => { status: number|null },
  *   env?: Record<string, string|undefined>,
  *   userClaudeSettings?: any,
@@ -1560,7 +1560,7 @@ function readGitInsteadOf(spawn) {
 }
 
 /** Run every check against a loaded config; prints nothing.
- * @param {import('../types/index.js').Config} cfg @param {DoctorIo} [io] @returns {Promise<Check[]>} */
+ * @param {import('../types/config.js').Config} cfg @param {DoctorIo} [io] @returns {Promise<Check[]>} */
 export async function runChecks(cfg, io = {}) {
   const {
     onPath: have = onPath,

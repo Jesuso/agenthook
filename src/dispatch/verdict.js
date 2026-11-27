@@ -152,7 +152,7 @@ export function endedWithQuestion(text) {
  * can't write its verdict has not finished) unless the step opts out with
  * `requireVerdict: false`, which restores the old "clean exit advances" default.
  * @param {number} code @param {string|null} text @param {{requireVerdict?: boolean}} [opts]
- * @returns {import('../types/index.js').Verdict}
+ * @returns {import('../types/pipeline.js').Verdict}
  */
 export function parseVerdict(code, text, { requireVerdict = true } = {}) {
   if (code !== 0) return { outcome: "fail", reason: `non-zero exit (${code})` };
@@ -198,9 +198,9 @@ export function parseVerdict(code, text, { requireVerdict = true } = {}) {
 /** @param {import('./context.js').DispatchState} ctx */
 export function createVerdictOps(ctx) {
   const { cfg, store } = ctx;
-  /** @param {number} code @param {string} verdictFile @param {import('../types/index.js').Step} step
-   * @param {import('../types/index.js').AgentAdapter} agent  its `defaults.requireVerdict` applies when the step sets none
-   * @returns {import('../types/index.js').Verdict} */
+  /** @param {number} code @param {string} verdictFile @param {import('../types/pipeline.js').Step} step
+   * @param {import('../types/agents.js').AgentAdapter} agent  its `defaults.requireVerdict` applies when the step sets none
+   * @returns {import('../types/pipeline.js').Verdict} */
   function readVerdict(code, verdictFile, step, agent) {
     let text = null;
     try {
@@ -218,7 +218,7 @@ export function createVerdictOps(ctx) {
    * concrete id for the adapter) and stores the findings for the target's next prompt.
    * @param {string} ref
    * @param {string} stepId  the step the verdict moves the task out of
-   * @param {import('../types/index.js').Verdict} verdict
+   * @param {import('../types/pipeline.js').Verdict} verdict
    * @param {string} fromStep  who the findings are attributed to in the rework prompt
    */
   function guardChanges(ref, stepId, verdict, fromStep) {
@@ -250,16 +250,16 @@ export function createVerdictOps(ctx) {
  * turns each ran inline at five call sites. `rc` carries the fields every one of them already
  * had: `executor` (whether the guard applies), `localVerdictFile`, `step`, `agent` (parseVerdict's
  * requireVerdict default) and `readVerdict` itself.
- * @param {{executor: {name: string}, localVerdictFile: string, step: import('../types/index.js').Step, agent: import('../types/index.js').AgentAdapter, readVerdict: (code: number, verdictFile: string, step: import('../types/index.js').Step, agent: import('../types/index.js').AgentAdapter) => import('../types/index.js').Verdict}} rc
+ * @param {{executor: {name: string}, localVerdictFile: string, step: import('../types/pipeline.js').Step, agent: import('../types/agents.js').AgentAdapter, readVerdict: (code: number, verdictFile: string, step: import('../types/pipeline.js').Step, agent: import('../types/agents.js').AgentAdapter) => import('../types/pipeline.js').Verdict}} rc
  * @param {number} code
- * @returns {import('../types/index.js').Verdict}
+ * @returns {import('../types/pipeline.js').Verdict}
  */
 export function peekVerdict(rc, code) {
   if (rc.executor.name !== "host") guardSandboxVerdict(rc.localVerdictFile);
   return rc.readVerdict(code, rc.localVerdictFile, rc.step, rc.agent);
 }
 
-/** The clean-exit-with-no-valid-verdict hold (#677/#680's shared pre-check). @param {import('../types/index.js').Verdict} v */
+/** The clean-exit-with-no-valid-verdict hold (#677/#680's shared pre-check). @param {import('../types/pipeline.js').Verdict} v */
 export function isNoValidVerdict(v) {
   return v.outcome === "hold" && v.reason === NO_VALID_VERDICT;
 }

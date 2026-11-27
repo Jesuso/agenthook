@@ -145,7 +145,7 @@ export function rawAgentBins(raw) {
  * skipped and the `.env` files are re-read into a local copy (same precedence), so neither
  * process.env nor fileEnvKeys is touched. The restart preflight passes `respawnEnv()` so the
  * check reflects the fresh process the respawn will become.
- * @returns {import('../types/index.js').Config}
+ * @returns {import('../types/config.js').Config}
  */
 export function loadConfig(opts = {}) {
   const { configPath, configDir } = readRawConfig(opts.configPath);
