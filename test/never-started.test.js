@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadConfig, registryDir } from "../src/config.js";
+import { loadConfig, registryDir } from "../src/config/index.js";
 import { requireStarted, tildify } from "../src/profile.js";
 import { doctor } from "../src/commands/doctor.js";
 import { events } from "../src/commands/events.js";

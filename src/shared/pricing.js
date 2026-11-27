@@ -1,7 +1,7 @@
 // Estimated, API-equivalent spend for runs whose agent reports no real dollars (epic #393).
 // `costUsd` keeps meaning "reported by the agent"; an estimate sits beside it as `estUsd` with a
 // `costBasis`, and the two are never summed into one number. An unknown model gets no estimate —
-// never a guess. Import-free on purpose: src/config.js validates with it, the CLI and the
+// never a guess. Import-free on purpose: src/config/validate/ validates with it, the CLI and the
 // `ah ui` readers price with it, and the browser may bundle it (like src/shared/identity.js).
 
 /** The date DEFAULT_RATES were last checked against Anthropic's published API pricing. */

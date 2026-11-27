@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { events, renderEvent, resolveRefFilter, tailFile } from "../src/commands/events.js";
-import { loadConfig } from "../src/config.js";
+import { loadConfig } from "../src/config/index.js";
 
 // Unit tests for the events command's pure helpers.
 // The read/filter path is exercised via renderEvent + the inline filter logic

@@ -2,7 +2,7 @@
 // work with the receiver down; `board`/`prs` and every write go to the live receiver over its
 // control socket (src/ops.js), which audits writes. `readOnly` omits the write tools entirely —
 // they are neither listed nor callable.
-import { registryDir } from "../config.js";
+import { registryDir } from "../config/index.js";
 import { HIDDEN_BY_DEFAULT } from "../events.js";
 import {
   pickProfile,
@@ -29,7 +29,7 @@ import { validateArgs } from "./schema.js";
 import { listProfiles } from "../heartbeat.js";
 import path from "node:path";
 import fs from "node:fs";
-import { loadConfig } from "../config.js";
+import { loadConfig } from "../config/index.js";
 import { AUTHORING, guideTopics, loadGuide, renderAuthoring } from "../guide.js";
 export { loadGuide };
 

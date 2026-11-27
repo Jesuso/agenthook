@@ -13,7 +13,7 @@ import path from "node:path";
 import { withFakeSsh, spawnCtx } from "./_ssh-helpers.js";
 import { createSshExecutor, shQuote } from "../src/dispatch/executor-ssh.js";
 import { pi, buildPiArgs } from "../src/agents/pi.js";
-import { validateRawConfig } from "../src/config.js";
+import { validateRawConfig } from "../src/config/index.js";
 import { REMOTE_AGENTS } from "../src/agents/names.js";
 import { remoteHarnessChecks } from "../src/commands/doctor.js";
 

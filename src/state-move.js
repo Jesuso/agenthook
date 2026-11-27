@@ -7,7 +7,7 @@
 // names the exact `"stateId": "<to>"` to set. `registry` is injectable for tests.
 import fs from "node:fs";
 import path from "node:path";
-import { registryDir, validName, validateRawConfig } from "./config.js";
+import { registryDir, validName, validateRawConfig } from "./config/index.js";
 import { listProfiles } from "./heartbeat.js";
 import { setStateIdInConfigText } from "./json-edit.js";
 import { writeProfileMarker } from "./profile.js";

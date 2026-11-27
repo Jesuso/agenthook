@@ -4,7 +4,7 @@
 import { SENSITIVE_FIELDS } from "./contract.js";
 
 /** Config paths whose value is a secret — each should be a `${VAR}` ref, never a literal.
- * `[*]` expands every element of an array. Re-exported by src/config.js; lives here so the config
+ * `[*]` expands every element of an array. Re-exported by src/config/validate/; lives here so the config
  * editor's secret fields (ui/src/ConfigForms.tsx) bundle the same list. */
 export const SECRET_FIELDS = /** @type {const} */ ([
   "tracker.token",

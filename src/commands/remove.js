@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
 import { archiveRoot, archiveStateDir } from "../archive.js";
-import { registryDir } from "../config.js";
+import { registryDir } from "../config/index.js";
 import { resolveProfile } from "../heartbeat.js";
 import { controlSockPath } from "../paths.js";
 import { readMarker } from "../profile.js";

@@ -377,7 +377,7 @@ emptied block is removed) and `overlapGuard`, and the **Repos** tab: `repoPath` 
 plus `repos[]` cards (add / remove / reorder; `id`, `path`, `match` as a chip list, `default` —
 checking it on one card clears every other card's in the same edit — and, under Advanced,
 `instructionsFile` / `worktreePrefix`; absent `repos` shows a "+ Add repo" that seeds the same
-default repo `src/config.js` synthesizes on its own, so routing doesn't change — but it does switch
+default repo `src/config/` synthesizes on its own, so routing doesn't change — but it does switch
 the profile into multi-repo mode, which nests worktrees under `worktreePrefix/<id>/`, so finish or
 drain in-flight tickets before declaring `repos`). Sink, digest and repos rules come from the
 import-free `src/shared/sinks-config.js` / `src/shared/digest-config.js` / `src/shared/repos-config.js` the server

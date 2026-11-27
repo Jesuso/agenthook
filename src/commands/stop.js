@@ -2,7 +2,7 @@
 // down the ingress tunnel and clears pid/heartbeat). Also deletes the tracker
 // webhooks (and the forge's, when one is configured) unless --keep-hooks is given.
 import fs from "node:fs";
-import { loadConfig } from "../config.js";
+import { loadConfig } from "../config/index.js";
 import { createStore } from "../store/index.js";
 import { createAdapter } from "../trackers/index.js";
 import { createForge } from "../forges/index.js";

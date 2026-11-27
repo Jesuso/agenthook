@@ -7,7 +7,7 @@ import path from "node:path";
 import { renderTop, selectable, detailLine, hintLine, helpLines, allLayout, detailAll } from "../src/top.js";
 import { tailFile } from "../src/commands/follow.js";
 import { followRunLog } from "../src/commands/top.js";
-import { registryDir } from "../src/config.js";
+import { registryDir } from "../src/config/index.js";
 import { NOW, iso, emptyUpTick, visible, makeOut, makeInput, makeNextEvent, makeTimers, pump, start } from "./_top-helpers.js";
 
 /** Show the cursor + leave the alternate screen (what the loop writes on restore). */

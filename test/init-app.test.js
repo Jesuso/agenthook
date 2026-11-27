@@ -4,7 +4,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 import test from "node:test";
 import assert from "node:assert/strict";
 import { githubAppAuthBlock, githubAppPermissionLines, GITHUB_APP_PERMISSIONS, initForgeBlock, preselectTracker, trackerChoiceTitle, missingTokenMessage } from "../src/commands/init.js";
-import { validateRawConfig } from "../src/config.js";
+import { validateRawConfig } from "../src/config/index.js";
 
 test("githubAppAuthBlock: an UPPER_CASE answer is the PEM's env var (a ${VAR} ref); anything else a .pem path", () => {
   assert.deepEqual(githubAppAuthBlock({ appId: "1", installationId: "2", privateKey: "GITHUB_APP_PRIVATE_KEY" }), { type: "app", appId: "1", installationId: "2", privateKey: "${GITHUB_APP_PRIVATE_KEY}" });
@@ -58,7 +58,7 @@ test("missingTokenMessage: names the variable and where init looked for it", () 
 });
 
 test("loadEnv: reads a .env into process.env without clobbering an exported var (init relies on it for the tracker token)", async () => {
-  const { loadEnv } = await import("../src/config.js");
+  const { loadEnv } = await import("../src/config/index.js");
   const fs = await import("node:fs");
   const os = await import("node:os");
   const path = await import("node:path");

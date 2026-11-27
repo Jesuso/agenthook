@@ -18,7 +18,7 @@
 // With a forge, reconcile then also replays agent PRs merged while the receiver was down
 // (`runMergeCatchup`, via the `reconcile_merges` op — only the receiver can intake them), and
 // re-checks the rows already flagged with a PR reason (src/recheck.js) — those rows only.
-import { loadConfig } from "../config.js";
+import { loadConfig } from "../config/index.js";
 import { requireStarted } from "../profile.js";
 import { createStore } from "../store/index.js";
 import { createAdapter } from "../trackers/index.js";

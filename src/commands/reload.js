@@ -2,7 +2,7 @@
 // steps' spawn knobs, egress, caps, quota) to runs that start after the reload. Running agents keep
 // the config they started with. Sent over the control socket (src/ops.js `reload`); a key that needs
 // a restart (or an invalid config) comes back as an error naming every such key and exits 1.
-import { peekConfig } from "../config.js";
+import { peekConfig } from "../config/index.js";
 import { readProfile } from "../heartbeat.js";
 import { controlSockPath } from "../paths.js";
 import { controlRequest } from "../control/client.js";

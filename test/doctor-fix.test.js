@@ -8,7 +8,7 @@ import net from "node:net";
 import { spawnSync } from "node:child_process";
 import { applyFixes, fixableCount, report, instructionLints, ingressChecks, ingressLivenessLints, runChecks } from "../src/commands/doctor.js";
 import { worktreeDir } from "../src/paths.js";
-import { loadConfig } from "../src/config.js";
+import { loadConfig } from "../src/config/index.js";
 import { instructionTargets } from "../src/heartbeat.js";
 import { tmp, POSIX, DEAD_PID, git, cleanProfile, recorder, io, problem, silent } from "./_doctor-helpers.js";
 

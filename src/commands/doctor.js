@@ -12,7 +12,7 @@ import os from "node:os";
 import { claimedPorts, portInUse } from "../port.js";
 import path from "node:path";
 import { execFile, spawnSync } from "node:child_process";
-import { loadConfig, ensurePrivateDir } from "../config.js";
+import { loadConfig, ensurePrivateDir } from "../config/index.js";
 import { worktreeDir } from "../paths.js";
 import { reposOf, defaultRepo, primaryRepo } from "../repos.js";
 import { listWorktrees, DEFAULT_BRANCH_PREFIX } from "../worktree.js";

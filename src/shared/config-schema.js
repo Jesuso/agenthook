@@ -32,7 +32,7 @@ const STATUS_TRACKERS = ["jira", "github-projects", "local", "linear"];
  * @property {boolean} [sensitive]  mirrors src/shared/contract.js SENSITIVE_FIELDS (a test keeps them equal)
  * @property {string|number|boolean} [default]
  * @property {readonly string[]} [options]  enum values
- * @property {number} [min]       mirrors src/config.js validateRawConfig; the form never clamps
+ * @property {number} [min]       mirrors src/config/validate/ validateRawConfig; the form never clamps
  * @property {number} [max]
  * @property {string} [placeholder]  shown when unset and there is no `default` to show
  * @property {'pending'} [editor]

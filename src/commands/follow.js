@@ -18,7 +18,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { loadConfig, registryDir } from "../config.js";
+import { loadConfig, registryDir } from "../config/index.js";
 import { worktreeDir } from "../paths.js";
 import { reposOf } from "../repos.js";
 import { sessionAgents } from "../sessions.js";

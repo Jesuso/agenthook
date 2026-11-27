@@ -1,13 +1,13 @@
 // `ah ui` config editor, server side (docs/web-ui.md § v3). Reads and saves the profile's raw
 // `agenthook.config.json` — exactly the file at the receiver-published heartbeat.configPath; no
-// request param ever names a path. Validation is src/config.js's pure validateRawConfig over the
+// request param ever names a path. Validation is src/config/validate/'s pure validateRawConfig over the
 // raw text (`${VAR}` refs stay opaque, env is never read); `ah ui` still loads no config. A save
 // goes through save.js (backup under the profile's `config-bak/`) and its audit line also names
 // the SENSITIVE_FIELDS paths that changed. The receiver reads config at boot, so a save always
 // answers `restartNeeded: true`.
 import fs from "node:fs";
 import path from "node:path";
-import { literalSecrets, validateRawConfig } from "../config.js";
+import { literalSecrets, validateRawConfig } from "../config/index.js";
 import { listProfiles } from "../heartbeat.js";
 import { profileDir } from "./logs.js";
 import { isObj, readJson, sha256 } from "./rows.js";

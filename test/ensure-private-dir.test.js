@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ensurePrivateDir } from "../src/config.js";
+import { ensurePrivateDir } from "../src/config/index.js";
 
 function mode(p) {
   return fs.statSync(p).mode & 0o777;

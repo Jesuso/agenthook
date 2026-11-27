@@ -1,6 +1,6 @@
 // Local energy basis for opted-in steps (#396, epic #393): a run's measured electricity in kWh
 // and dollars, a third figure beside the reported `costUsd` and the rate-table `estUsd` — never
-// summed into either, and `costBasis` is untouched. Import-free on purpose: src/config.js
+// summed into either, and `costBasis` is untouched. Import-free on purpose: src/config/validate/
 // validates with it, the CLI and the `ah ui` readers format with it, and the browser bundles it
 // (like src/shared/pricing.js). The sampler that does the I/O lives in src/energy-sampler.js.
 

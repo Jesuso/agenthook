@@ -14,7 +14,7 @@
 // Default: only THIS profile's rows. `--all`: every profile's, each labelled with its owner.
 import fs from "node:fs";
 import path from "node:path";
-import { peekConfig, registryDir } from "../config.js";
+import { peekConfig, registryDir } from "../config/index.js";
 import { listProfiles, readProfile as readHeartbeat, resolveProfile } from "../heartbeat.js";
 
 /** One running run, read from a profile's running.json. `profile` is the owning profile's state

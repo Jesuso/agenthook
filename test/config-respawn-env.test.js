@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileEnvKeys, loadConfig, loadEnv, registryDir, respawnEnv } from "../src/config.js";
+import { fileEnvKeys, loadConfig, loadEnv, registryDir, respawnEnv } from "../src/config/index.js";
 import { createEngine, createRestartRequester } from "../src/engine.js";
 import { createQueue } from "../src/queue.js";
 

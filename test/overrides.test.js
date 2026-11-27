@@ -11,7 +11,7 @@ import { createQuotaPacer } from "../src/shared/quota.js";
 import { seedOverrides, overrideEntries, fileOverrideEntries } from "../src/overrides.js";
 import { digest } from "../src/commands/tick.js";
 import { harnessSlotLints } from "../src/commands/doctor.js";
-import { loadConfig, registryDir } from "../src/config.js";
+import { loadConfig, registryDir } from "../src/config/index.js";
 import { createEngine } from "../src/engine.js";
 import { HELP, suggestCommand } from "../bin/agenthook.js";
 

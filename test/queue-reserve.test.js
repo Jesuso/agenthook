@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { createQueue } from "../src/queue.js";
 import { buildHarnessing, exclusiveHarnesses } from "../src/engine/harnessing.js";
-import { validateRawConfig } from "../src/config.js";
+import { validateRawConfig } from "../src/config/index.js";
 import { harnessSlotLints } from "../src/commands/doctor.js";
 import { readStatus } from "../src/agent-api.js";
 import { readProfile } from "../src/heartbeat.js";

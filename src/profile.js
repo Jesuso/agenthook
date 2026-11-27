@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ensurePrivateDir, registryDir } from "./config.js";
+import { ensurePrivateDir, registryDir } from "./config/index.js";
 import { DEFAULT_BRANCH_PREFIX } from "./worktree.js";
 
 export const MARKER = "profile.json";

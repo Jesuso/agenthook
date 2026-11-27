@@ -3,7 +3,7 @@
 // profile's own config + state dir. Not audited to control-audit.jsonl (that's the receiver's
 // `digest` control op, src/ops.js) — this path never opens control.sock.
 import { defaultProfileKey, pickProfile } from "../agent-api.js";
-import { loadConfig } from "../config.js";
+import { loadConfig } from "../config/index.js";
 import { repositoryOf } from "../heartbeat.js";
 import { createEmitter } from "../events.js";
 import { createDigester } from "../digest.js";

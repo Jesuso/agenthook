@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { registryDir } from "../src/config.js";
+import { registryDir } from "../src/config/index.js";
 import { stats } from "../src/commands/stats.js";
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-stats-cmd-"));
