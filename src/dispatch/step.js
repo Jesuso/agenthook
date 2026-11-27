@@ -1,5 +1,6 @@
 // A `pipeline` job's run, up to the agent's exit: fetch, the epic/routing/manual/blocker/
-// overlap gates (run-gates.js), worktree, prompt, and the spawn. finish.js takes it from there.
+// overlap gates (run-gates.js), worktree, prompt, the sandbox/remote wrap (run-wrap.js), and the
+// spawn. finish.js takes it from there.
 import fs from "node:fs";
 import path from "node:path";
 import { stepPrompt, verdictRepairPrompt, gateRepairPrompt, formatTicketComments } from "../prompts.js";
@@ -8,13 +9,12 @@ import { newNonce } from "../untrusted.js";
 import { findStep, stepForStage, DEFAULT_MAX_MINUTES, DEFAULT_MAX_ATTEMPTS } from "../pipeline.js";
 import { runGate } from "./gate.js";
 import { preRunGates } from "./run-gates.js";
+import { buildRunWrap } from "./run-wrap.js";
 import { ensureWorktree, worktreePath, branchName, branchHead, commitsSince, remoteMergeBase } from "../worktree.js";
 import { agentFor } from "../agents/index.js";
 import { executorFor } from "./executor.js";
-import { egressPolicy, egressRules } from "../sandbox/egress.js";
 import { agentSpawnEnv } from "./spawn.js";
 import { envNameMatches } from "../agent-env.js";
-import { trustedGitDirs, gitSandboxEnv, mergeGitConfigEnv, hostGitFacts, inferredForgeEgressHosts, sandboxMounts, checkoutMasks } from "./sandbox.js";
 import { descriptionHasHeadings, resolveModelEffort, promptPathFor, readInstructions } from "./prompt.js";
 import { resolveHarness } from "./harness.js";
 import { resolveContextWindow, ctxOverflow } from "../models.js";
@@ -233,70 +233,13 @@ export function createStep(ctx) {
     } else if (remote && !refused) {
       logLine(logPath, "no per-run credentials minted — a remote run's worker holds no tracker/forge access");
     }
-    /** @type {Parameters<typeof spawnAgent>[0]['sandboxed']} */
-    let sandboxedRun;
-    if (sandboxed && sandbox && agent.sandbox && !refused) {
-      try {
-        const own = agent.sandbox({ cfg, step: spawnStep, cwd, ownsCwd: hasWorktree, home: sandbox.describe().home, verdictFile, standing });
-        // The per-run GH_CONFIG_DIR (#474) is mounted read-only next to the agent's own mounts:
-        // a refresh rewrites hosts.yml with an atomic rename, which the container sees because
-        // the mount is the directory, not the file.
-        const mounts = sandboxMounts({ cwd, hasWorktree, verdictDir: path.dirname(verdictFile), gitCommonDir: trustedGitDirs(repo.path, cwd).commonDir, agentMounts: own.mounts, credsMount: creds?.env?.GH_CONFIG_DIR, masks: hasWorktree ? [] : checkoutMasks(cwd, { extra: [cfg.configPath, cfg.configPath && path.join(path.dirname(cfg.configPath), ".env")] }) });
-        const facts = hostGitFacts(repo.path);
-        // When creds already supplies github.com's credential helper and insteadOf rewrite
-        // (runGitEnv, under GH_CONFIG_DIR), skip gitSandboxEnv's own copy of those pairs —
-        // mergeGitConfigEnv re-indexes what's left (safe.directory, author identity) after it.
-        const gitEnv = mergeGitConfigEnv(creds?.env, gitSandboxEnv({ originUrl: facts.originUrl, forgeType: cfg.forge?.type, forgeBaseUrl: cfg.forge?.baseUrl, author: facts.author, skipHostAuth: !!creds }));
-        // The network policy: the hosts come from the adapters dispatch holds, never from src/sandbox/.
-        const policy = egressPolicy(cfg, step);
-        const rules = policy.mode === "allowlist"
-          ? egressRules({ agentHosts: agent.egressHosts?.(spawnEnv, { step: spawnStep }) ?? [], trackerHosts: meta?.egressHosts ?? [], forgeHosts: forge ? (forge.describe?.().egressHosts ?? []) : inferredForgeEgressHosts(facts.originUrl), originUrl: facts.originUrl, allow: policy.allow, deny: policy.deny })
-          : [];
-        sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts, env: { ...(own.env ?? {}), ...gitEnv }, egress: { mode: policy.mode, rules }, ...(sandboxImage ? { image: sandboxImage } : {}), ...(own.files ? { files: own.files } : {}), ...(own.args ? { args: own.args } : {}) };
-        // #731: the standing text is already in the agent's `instructions` file (own.files) —
-        // drop it from the run prompt so the model doesn't see it twice. Keep the marker: the
-        // standing text itself refers to "the `=== TICKET ===` marker".
-        if (own.standingInInstructions) prompt = `=== TICKET ===\n\n${base}`;
-      } catch (e) {
-        refused = `sandbox setup failed: ${e.message}`;
-        try {
-          fs.appendFileSync(logPath, `[agenthook] ${refused}\n`);
-        } catch {
-          /* best effort */
-        }
-      }
-    } else if (remote && !refused) {
-      // A remote harness's run (#689): no mounts/egress — the worker's cwd is a path on another
-      // machine, not something the hub wraps. `ref`/`stepId`/`step` are what spawn.js's generic
-      // box-run plumbing (executorRuns, kill/done on exit) actually needs. `hub` (#690) is the
-      // HUB-side repo/worktree the ssh executor syncs code from/to around the run — `worktree`/
-      // `branch` only for a worktree step; a no-worktree step (e.g. triage) gets a tracked-only
-      // export instead.
-      const hub = { repoId: repo.id, repoPath: repo.path, ...(hasWorktree ? { worktree, branch } : {}) };
-      sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts: [], hub };
-      // An agent with a `remote` hook (opencode #739, pi #827) needs files/env on the worker
-      // beyond the synced code — the contract/standing files (and, for opencode, a generated
-      // config pointed at by `OPENCODE_CONFIG`), written into the per-run dir the ssh executor's
-      // `paths()` computed. `args` (pi: the `--append-system-prompt` flags) are spliced before
-      // the argv's `--` by spawn.js, resume turns included. claude has no `remote` hook, so this
-      // is a no-op for it — same as before the feature.
-      if (agent.remote) {
-        try {
-          const own = agent.remote({ cfg, step: spawnStep, dir: /** @type {string} */ (remoteConfigDir), verdictFile, standing });
-          sandboxedRun = { ...sandboxedRun, env: own.env, ...(own.files ? { files: own.files } : {}), ...(own.args ? { args: own.args } : {}) };
-          // #731: the standing text is already in a remote `instructions` file — drop it from the
-          // run prompt so the model doesn't see it twice, same dedupe the sandbox branch does.
-          if (own.standingInInstructions) prompt = `=== TICKET ===\n\n${base}`;
-        } catch (e) {
-          refused = `remote setup failed: ${e.message}`;
-          try {
-            fs.appendFileSync(logPath, `[agenthook] ${refused}\n`);
-          } catch {
-            /* best effort */
-          }
-        }
-      }
-    }
+    // The sandbox/remote wrap (run-wrap.js): builds the box-run descriptor spawnAgent's
+    // `sandboxed` option carries, and applies the #731 standing-text dedupe to `prompt` when the
+    // agent's own hook already wrote the standing text into an instructions file.
+    const wrapped = buildRunWrap({ sandboxed, remote, cfg, step, spawnStep, sandbox, agent, cwd, hasWorktree, verdictFile, standing, creds, repo, sandboxImage, forge, meta, spawnEnv, remoteConfigDir, base, prompt, logPath, ref: job.ref, stepId: step.id, worktree, branch, refused });
+    const sandboxedRun = wrapped.sandboxedRun;
+    prompt = wrapped.prompt;
+    refused = wrapped.refused;
     // Energy (#396): only an opted-in step that actually spawns is sampled; a remote run's power
     // draw is the worker's, not this host's.
     const energyRun = !refused && !remote && step.energy === true && cfg.energy ? startEnergy(job.ref, step.id, startedAt, logPath) : null;
