@@ -331,7 +331,8 @@ export function createFinish(ctx) {
     if (parked && ciBounce) {
       Object.assign(verdict, { outcome: "changes", target: parked.target, reason: parked.text, findings: parked.text });
     } else if (parked && !selfTarget) {
-      console.log(`[ci] drop parked bounce for ${job.ref} (${step.id} -> ${verdict.outcome})`);
+      const noSha = verdict.outcome === "advance" && stepIndex(step.id) === stepIndex(parked.target) && !parked.sha;
+      console.log(`[ci] drop parked bounce for ${job.ref} (${step.id} -> ${verdict.outcome}${noSha ? ", no sha recorded" : ""})`);
     }
 
     guardChanges(job.ref, step.id, verdict, ciBounce ? "ci" : step.id);
