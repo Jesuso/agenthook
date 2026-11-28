@@ -2,7 +2,7 @@
 name: agenthook
 description: Set up and work with an agenthook pipeline — first-time setup on a local board or local models, create tickets, epics and dependencies so the receiver tracks and runs them, see what is running / held / failed ("needs you"), answer a held agent, re-fire a stuck ticket. Use whenever a task mentions agenthook, the board, an epic, a ticket "needing you", or a pipeline step, before touching the tracker or reading agenthook's source.
 ---
-<!-- agenthook-skill 0.16.0-rc.2 -->
+<!-- agenthook-skill 0.16.0 -->
 
 # agenthook
 
