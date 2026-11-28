@@ -1,5 +1,6 @@
 // The health/quota breaker for a harness-routed queue (src/queue.js): per-harness
-// up/down/probing state, the unharnessed quota gate, and the one-shot reopen timer.
+// up/down/probing state, the unharnessed quota gate, and the one-shot deadline timer
+// that wakes the queue at a quota reopen or a health cooldown's end.
 // Extracted so the breaker's own invariants (reopen ordering, no onChange from a
 // passive read) can be tested without dragging in queue routing/waiters.
 import { DEFAULT_COOLDOWN_MINUTES, cooldownFor } from "./dispatch/harness.js";
@@ -42,10 +43,20 @@ export function createHarnessBreaker({ now, setTimer, clearTimer, cooldowns, isH
     if (now() < h.until) return "down";
     return h.cause === "quota" ? "up" : "probing";
   };
-  /** The earliest quota deadline (entry or unharnessed gate), or null when none is set. */
-  const quotaDeadline = () => {
+  /** Health entries already woken once at their `until` — in memory only, never persisted. A
+   * re-trip replaces the entry object (see `settle`), so it wakes again at its new `until`. */
+  const woken = new WeakSet();
+  /** The earliest deadline (a quota entry's `until`, the unharnessed gate, or a not-yet-woken
+   * health entry's `until`), or null when none is set. */
+  const nextDeadline = () => {
     let d = Infinity;
-    for (const [, h] of health) if (h.cause === "quota" && h.until < d) d = h.until;
+    for (const [, h] of health) {
+      if (h.cause === "quota") {
+        if (h.until < d) d = h.until;
+      } else if (!woken.has(h) && h.until < d) {
+        d = h.until;
+      }
+    }
     if (unharnessedUntil !== null && unharnessedUntil < d) d = unharnessedUntil;
     return d === Infinity ? null : d;
   };
@@ -59,23 +70,24 @@ export function createHarnessBreaker({ now, setTimer, clearTimer, cooldowns, isH
       console.error(`[harness] health write failed (continuing): ${e.message}`);
     }
   };
-  // The quota reopen timer: one unref'd one-shot at the earliest quota `until` (a deadline, never a
-  // poll), clamped like src/shared/quota.js MAX_TIMER_MS and re-armed when it fires before the deadline.
+  // The deadline timer: one unref'd one-shot at the earliest of a quota reopen, the unharnessed
+  // gate, or a health cooldown's end (a deadline, never a poll), clamped like src/shared/quota.js
+  // MAX_TIMER_MS and re-armed when it fires before the deadline.
   const MAX_TIMER_MS = 2 ** 31 - 1;
   /** @type {NodeJS.Timeout|undefined} */
-  let quotaTimer;
-  /** (Re-)arm the reopen timer at the earliest quota deadline; no-op when none is set. Call once at boot. */
+  let deadlineTimer;
+  /** (Re-)arm the deadline timer at the earliest deadline; no-op when none is set. Call once at boot. */
   const arm = () => {
-    if (quotaTimer !== undefined) clearTimer(quotaTimer);
-    quotaTimer = undefined;
-    const d = quotaDeadline();
+    if (deadlineTimer !== undefined) clearTimer(deadlineTimer);
+    deadlineTimer = undefined;
+    const d = nextDeadline();
     if (d === null) return;
-    quotaTimer = setTimer(onQuotaTimer, Math.min(Math.max(0, d - now()), MAX_TIMER_MS));
-    quotaTimer?.unref?.();
+    deadlineTimer = setTimer(onDeadline, Math.min(Math.max(0, d - now()), MAX_TIMER_MS));
+    deadlineTimer?.unref?.();
   };
-  function onQuotaTimer() {
-    quotaTimer = undefined;
-    const d = quotaDeadline();
+  function onDeadline() {
+    deadlineTimer = undefined;
+    const d = nextDeadline();
     if (d === null) return;
     if (d > now()) return arm(); // a clamped long wait fired early: re-arm for the remainder
     /** @type {string[]} */
@@ -91,14 +103,23 @@ export function createHarnessBreaker({ now, setTimer, clearTimer, cooldowns, isH
       unharnessedUntil = null;
       gateOpened = true;
     }
+    // Health entries wake once per `until` — they stay in the map (still `probing`), just marked
+    // woken so they don't keep re-arming a 0 ms loop while nothing has settled them.
+    let woke = false;
+    for (const [, h] of health) {
+      if (h.cause !== "quota" && !woken.has(h) && h.until <= now()) {
+        woken.add(h);
+        woke = true;
+      }
+    }
     if (opened.length || gateOpened) {
       persistHealth();
       for (const name of opened) {
         console.log(`[harness] ${name} quota window reset — back up`);
         onHarnessUp?.(name, { cause: "quota" });
       }
-      onChange();
     }
+    if (opened.length || gateOpened || woke) onChange();
     arm(); // any later deadline still ahead
   }
 
@@ -125,6 +146,7 @@ export function createHarnessBreaker({ now, setTimer, clearTimer, cooldowns, isH
         const until = now() + cooldownFor(cd, strikes) * 60000;
         health.set(name, { until, strikes, reason: signal.reason, cause: "health" });
         persistHealth();
+        arm(); // wake the queue once this cooldown ends, even if nothing else pumps meanwhile
         console.warn(`[harness] ${name} down until ${new Date(until).toISOString()} (${signal.reason})`);
         onHarnessDown?.(name, { reason: signal.reason, until: new Date(until).toISOString(), cause: "health" });
       } else if (!signal && h === "probing") {
@@ -173,6 +195,7 @@ export function createHarnessBreaker({ now, setTimer, clearTimer, cooldowns, isH
       if (!entry) return { reset: false, cause: null, until: null };
       health.delete(name);
       persistHealth();
+      arm();
       onHarnessUp?.(name, { cause: entry.cause ?? "health" });
       onChange();
       return { reset: true, cause: entry.cause ?? "health", until: entry.until };
@@ -181,13 +204,14 @@ export function createHarnessBreaker({ now, setTimer, clearTimer, cooldowns, isH
     prune() {
       for (const name of [...health.keys()]) if (!isHarness(name)) health.delete(name);
       persistHealth();
+      arm();
     },
-    /** (Re-)arm the reopen timer — call once at boot to pick up a persisted quota closure. */
+    /** (Re-)arm the deadline timer — call once at boot to pick up a persisted quota closure or health cooldown. */
     arm,
-    /** Disarm the reopen timer (shutdown). */
+    /** Disarm the deadline timer (shutdown). */
     stop() {
-      if (quotaTimer !== undefined) clearTimer(quotaTimer);
-      quotaTimer = undefined;
+      if (deadlineTimer !== undefined) clearTimer(deadlineTimer);
+      deadlineTimer = undefined;
     },
   };
 }

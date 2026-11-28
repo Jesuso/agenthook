@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- Fix: the health breaker never woke the queue when a tripped harness's cooldown ended — only an
+  unrelated pump (another enqueue, a `run_end` on another harness, a reload, a restart, or
+  `harness_reset`) would notice. A job queued only for that harness could stall indefinitely, e.g.
+  a remote worker that was off overnight. The breaker's deadline timer now also wakes once per
+  health entry's `until`, same as it already did for quota reopens (#887).
 - Fix: `restart` could accept a request the respawn couldn't actually boot from, when a code
   update on disk named a new sandbox agent image (`agenthook-agent:<new version>`) the running
   process couldn't see — the old process would exit, and the new one would refuse to boot on its
