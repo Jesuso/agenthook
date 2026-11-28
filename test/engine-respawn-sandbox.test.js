@@ -5,6 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { respawnSandboxCheck } from "../src/engine/index.js";
 import { createSandbox } from "../src/sandbox/index.js";
+import { DEFAULT_IMAGE } from "../src/sandbox/image.js";
 import { stubRun, tmpCfg } from "./_sandbox-container-helpers.js";
 
 const DISK_IMAGE = "agenthook-agent:9.9.9";
@@ -35,9 +36,10 @@ test("respawnSandboxCheck: same version and image present → resolves", async (
   const ok = stubRun({});
   await respawnSandboxCheck({
     loadNext: () => tmpCfg(),
-    defaultImage: DISK_IMAGE, // same as "running" value in this test; still resolves
+    defaultImage: DEFAULT_IMAGE, // disk version matches the running process's version
     createSandbox: (cfg, opts) => createSandbox(cfg, { run: ok.run, ...opts }),
   });
+  assert.deepEqual(ok.calls[1].slice(1), ["image", "inspect", DEFAULT_IMAGE]);
 });
 
 test("respawnSandboxCheck: next.sandbox unset → resolves without calling run", async () => {
