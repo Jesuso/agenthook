@@ -92,6 +92,10 @@ run. It bounds what a bad worker can do **back to the hub**.
   `agenthook doctor`'s credential check (below) tells you if it can find one.
 - Install `git` and the agent CLI (`claude` by default — see [Current limits](#current-limits))
   on the worker's `PATH`, or set `harnesses.<name>.remote.bin` to its absolute path there.
+- Install the **project's own toolchain** for that user too (Node, Python, a compiler — whatever
+  the repo's tests and build need). The agent runs them on the worker; without them it cannot
+  verify its change and usually ends with `hold`, saying so (e.g. "no JavaScript runtime is
+  installed on this machine"). `doctor` does not check this — it does not know your project.
 - The worker needs a **Linux** shell with GNU coreutils (`head -c` reads the framed prompt and, for
   opencode, the per-run config/contract/standing files byte-for-byte from stdin; `setsid` puts the
   agent in its own process group so a cancel can kill it).
