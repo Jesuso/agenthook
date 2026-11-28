@@ -12,7 +12,7 @@ import { ensurePrivateDir } from "../config/locations.js";
 import { planRestore } from "../queue.js";
 import { startControl } from "../control/server.js";
 import { readQuota } from "../quota-file.js";
-import { runMergeCatchup, runReconcile } from "./reconcile.js";
+import { runMergeCatchup, runReconcile } from "../reconcile.js";
 import { recoverInterrupted } from "./recovery.js";
 import { fullAutoBanner } from "./banner.js";
 import { retryTrackerCall } from "./boot-retry.js";

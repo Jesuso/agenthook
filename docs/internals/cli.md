@@ -78,7 +78,7 @@ lint config.
 - `src/commands/*.js` — one file per subcommand (init/start/stop/ls/status/follow/resume/agents/cleanup/
   webhook/catchup/reconcile/doctor/alias/pause). These replace the old bash `scripts/`.
   `reconcile` and `run` are thin CLI entries over core logic: `reconcile` calls `runReconcile`/
-  `runMergeCatchup` in `src/engine/reconcile.js`; `run`'s entry guard is `entryBlock` in `src/pipeline.js`.
+  `runMergeCatchup` in `src/reconcile.js`; `run`'s entry guard is `entryBlock` in `src/pipeline.js`.
   `pause`/`unpause`/`concurrency` (`src/commands/pause.js`) send the `pause`/`resume`/`set_concurrency`
   ops over the control socket; the CLI uses `unpause` (not `resume`) because `agenthook resume`
   already means agent-session resume. `set-concurrency` is an alias of `concurrency`. The run-control

@@ -22,7 +22,7 @@ pidfile** (listen precedes any register: a new hook POSTs a handshake at once �
 `recoverInterrupted()` (resolve `running.json` survivors as failures — **local only, no board poll**)
 → `restoreQueued()` → `puller.pull()` (queue-stage pull into free slots; **only** reads a step's
 opt-in queue stage, a no-op without one) → one `runReconcile`, then one `runMergeCatchup` (both in
-`src/engine/reconcile.js`; PRs merged in the gap — each in its own try/catch; only with
+`src/reconcile.js`; PRs merged in the gap — each in its own try/catch; only with
 `--reconcile-on-boot`, a restart's respawn) → SIGINT/SIGTERM handlers. A boot failure after `ingress.up` downs the ingress and
 closes control; on exit `ingress.down()`.
 

@@ -12,13 +12,13 @@
 // never double-runs in-flight work.
 //
 // The reconcile body itself (`runReconcile`), the merge catch-up (`runMergeCatchup`) and
-// `MERGE_LOOKBACK_MS` live in ../engine/reconcile.js — they're engine logic the boot sequence
-// and the control ops also call; this file is just the CLI entry over them.
+// `MERGE_LOOKBACK_MS` live in ../reconcile.js — shared logic the boot sequence and the control
+// ops also call; this file is just the CLI entry over them.
 import { loadConfig } from "../config/load.js";
 import { requireStarted } from "../profile.js";
 import { createStore } from "../store/index.js";
 import { createAdapter } from "../trackers/index.js";
-import { runReconcile } from "../engine/reconcile.js";
+import { runReconcile } from "../reconcile.js";
 import { controlRequest } from "../control/client.js";
 
 /** @param {any} args */
