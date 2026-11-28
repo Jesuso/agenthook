@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- New: the board UI has its own favicon, adaptive to light and dark (SVG, with an ICO fallback for
+  browsers without SVG favicons) (#818).
 - Fix: a red-CI bounce parked while the CI target step (`code`) itself was still running used to
   be dropped on that run's clean `advance`, even when the run pushed no fix and CI was still red
   on the PR head — the ticket would advance to `review` with no way back to `code` (#869). The
