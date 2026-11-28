@@ -53,9 +53,9 @@ export function planRestore(queued, runningRefs, stepIds) {
  *   The health breaker: a settle with `health` marks its harness down for its cooldown
  *   (`cooldowns`, minutes, default 10), doubled per repeat strike up to 60. A down harness has no
  *   room; once `until` passes it is probing — room for exactly one run, whose healthy settle
- *   brings it back up. Expiry is read lazily (pump, `blocked`, `state()`), never on a timer: an
- *   idle receiver whose step has every harness down starts the waiting job on the first pump
- *   after `until` (an enqueue, a settle, `setMax`, `resume`, `resetHarness`). `health` seeds the
+ *   brings it back up. Expiry is read lazily (pump, `blocked`, `state()`), and a deadline timer
+ *   also wakes the queue once at each health entry's `until` so an otherwise-idle receiver starts
+ *   the waiting job on its own, with no other event needed. `health` seeds the
  *   breaker (harness-health.json), `onHealth` persists every change, `onHarnessDown`/`onHarnessUp`
  *   report the transitions. A `cause:'quota'` entry (see `closeForQuota`) never adds strikes,
  *   reads `down` until `until` then `up` (never `probing`), and reopens on a one-shot timer

@@ -126,7 +126,7 @@ test("the reopen timer fires onHarnessUp + onChange and re-arms on an early (cla
   c.advance(T0 + MAX_TIMER_MS);
   assert.equal(b.stateOf("A"), "down", "the clamped fire is still well before `until`");
   assert.equal(changes(), 1, "the clamped (early) fire doesn't open anything, so onChange doesn't fire again");
-  assert.equal(c.delays.length, 2, "onQuotaTimer re-armed a second timer for the remainder");
+  assert.equal(c.delays.length, 2, "onDeadline re-armed a second timer for the remainder");
   c.advance(until);
   assert.equal(b.stateOf("A"), "up");
   assert.deepEqual(events.at(-1), ["up", "A", { cause: "quota" }]);
@@ -161,22 +161,68 @@ test("prune drops entries for harnesses no longer configured, and persists even 
   assert.ok(persisted().down.B, "the surviving entry is still reported");
 });
 
-test("settle and prune never call onChange — only the timer fire, closeForQuota, and reset do", () => {
+test("settle and prune never call onChange directly — only the deadline timer fire, closeForQuota, and reset do", () => {
   const { b, c, changes } = harness();
   b.settle("A", { reason: "x" });
-  assert.equal(changes(), 0, "settle alone never fires onChange (health-down branch)");
-  // Drive "A" to probing, then settle it healthy — the probing→up branch must not fire onChange either.
+  assert.equal(changes(), 0, "settle itself never fires onChange (health-down branch)");
+  // settle armed a deadline timer at A's `until` so the queue wakes on its own; advancing to it is
+  // the deadline timer firing, not settle — it fires onChange once for the health wake.
   c.advance(b.entry("A").until);
   assert.equal(b.stateOf("A"), "probing");
+  assert.equal(changes(), 1, "the deadline timer's health wake fires onChange, not settle");
   b.settle("A", undefined);
   assert.equal(b.stateOf("A"), "up");
-  assert.equal(changes(), 0, "settle alone never fires onChange (probing→up branch)");
+  assert.equal(changes(), 1, "settle itself never fires onChange (probing→up branch)");
   b.prune();
-  assert.equal(changes(), 0, "prune alone never fires onChange");
+  assert.equal(changes(), 1, "prune alone never fires onChange");
   b.closeForQuota(["B"], { until: T0 + MIN, reason: "quota" });
-  assert.equal(changes(), 1);
-  b.reset("B");
   assert.equal(changes(), 2);
+  b.reset("B");
+  assert.equal(changes(), 3);
   c.advance(T0 + MIN); // B was already reset, so no timer is armed for it — no further fire
-  assert.equal(changes(), 2, "nothing left to fire after B was reset ahead of its deadline");
+  assert.equal(changes(), 3, "nothing left to fire after B was reset ahead of its deadline");
+});
+
+test("a health trip arms a deadline timer at `until`; it wakes the queue once, never re-arms for that entry, and a re-trip wakes it again", () => {
+  const { b, c, events, changes } = harness();
+  b.settle("A", { reason: "worker unreachable" });
+  const until = b.entry("A").until;
+  assert.equal(c.delays.at(-1), until - T0, "settle armed the deadline timer at the health `until`");
+  c.advance(until);
+  assert.equal(changes(), 1, "onChange fired exactly once for the wake");
+  assert.equal(b.stateOf("A"), "probing", "the entry still exists and reads probing");
+  assert.ok(b.entry("A"), "the entry itself is not deleted by the wake");
+  assert.equal(events.find(([kind]) => kind === "up"), undefined, "no harness_up is emitted for a mere wake");
+  const timerCountAfterWake = c.delays.length;
+  c.advance(until + 10 * MIN); // nothing else is pending — no re-arm loop for the woken entry
+  assert.equal(c.delays.length, timerCountAfterWake, "no further timer was armed for the already-woken entry");
+  assert.equal(changes(), 1, "still just the one onChange from the wake");
+  // A re-trip while probing sets a fresh entry object with a doubled cooldown — it wakes again.
+  b.settle("A", { reason: "still failing" });
+  const until2 = b.entry("A").until;
+  assert.ok(until2 > until, "the re-trip's cooldown is longer (strikes doubled)");
+  c.advance(until2);
+  assert.equal(changes(), 2, "the re-trip's fresh entry wakes onChange again at its own until");
+  assert.equal(b.stateOf("A"), "probing");
+});
+
+test("arm() picks up a seeded health entry: a future `until` wakes at its deadline, a past `until` wakes once on the first fire after arm()", () => {
+  const future = T0 + 10 * MIN;
+  const seeded = harness(["A"], { health: { A: { until: new Date(future).toISOString(), strikes: 1, reason: "x", cause: "health" } } });
+  seeded.b.arm();
+  assert.equal(seeded.c.delays.at(-1), future - T0, "armed at the seeded future `until`");
+  seeded.c.advance(future);
+  assert.equal(seeded.changes(), 1, "the seeded future health entry wakes onChange at its deadline");
+  assert.equal(seeded.b.stateOf("A"), "probing");
+
+  const past = T0 - 5 * MIN;
+  const seededPast = harness(["A"], { health: { A: { until: new Date(past).toISOString(), strikes: 1, reason: "x", cause: "health" } } });
+  seededPast.b.arm();
+  assert.equal(seededPast.c.delays.at(-1), 0, "a past `until` arms a 0 ms timer");
+  seededPast.c.advance(T0);
+  assert.equal(seededPast.changes(), 1, "the seeded past-due health entry wakes onChange once on the first fire");
+  const delayCount = seededPast.c.delays.length;
+  seededPast.c.advance(T0 + 60 * MIN);
+  assert.equal(seededPast.changes(), 1, "never wakes a second time for the same entry");
+  assert.equal(seededPast.c.delays.length, delayCount, "no further timer was armed for it");
 });

@@ -48,7 +48,8 @@ and takes the boot-failure path above, so the ingress is downed rather than orph
   `control`, `server`).
 - `src/queue.js` — bounded-concurrency queue (`maxConcurrent`); worktree isolation makes parallel
   agents safe. Takes an `onChange` callback the engine wires to the heartbeat. The health/quota
-  breaker (per-harness up/down/probing, the unharnessed gate, the reopen timer) lives next to it in
+  breaker (per-harness up/down/probing, the unharnessed gate, the deadline timer — quota reopen +
+  health cooldown wake) lives next to it in
   `src/harness-breaker.js` (`createHarnessBreaker`), behind a narrow interface (`stateOf`, `entry`,
   `gateClosed`, `settle`, `closeForQuota`, `reset`, `prune`, `arm`, `stop`) — `settle`/`prune` never
   fire its `onChange`, the caller reports/pumps at its own moment. `createQueue` binds `onChange`

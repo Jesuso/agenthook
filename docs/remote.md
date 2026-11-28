@@ -132,9 +132,11 @@ died:
   `harness_down` event) and the job goes back to the **front** of the queue — it is never failed
   for a worker that is down, and a trip never counts against the step's `maxAttempts`
   (a down worker that stays down past the cap keeps its jobs queued, not failed). `first-free`
-  routing spills the requeued job onto the next harness with room. The breaker probe (one run at
-  a time after the cooldown) brings the harness back the first time a run settles without
-  tripping; `harness_reset {harness}` does it at once.
+  routing spills the requeued job onto the next harness with room. Once the cooldown ends, a
+  queued job for that harness starts its probe run on its own — a deadline timer wakes the queue
+  at the cooldown's end, with no other event needed. The breaker probe (one run at a time after
+  the cooldown) brings the harness back the first time a run settles without tripping;
+  `harness_reset {harness}` does it at once.
 - **Auth or host-key failure** — the worker answered but refused the key or the host key didn't
   match. That is a misconfiguration, not an outage: the run is **refused** with
   `ssh auth failed on <host>: <line>` or `ssh host key failed on <host>: <line>` and the breaker
