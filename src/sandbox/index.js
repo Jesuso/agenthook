@@ -14,12 +14,13 @@ export const SANDBOXES = {
 /**
  * null when `cfg.sandbox` is unset (runs on the host, today's behavior). Throws on an unknown type.
  * @param {import('../types/config.js').Config} cfg
+ * @param {{run?: import('../types/ingress.js').IngressRun, defaultImage?: string}} [opts]
  * @returns {import('../types/sandbox.js').Sandbox|null}
  */
-export function createSandbox(cfg) {
+export function createSandbox(cfg, opts) {
   if (!cfg.sandbox) return null;
   const type = cfg.sandbox.type;
   const factory = Object.hasOwn(SANDBOXES, type) ? SANDBOXES[type] : undefined;
   if (!factory) throw new Error(`unknown sandbox "${type}". Known: ${Object.keys(SANDBOXES).join(", ")}`);
-  return factory(cfg);
+  return factory(cfg, opts);
 }

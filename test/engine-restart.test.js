@@ -8,7 +8,7 @@ const info = (j) => ({ kind: j.kind, ref: j.ref, name: j.ref, url: "", code: 0 }
 const job = (ref) => ({ kind: "pipeline", ref, stepId: "s", dedupKey: `${ref}:s` });
 
 /** Requester over a real queue; `release()` settles the one running job. */
-function harness({ draining = false, badConfig = false, configError = null, badMove = false, harnessesDown } = {}) {
+function harness({ draining = false, badConfig = false, configError = null, badMove = false, harnessesDown, validateSandbox } = {}) {
   /** @type {(() => void)[]} */
   const releases = [];
   const run = (j) => new Promise((resolve) => releases.push(() => resolve(info(j))));
@@ -32,6 +32,7 @@ function harness({ draining = false, badConfig = false, configError = null, badM
       h.validatedMoves.push(to);
       if (badMove) throw new Error(`bad move ${to}`);
     },
+    ...(validateSandbox && { validateSandbox }),
     ...(harnessesDown && { harnessesDown }),
     onPending: (s) => h.pendingCalls.push(s),
     fire: (moveTo) => {
@@ -236,4 +237,79 @@ test("restart: no harnessesDown dependency at all leaves the reply shape unchang
   const h = harness();
   const res = await h.r.request({ when: "idle" });
   assert.deepEqual(res, { accepted: true, active: 0, queued: 0 });
+});
+
+test("restart: a rejecting validateSandbox refuses, exposed, with the doctor --fix hint; nothing paused or fired", async () => {
+  const h = harness({ validateSandbox: async () => { throw new Error("sandbox image agenthook-agent:0.17.0 not found — run `agenthook doctor --fix` or build it (docs/sandbox.md)"); } });
+  await assert.rejects(h.r.request({ when: "idle" }), (e) => {
+    assert.equal(e.expose, true);
+    assert.match(e.message, /^restart: the respawn would not boot —/);
+    assert.ok(e.message.includes("agenthook-agent:0.17.0 not found"), `names the image: ${e.message}`);
+    assert.ok(e.message.includes("nothing was paused"));
+    assert.ok(e.message.includes("agenthook doctor --fix"));
+    return true;
+  });
+  assert.equal(h.r.isPending(), false);
+  assert.equal(h.pendingCalls.length, 0, "onPending not called");
+  assert.equal(h.fired, 0, "fire not called");
+  h.queue.enqueue(job("A"));
+  assert.equal(h.queue.state().active, 1, "queue not paused");
+});
+
+test("restart: a long validateSandbox reason is bounded before the hint, so the hint survives", async () => {
+  const h = harness({ validateSandbox: async () => { throw new Error(`x`.repeat(1000)); } });
+  await assert.rejects(h.r.request({ when: "idle" }), (e) => {
+    assert.ok(e.message.endsWith("run `agenthook doctor --fix`, then restart again"), `hint intact: ${e.message.slice(-80)}`);
+    assert.ok(e.message.length < 500, `bounded, got ${e.message.length}`);
+    return true;
+  });
+});
+
+test("restart: a resolving validateSandbox is accepted exactly as before", async () => {
+  let called = 0;
+  const h = harness({ validateSandbox: async () => { called++; } });
+  h.queue.enqueue(job("A"));
+  const res = await h.r.request({ when: "idle" });
+  assert.deepEqual(res, { accepted: true, active: 1, queued: 0 });
+  assert.equal(called, 1);
+  assert.deepEqual(h.pendingCalls, [{ active: 1, queued: 0 }]);
+  h.release();
+  await tick();
+  await tick();
+  assert.equal(h.fired, 1);
+});
+
+test("restart: no validateSandbox dependency at all leaves behaviour unchanged", async () => {
+  const h = harness();
+  const res = await h.r.request({ when: "idle" });
+  assert.deepEqual(res, { accepted: true, active: 0, queued: 0 });
+  await tick();
+  await tick();
+  assert.equal(h.fired, 1);
+});
+
+test("restart: two overlapping requests racing a slow validateSandbox — exactly one accepted, the other alreadyPending; fire runs once", async () => {
+  /** @type {(() => void)[]} */
+  const gates = [];
+  const h = harness({
+    validateSandbox: () => new Promise((resolve) => gates.push(resolve)),
+  });
+  h.queue.enqueue(job("A"));
+  const p1 = h.r.request({ when: "idle" });
+  const p2 = h.r.request({ when: "idle" });
+  assert.equal(gates.length, 2, "both calls reached the sandbox check before either resolved");
+  assert.equal(h.r.isPending(), false, "pending is not set while the check is in flight");
+  gates[0]();
+  gates[1]();
+  const [r1, r2] = await Promise.all([p1, p2]);
+  const results = [r1, r2];
+  const accepted = results.filter((r) => !r.alreadyPending);
+  const already = results.filter((r) => r.alreadyPending);
+  assert.equal(accepted.length, 1, "exactly one request wins");
+  assert.equal(already.length, 1, "the other is alreadyPending");
+  assert.equal(h.pendingCalls.length, 1, "onPending called once");
+  h.release();
+  await tick();
+  await tick();
+  assert.equal(h.fired, 1, "fire runs at most once");
 });

@@ -21,18 +21,23 @@ import { pruneOverrides, heartbeatOverrides } from "../overrides.js";
  *   isDraining: () => boolean,
  *   validateConfig: () => void,
  *   validateMove?: (moveTo: string) => void,
+ *   validateSandbox?: () => Promise<void>,
  *   isDecommissionPending?: () => boolean,
  *   harnessesDown?: () => {harness: string, until: string, reason?: string}[],
  *   onPending: (state: {active:number, queued:number, moveTo?: string}) => void,
  *   fire: (moveTo?: string) => void | Promise<void>,
  * }} deps  validateConfig throws on a config that would brick the respawn; validateMove throws
- *   on a move that can't happen; isDecommissionPending rejects a restart while a decommission
- *   waits; harnessesDown reports breakers that are down (they survive the restart; this is
- *   informational, surfaced to the operator so they know to `harness_reset`); onPending does
- *   the heartbeat + event; fire runs the graceful shutdown-with-respawn
+ *   on a move that can't happen; validateSandbox (#885) throws when the respawn's boot sandbox
+ *   check would fail (a new version's agent image not built yet) — awaited after validateConfig/
+ *   validateMove and before anything is paused; it is the first `await` in this function, so the
+ *   concurrency checks (isDraining/isDecommissionPending/pending) are re-run once it resolves,
+ *   in case another `request()` raced past it meanwhile; isDecommissionPending rejects a restart
+ *   while a decommission waits; harnessesDown reports breakers that are down (they survive the
+ *   restart; this is informational, surfaced to the operator so they know to `harness_reset`);
+ *   onPending does the heartbeat + event; fire runs the graceful shutdown-with-respawn
  * @returns {{request(args: any): Promise<{accepted: true, alreadyPending?: true, active: number, queued: number, harnessesDown?: {harness: string, until: string, reason?: string}[]}>, isPending(): boolean}}
  */
-export function createRestartRequester({ queue, isDraining, validateConfig, validateMove, isDecommissionPending, harnessesDown, onPending, fire }) {
+export function createRestartRequester({ queue, isDraining, validateConfig, validateMove, validateSandbox, isDecommissionPending, harnessesDown, onPending, fire }) {
   let pending = false;
   /** @type {string|undefined} */
   let pendingMove;
@@ -61,7 +66,7 @@ export function createRestartRequester({ queue, isDraining, validateConfig, vali
       if (moveTo !== undefined && typeof moveTo !== "string") refuse("restart: moveTo must be a string");
       if (isDraining()) refuse("restart: shutdown already in progress");
       if (isDecommissionPending?.()) refuse("restart: a decommission is pending");
-      const { active, queued } = queue.state();
+      let { active, queued } = queue.state();
       if (pending) {
         if (moveTo !== undefined && moveTo !== pendingMove) {
           refuse(`restart: a restart ${pendingMove ? `moving to "${pendingMove}"` : "without a move"} is already pending`);
@@ -85,6 +90,28 @@ export function createRestartRequester({ queue, isDraining, validateConfig, vali
         } catch (e) {
           throw exposed(e?.message ?? e);
         }
+      }
+      if (validateSandbox) {
+        try {
+          await validateSandbox(); // the respawn's boot sandbox check — nothing paused on failure
+        } catch (e) {
+          const reason = String(e?.message ?? e);
+          const bound = reason.length > MAX_CONFIG_REASON_CHARS ? reason.slice(0, MAX_CONFIG_REASON_CHARS - 1) + "…" : reason;
+          refuse(`restart: the respawn would not boot — ${bound}; nothing was paused — run \`agenthook doctor --fix\`, then restart again`);
+        }
+        // This is the first `await` before `pending` is set — re-check everything a concurrent
+        // `request()` could have changed while this one waited, so two overlapping calls never
+        // both pause or fire.
+        if (isDraining()) refuse("restart: shutdown already in progress");
+        if (isDecommissionPending?.()) refuse("restart: a decommission is pending");
+        if (pending) {
+          if (moveTo !== undefined && moveTo !== pendingMove) {
+            refuse(`restart: a restart ${pendingMove ? `moving to "${pendingMove}"` : "without a move"} is already pending`);
+          }
+          ({ active, queued } = queue.state());
+          return { accepted: true, alreadyPending: true, active, queued, ...down() };
+        }
+        ({ active, queued } = queue.state());
       }
       pending = true;
       pendingMove = moveTo;

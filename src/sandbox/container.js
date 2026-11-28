@@ -305,12 +305,12 @@ function readCapped(file, max) {
 
 /**
  * @param {import('../types/config.js').Config} cfg
- * @param {{runtime: "docker"|"podman", run?: Run, uid?: number, gid?: number, readyTimeoutMs?: number, waitPollMs?: number}} opts  `run`/`uid`/`gid`/`readyTimeoutMs`/`waitPollMs` for tests
+ * @param {{runtime: "docker"|"podman", run?: Run, uid?: number, gid?: number, readyTimeoutMs?: number, waitPollMs?: number, defaultImage?: string}} opts  `run`/`uid`/`gid`/`readyTimeoutMs`/`waitPollMs` for tests; `defaultImage` overrides the image used when `sandbox.image` is unset (the restart preflight passes the respawn's on-disk version, #885)
  * @returns {import('../types/sandbox.js').Sandbox}
  */
-export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, readyTimeoutMs = EGRESS_READY_TIMEOUT_MS, waitPollMs = 500 }) {
+export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, readyTimeoutMs = EGRESS_READY_TIMEOUT_MS, waitPollMs = 500, defaultImage = DEFAULT_IMAGE }) {
   const bin = runtime === "docker" ? process.env.DOCKER || "docker" : process.env.PODMAN || "podman";
-  const image = cfg.sandbox?.image || DEFAULT_IMAGE;
+  const image = cfg.sandbox?.image || defaultImage;
   const homes = path.join(cfg.stateDir, "sandbox-home");
   const egressDirs = path.join(cfg.stateDir, "egress");
   const hostUid = () => uid ?? process.getuid?.() ?? 0;
@@ -368,7 +368,7 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
       if (info.code !== 0) return { ok: false, reason: `\`${bin} info\` failed: ${firstLine(info)} — is the ${runtime} daemon/socket up?` };
       // The egress proxy always runs the built-in image, so a custom image needs it too.
       // A harness's own sandbox.image is a run image too.
-      const agentImages = new Set([image, ...harnessImages(cfg), ...(needsEgressProxy(cfg) ? [DEFAULT_IMAGE] : [])]);
+      const agentImages = new Set([image, ...harnessImages(cfg), ...(needsEgressProxy(cfg) ? [defaultImage] : [])]);
       for (const img of agentImages) {
         const r = await run(bin, ["image", "inspect", img], { timeoutMs: 30_000 }).catch((e) => ({ code: 1, stdout: "", stderr: e.message }));
         if (r.code !== 0) return { ok: false, reason: `sandbox image ${img} not found — run \`agenthook doctor --fix\` or build it (docs/sandbox.md)` };

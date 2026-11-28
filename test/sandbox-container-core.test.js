@@ -8,7 +8,7 @@ import path from "node:path";
 import { containerName, createContainerSandbox, SANDBOX_HOME } from "../src/sandbox/container.js";
 import { SANDBOXES, createSandbox } from "../src/sandbox/index.js";
 import { SANDBOX_NAMES, isSandboxed } from "../src/sandbox/names.js";
-import { DEFAULT_IMAGE, AGENT_DOCKERFILE, buildImageArgs } from "../src/sandbox/image.js";
+import { DEFAULT_IMAGE, AGENT_DOCKERFILE, buildImageArgs, diskDefaultImage } from "../src/sandbox/image.js";
 import { argsFor, stubRun, tmpCfg } from "./_sandbox-container-helpers.js";
 
 test("containerArgs (docker): --user uid:gid, hardening flags, labels", () => {
@@ -80,6 +80,19 @@ test("check(): ok when info + image inspect succeed; a missing image names docto
   const d = await createContainerSandbox(tmpCfg(), { runtime: "docker", run: down.run }).check();
   assert.match(/** @type {any} */ (d).reason, /info` failed: Cannot connect/);
   assert.equal(down.calls.length, 1, "no image probe once the runtime is down");
+});
+
+test("check(): defaultImage overrides the fallback image, without changing a configured sandbox.image", async () => {
+  const other = "agenthook-agent:9.9.9";
+  const ok = stubRun({});
+  await createContainerSandbox(tmpCfg(), { runtime: "docker", run: ok.run, defaultImage: other }).check();
+  assert.deepEqual(ok.calls[1].slice(1), ["image", "inspect", other]);
+  const missing = stubRun({ "image inspect": { code: 1, stderr: "Error: No such image" } });
+  const r = await createContainerSandbox(tmpCfg(), { runtime: "docker", run: missing.run, defaultImage: other }).check();
+  assert.match(/** @type {any} */ (r).reason, new RegExp(`sandbox image ${other} not found`));
+  const explicit = stubRun({});
+  await createContainerSandbox(tmpCfg({ type: "docker", image: "mine:1" }), { runtime: "docker", run: explicit.run, defaultImage: other }).check();
+  assert.deepEqual(explicit.calls[1].slice(1), ["image", "inspect", "mine:1"], "an explicit sandbox.image still wins over defaultImage");
 });
 
 test("check(): every harness sandbox.image is inspected too; wrap() runs a harness image when given one", async () => {
@@ -248,6 +261,7 @@ test("isSandboxed: a sandbox block, unless the step opts out with sandbox:false"
 test("image: default tag carries the package version; build reads the Dockerfile from stdin", () => {
   const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(DEFAULT_IMAGE, `agenthook-agent:${pkg.version}`);
+  assert.equal(diskDefaultImage(), `agenthook-agent:${pkg.version}`, "reads package.json fresh, not the module-load copy");
   assert.deepEqual(buildImageArgs("podman", "x:1"), ["build", "-t", "x:1", "-"]);
   assert.match(AGENT_DOCKERFILE, /^FROM node:22-bookworm-slim/);
   assert.match(AGENT_DOCKERFILE, /@anthropic-ai\/claude-code@\$\{CLAUDE_VERSION\}/);

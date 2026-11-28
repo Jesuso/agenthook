@@ -8,6 +8,14 @@ const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.ur
 /** The image a sandbox runs when `sandbox.image` is unset. */
 export const DEFAULT_IMAGE = `agenthook-agent:${pkg.version}`;
 
+/** `DEFAULT_IMAGE`, but read fresh off `package.json` on disk every call (#885): a restart's
+ * respawn runs the code on disk, which may expect a tag newer than this process's own
+ * `DEFAULT_IMAGE` (fixed at module load). */
+export function diskDefaultImage() {
+  const diskPkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+  return `agenthook-agent:${diskPkg.version}`;
+}
+
 /** The agent image recipe. No USER (the run sets the host uid) and no CMD (the run names the
  * agent binary). A custom `sandbox.image` built FROM this must keep sh, git, gh and the agent
  * CLIs (claude, opencode, pi) on PATH. */
