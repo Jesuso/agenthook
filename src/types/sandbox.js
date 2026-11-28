@@ -77,8 +77,10 @@
  *   containers' `agenthook.ref`/`agenthook.step` labels (best-effort — a container with neither label is omitted)
  */
 
-/** A factory `(cfg) => Sandbox`; `run` replaces the CLI runner in tests.
- * @typedef {(cfg: Config, opts?: { run?: IngressRun }) => Sandbox} SandboxFactory */
+/** A factory `(cfg, opts?) => Sandbox`; `run` replaces the CLI runner in tests. `defaultImage`
+ * overrides the image used when `sandbox.image` is unset — the restart preflight passes the
+ * respawn's on-disk version instead of this process's own `DEFAULT_IMAGE` (#885).
+ * @typedef {(cfg: Config, opts?: { run?: IngressRun, defaultImage?: string }) => Sandbox} SandboxFactory */
 
 /** A run launched by an Executor (#682): identical to SandboxRun — `id` is empty and `done()`
  * yields no report for the host executor's trivial launch. `stdin` (#689, ssh): the framed

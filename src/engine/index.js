@@ -59,7 +59,7 @@ import { loadConfig } from "../config/load.js";
 import { respawnEnv } from "../config/env.js";
 import { harnessImages } from "../sandbox/container.js";
 import { needsEgressProxy } from "../sandbox/egress.js";
-import { DEFAULT_IMAGE } from "../sandbox/image.js";
+import { DEFAULT_IMAGE, diskDefaultImage } from "../sandbox/image.js";
 import { checkMove } from "../state-move.js";
 import { createOverlapReleaser, releaseOnSettle } from "./recovery.js";
 import { createPushSink, intakeEvent } from "./intake.js";
@@ -69,6 +69,28 @@ import { createExits, runDecommission } from "./teardown.js";
 import { createRequestHandler } from "./http.js";
 import { createServe } from "./boot.js";
 import { seedOverrides } from "../overrides.js";
+
+/**
+ * The restart requester's respawn-sandbox preflight (#885): the respawn runs the code on disk,
+ * whose boot `check()` (src/engine/boot.js) expects `sandbox.image` resolved against the
+ * package.json on disk too — a tag this running process can't see from its own `DEFAULT_IMAGE`
+ * (fixed at module load). `next.sandbox` unset = the respawn's config has no sandbox — nothing
+ * to check, so profiles without one are unaffected. Never builds the image: an operator decides
+ * when that runs (`agenthook doctor --fix`).
+ * @param {{
+ *   loadNext: () => import('../types/config.js').Config,
+ *   defaultImage: string,
+ *   createSandbox: (cfg: import('../types/config.js').Config, opts?: {defaultImage?: string}) => import('../types/sandbox.js').Sandbox|null,
+ * }} deps
+ */
+export async function respawnSandboxCheck({ loadNext, defaultImage, createSandbox }) {
+  const next = loadNext();
+  if (!next.sandbox) return;
+  const sandbox = createSandbox(next, { defaultImage });
+  if (!sandbox) return; // unreachable: next.sandbox is set, but createSandbox's type says it can be null
+  const check = await sandbox.check();
+  if (!check.ok) throw new Error(check.reason);
+}
 
 /**
  * @param {import('../types/config.js').Config} cfg
@@ -321,6 +343,12 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     isDraining: () => state.draining,
     validateConfig: () => void loadConfig({ configPath: cfg.configPath, env: respawnEnv() }),
     validateMove: (moveTo) => checkMove({ configPath: cfg.configPath, from: cfg.stateKey, to: moveTo }),
+    validateSandbox: () =>
+      respawnSandboxCheck({
+        loadNext: () => loadConfig({ configPath: cfg.configPath, env: respawnEnv() }),
+        defaultImage: diskDefaultImage(),
+        createSandbox,
+      }),
     isDecommissionPending: () => decommissioner.isPending(),
     harnessesDown: () => {
       /** @type {{harness: string, until: string, reason?: string}[]} */

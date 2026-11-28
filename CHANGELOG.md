@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- Fix: `restart` could accept a request the respawn couldn't actually boot from, when a code
+  update on disk named a new sandbox agent image (`agenthook-agent:<new version>`) the running
+  process couldn't see — the old process would exit, and the new one would refuse to boot on its
+  startup sandbox check, restart-looping under systemd until someone built the image (#885).
+  `restart` now runs the respawn's boot sandbox check (against the on-disk package version)
+  before pausing anything, and refuses with `restart: the respawn would not boot — <reason>;
+  nothing was paused — run \`agenthook doctor --fix\`, then restart again` if it would fail.
 - New: the board UI has its own favicon, adaptive to light and dark (SVG, with an ICO fallback for
   browsers without SVG favicons) (#818).
 - Fix: a red-CI bounce parked while the CI target step (`code`) itself was still running used to
